@@ -1544,7 +1544,12 @@ Panel {
             anchors.fill: parent
             enabled: !rowItem.isHeader
             cursorShape: Qt.PointingHandCursor
-            onClicked: function(mouse) { if (!rowItem.isHeader) root.sel = rowItem.index }
+            onClicked: function(mouse) {
+              if (rowItem.isHeader) return
+              root.sel = rowItem.index
+              // In the settings tab a click means "change this", like any switch.
+              if (root.frameMode === "settings") root.activate()
+            }
             onDoubleClicked: if (!rowItem.isHeader) { root.sel = rowItem.index; root.activate() }
             onWheel: function(wheel) { root.step(wheel.angleDelta.y > 0 ? -3 : 3) }
           }
