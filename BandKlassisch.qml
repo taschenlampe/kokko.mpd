@@ -23,6 +23,9 @@ Item {
   signal hint(string text)        // explanation while the pointer rests on a glyph
 
   property real coverSize: Style.space(58)
+  // hero: the artwork is the card's own background instead of sitting behind the
+  // whole panel.
+  property bool cardCover: false
 
   readonly property color fg: Color.popups.text
   readonly property color accent: Color.accent
@@ -31,14 +34,41 @@ Item {
   readonly property color line: Qt.rgba(fg.r, fg.g, fg.b, 0.14)
 
   readonly property bool hasSong: !!host && host.hasSong === true
+  readonly property string art: hasSong && host.artPath !== "" ? host.artPath : ""
 
-  implicitHeight: hasSong ? Style.space(74) : 0
+  // The band has to be at least as tall as its cover plus a little air, otherwise
+  // a bigger cover sticks out over the header rule and the list.
+  implicitHeight: hasSong ? Math.max(Style.space(74), coverSize + Style.space(12)) : 0
   visible: implicitHeight > 0
 
   Rectangle {
+    id: card
     anchors.fill: parent
     color: Util.alpha(band.fg, 0.05)
     radius: Style.cornerRadius
+    clip: true
+
+    Image {
+      anchors.fill: parent
+      source: band.cardCover ? band.art : ""
+      sourceSize.width: 900
+      sourceSize.height: 400
+      fillMode: Image.PreserveAspectCrop
+      asynchronous: true
+      opacity: 0.34
+      visible: band.cardCover && status === Image.Ready
+    }
+
+    Rectangle {
+      anchors.fill: parent
+      visible: band.cardCover
+      gradient: Gradient {
+        GradientStop { position: 0.0; color: Util.alpha(Color.popups.background, 0.46) }
+        GradientStop { position: 0.5; color: Util.alpha(Color.popups.background, 0.72) }
+        GradientStop { position: 0.80; color: Color.popups.background }
+        GradientStop { position: 1.0; color: Color.popups.background }
+      }
+    }
   }
 
   Rectangle {
