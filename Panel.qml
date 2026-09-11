@@ -177,7 +177,9 @@ Panel {
     if (mode === "search" && term === "") {
       root.rows = []
       root.loading = false
-      root.setInfo("Suchbegriff eintippen")
+      // No "type a term" line here: the field's placeholder and the empty list
+      // already say it, and the footer keeps its hint.
+      root.setInfo("")
       return
     }
 
@@ -1529,6 +1531,10 @@ Panel {
       Text {
         anchors.centerIn: list
         visible: root.rows.length === 0
+        // Constrained: an unconstrained centred line runs over the card's edge.
+        width: list.width - Style.space(40)
+        horizontalAlignment: Text.AlignHCenter
+        elide: Text.ElideRight
         text: {
           if (root.loading) return "lade …"
           if (!root.up) return "keine Verbindung zu MPD"
@@ -1657,6 +1663,7 @@ Panel {
             visible: root.promptMode !== ""
 
             Text {
+              id: promptLabelText
               text: root.promptLabel
               color: root.accent
               font.family: root.fontFamily
@@ -1666,7 +1673,12 @@ Panel {
             }
 
             Rectangle {
-              width: promptRow.width - Style.space(80)
+              id: promptField
+              // What is left between the label and the readout. A fixed width here
+              // (row minus a constant) pushed the readout out of the card.
+              width: Math.max(Style.space(120),
+                promptRow.width - promptLabelText.width - promptInfoText.width
+                - promptRow.spacing * 2 - Style.space(8))
               height: Style.space(22)
               color: "transparent"
               border.width: Math.max(1, Style.normalBorderWidth)
@@ -1675,22 +1687,29 @@ Panel {
 
               Text {
                 anchors { left: parent.left; leftMargin: Style.space(6); verticalCenter: parent.verticalCenter }
+                // Constrained, or a long term spills over the field's border.
+                width: parent.width - Style.space(12)
                 text: root.promptText === "" ? root.promptPlaceholder : root.promptText
                 color: root.promptText === "" ? root.faint : root.fg
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
               }
             }
 
             Text {
-              text: root.infoText
-              color: root.dim
+              id: promptInfoText
+              // The hits when there are any; the keys otherwise. The hint line
+              // below this row is hidden while a prompt is up, so the one place
+              // it can appear is here.
+              text: root.infoText !== "" ? root.infoText : root.hint
+              color: root.infoText !== "" ? root.dim : root.faint
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               height: Style.space(22)
               verticalAlignment: Text.AlignVCenter
               elide: Text.ElideRight
-              width: Math.max(Style.space(60), promptRow.width * 0.25)
+              width: Math.min(implicitWidth, promptRow.width * 0.38)
             }
           }
 
