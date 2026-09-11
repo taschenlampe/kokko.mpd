@@ -1646,6 +1646,8 @@ Panel {
   // band, so a wrong value in the setting cannot leave the panel without a player.
   function bandComponent() {
     if (root.look === "scharf") return bandScharf
+    if (root.look === "hero") return bandHero
+    if (root.look === "anker") return bandAnker
     return bandKlassisch
   }
 
@@ -1663,6 +1665,8 @@ Panel {
 
   Component { id: bandKlassisch; BandKlassisch {} }
   Component { id: bandScharf; BandScharf {} }
+  Component { id: bandHero; BandHero {} }
+  Component { id: bandAnker; BandAnker {} }
 
   function labelFor(key) {
     var names = {

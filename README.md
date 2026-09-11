@@ -140,7 +140,8 @@ was das Muster mit dem **laufenden Titel** macht.
 | Einstellung | Wirkung |
 | --- | --- |
 | Karte beim Zeigen mit der Maus | die Karte unter der Leiste (nur bei geschlossenem Panel — offen ist es schon die große Ansicht) |
-| Cover-Hintergrund | Präsenz des weichgezeichneten Covers im Panel, 0 schaltet es aus |
+| Cover-Hintergrund | Präsenz des Covers im Panel, 0 schaltet es aus |
+| Cover im Player | **vier Looks** für das Band: `klassisch`, `scharf`, `hero`, `anker` — `enter` oder `-`/`+` schaltet durch, wirkt sofort |
 | Label-Format | `mpc`-Platzhalter für das Label in der Leiste, mit Live-Vorschau |
 | Karte bei Titelwechsel | blitzt bei jedem neuen Titel auf — hier ganz abschalten |
 | … sichtbar für | wie lange sie dann bleibt; `enter` zeigt sie sofort |
