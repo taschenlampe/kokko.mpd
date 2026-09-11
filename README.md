@@ -230,7 +230,31 @@ o.bind("XF86AudioPrev", "Vorheriger Titel", "omarchy-shell -q kokko.mpd prev", {
 Nathan Ollerenshaw) — Änderungen siehe `NOTICE.md`. `BarWidget.qml`, `Panel.qml`,
 `MiniPlayer.qml` und `Visualizer.qml` sind eigenständig.
 
-## Noch offen
+## Später / offen
 
-- Sortierung der Listen wählbar.
-- Maus-Klickpfade und `crop` einmal von Hand durchspielen (Tastaturpfade sind geprüft).
+Nach Nutzen sortiert, nicht nach Aufwand.
+
+1. **Rauchtest-Skript über die IPC-Schicht** — der wertvollste offene Punkt: jede
+   Prüfung war bisher Handarbeit (Zustandsabfragen, Tastendrücke, Screenshot-Vergleich)
+   und verfällt mit der Sitzung. Nicht destruktiv bauen: Queue vorher `mpc save`,
+   danach `mpc load` — sonst testet es auf Kosten der Musik.
+2. **Maus-Klickpfade von Hand durchspielen**: die vier Band-Looks (Cover-Klick,
+   Fortschritt ziehen, Transport, Zufall/Repeat, Queue-Symbole), 🗑 und `+` in den
+   Listenzeilen, `crop`. Tastatur- und IPC-Pfade sind geprüft, echte Klicks nicht
+   (in dieser VM nicht auslösbar).
+3. **cava sichtbar machen, wenn es fehlt**: `/usr/bin/cava` ist fest verdrahtet,
+   `onExited` schluckt den Grund — ohne das Programm bleibt das Band stumm leer
+   statt „cava fehlt" zu sagen.
+4. **`tag`-Whitelist** in der Bridge (`album|artist|genre`). Kein erreichbarer
+   Pfad, und `quote()` schützt ohnehin: Gürtel zum Hosenträger, kein Bug.
+5. **Zwei Kommentare** in der Bridge: `self.generation` (warum nur ein Thread
+   schreibt und Leser nur vergleichen) und `emit()` (warum das Halten des
+   Schlosses harmlos ist).
+6. **Sortierung der Listen** wählbar (Alben, Künstler, Dateien).
+7. **Kleinigkeiten an den Looks**: Deckkraft des Kartenbildes in `hero` (eine
+   Zahl in `BandKlassisch.qml`), Look-Prinzip auf die Hover-Karte übertragen.
+
+Bewusst **nicht** geplant: `bin/mpd-bridge` in Module zerlegen oder `with_cmd`
+umschreiben. Die Datei ist eine gepflegte Kopie von omajam (siehe `NOTICE.md`);
+ein Modulschnitt würde den Upstream-Vergleich zerstören und damit mehr kosten als
+die Struktur einbringt.
