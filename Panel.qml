@@ -755,15 +755,26 @@ Panel {
     onTriggered: root.flashText = ""
   }
 
-  // What the keys do right here, so nothing has to be remembered.
+  // What the keys do right here, so nothing has to be remembered. `t` jumps to the
+  // playing track from *every* view, so it is appended here instead of being
+  // repeated in each list of keys -- but not while a field is open: there the
+  // letters belong to the field, and `t` is just a letter.
   readonly property string hint: {
+    if (root.promptMode !== "") return root.hintKeys
+    var keys = root.hintKeys
+    return keys === "" ? "" : keys + " · t laufender Titel"
+  }
+
+  // The keys of the current view, without the one key that is about the whole
+  // player. See `hint` below.
+  readonly property string hintKeys: {
     if (root.promptMode === "search")
       return (root.promptText === "" && !root.promptExplicit)
         ? "tippen sucht · 1–8 wechseln den Tab · ↓/↑ geht in die Liste · / für Ziffern · esc fertig"
         : "tippen filtert · ↓/↑ geht in die Liste · enter spielt den Treffer · ctrl+u leeren · esc fertig"
     if (root.promptMode !== "") return "tippen · enter bestätigen · esc abbrechen"
     var mode = root.frameMode
-    if (mode === "queue") return "enter spielen · a anhängen · d entfernen · D leeren · C nur Laufendes behalten · t laufender Titel"
+    if (mode === "queue") return "enter spielen · a anhängen · d entfernen · D leeren · C nur Laufendes behalten"
     if (mode === "search") return "/ tippen · enter öffnen · a anhängen · A alle Treffer · h/esc zurück"
     if (mode === "list") return "enter hinein · a alles davon anhängen · A Auswahl anhängen · h/esc zurück"
     if (mode === "find") return "enter spielen · a anhängen · A ganze Liste · h/esc zurück"
@@ -1673,6 +1684,7 @@ Panel {
             visible: root.promptMode === ""
 
             Text {
+              id: statusInfo
               text: root.flashText !== "" ? root.flashText : root.infoText
               color: root.flashText !== "" ? root.accent : root.dim
               font.family: root.fontFamily
@@ -1692,7 +1704,10 @@ Panel {
               height: Style.space(22)
               verticalAlignment: Text.AlignVCenter
               elide: Text.ElideRight
-              width: Math.max(Style.space(80), statusRow.width - Math.min(statusRow.width * 0.42, statusRow.width) - Style.space(12))
+              // Everything the info line does not need. It used to take a flat 58 %
+              // whether the info needed it or not, which is why the end of the key
+              // hints kept disappearing ("t laufender Titel" among it).
+              width: Math.max(Style.space(140), statusRow.width - statusInfo.width - Style.space(12))
             }
           }
         }
