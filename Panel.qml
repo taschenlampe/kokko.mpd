@@ -422,6 +422,10 @@ Panel {
   // The list itself, for tests/inspection (`state.panel.visible`).
   readonly property var listView: list
 
+  // Does the key hint fit on its line? `truncated` is QML's own answer, so this
+  // needs no screenshot and no guessing at character widths.
+  readonly property bool hintTruncated: hintText.truncated
+
   Timer {
     id: centerTimer
     interval: 120
@@ -762,7 +766,9 @@ Panel {
   readonly property string hint: {
     if (root.promptMode !== "") return root.hintKeys
     var keys = root.hintKeys
-    return keys === "" ? "" : keys + " · t laufender Titel"
+    // The two keys that are about the player rather than about this list travel
+    // with every view.
+    return keys === "" ? "" : keys + " · <> Titelwechsel · t laufender Titel"
   }
 
   // The keys of the current view, without the one key that is about the whole
@@ -1089,6 +1095,19 @@ Panel {
     if (key === Qt.Key_PageDown) { root.step(10); event.accepted = true; return }
     if (key === Qt.Key_PageUp) { root.step(-10); event.accepted = true; return }
     if (text === "t") { root.gotoCurrent(); event.accepted = true; return }
+    // The ncmpcpp convention: > is the next track, < the previous one. (mpc's own
+    // CLI spells them `next` and `prev`; the angle brackets are ncmpcpp's.) They
+    // belong to the player, not to the list, so they work in every view.
+    if (text === ">" || key === Qt.Key_Greater) {
+      if (root.host) root.host.nextTrack()
+      event.accepted = true
+      return
+    }
+    if (text === "<" || key === Qt.Key_Less) {
+      if (root.host) root.host.previousTrack()
+      event.accepted = true
+      return
+    }
     if (text === "g") { root.sel = 0; root.centerOn(0); event.accepted = true; return }
     if (text === "G" || key === Qt.Key_End) {
       root.sel = Math.max(0, root.rows.length - 1)
@@ -1696,6 +1715,7 @@ Panel {
             }
 
             Text {
+              id: hintText
               // The pointer explains a glyph button; otherwise the keys.
               text: root.hoverHint !== "" ? root.hoverHint : root.hint
               color: root.hoverHint !== "" ? root.accent : root.faint
