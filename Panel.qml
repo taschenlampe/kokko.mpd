@@ -403,18 +403,18 @@ Panel {
     var h = root.host
     if (h === null) return []
     return [
-      { type: "setting", kind: "bool", key: "hoverCard", title: "Karte beim Überfahren",
+      { type: "setting", kind: "bool", key: "hoverCard", title: "Karte beim Zeigen mit der Maus",
         value: h.hoverCard === true,
-        hint: "Cover, Fortschritt und die großen Bedienknöpfe unter der Leiste" },
+        hint: "Maus aufs Label in der Leiste — nur bei geschlossenem Panel" },
       { type: "setting", kind: "int", key: "backdrop", title: "Cover-Hintergrund",
         min: 0, max: 100, step: 10, value: Number(h.backdrop), suffix: " %",
         hint: "0 schaltet ihn aus; höher = präsenter hinter Queue und Suche" },
       { type: "setting", kind: "text", key: "format", title: "Label-Format",
         value: String(h.format),
         hint: "mpc-Platzhalter — enter zum Bearbeiten, Vorschau unten" },
-      { type: "setting", kind: "int", key: "osdDuration", title: "Karte sichtbar",
+      { type: "setting", kind: "int", key: "osdDuration", title: "Karte bei Titelwechsel sichtbar",
         min: 1000, max: 20000, step: 500, value: Number(h.osdDuration), suffix: " ms",
-        hint: "wie lange die Karte bei Titelwechsel stehen bleibt" },
+        hint: "bleibt nach einem neuen Titel so lange stehen — enter zeigt sie jetzt" },
       { type: "setting", kind: "bool", key: "notifyTrack", title: "Benachrichtigung bei Titelwechsel",
         value: h.notifyTrack === true,
         hint: "Desktop-Hinweis mit Cover" }
@@ -482,8 +482,20 @@ Panel {
 
     // Before the connection check: the settings tab works without MPD.
     if (mode === "settings") {
-      if (row.kind === "bool") root.writeSetting(row.key, row.value !== true, row.title)
+      if (row.kind === "bool") {
+        root.writeSetting(row.key, row.value !== true, row.title)
+        // The hover card needs a closed panel (it would only be noise over the
+        // full view), so the switch alone shows nothing -- say what to do.
+        if (row.key === "hoverCard")
+          root.flash("Karte " + (row.value !== true ? "an" : "aus") + " — Panel schließen, dann Maus aufs Label")
+      }
       else if (row.kind === "text") root.openPrompt("format", String(row.value || ""), true)
+      // A number you cannot try out is a number nobody understands: show the
+      // card for exactly as long as it is set.
+      else if (row.kind === "int" && row.key === "osdDuration") {
+        root.host.showOsd(false)
+        root.flash("Karte bei Titelwechsel — " + (Number(row.value) / 1000).toFixed(1) + " s")
+      }
       return
     }
     if (!root.up) return
@@ -943,9 +955,11 @@ Panel {
         event.accepted = true
         return
       }
-      if (srow && srow.kind === "bool"
-          && (key === Qt.Key_Space || key === Qt.Key_Return || key === Qt.Key_Enter || text === "p")) {
-        root.writeSetting(srow.key, srow.value !== true, srow.title)
+      // Delegate to activate(): one place that knows what a row does, so extra
+      // effects (the OSD preview, the "close the panel first" hint) cannot be
+      // skipped by a key block that writes on its own.
+      if (srow && (key === Qt.Key_Space || key === Qt.Key_Return || key === Qt.Key_Enter || text === "p")) {
+        root.activate()
         event.accepted = true
         return
       }

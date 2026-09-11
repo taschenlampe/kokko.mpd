@@ -120,16 +120,24 @@ Tab **8** („Einstellungen") — für die Werte, die man beim Hören anfasst:
 
 | Einstellung | Wirkung |
 | --- | --- |
-| Karte beim Überfahren | die Karte mit Cover, Fortschritt und den großen Knöpfen unter der Leiste |
+| Karte beim Zeigen mit der Maus | die Karte mit Cover, Fortschritt und den großen Knöpfen unter der Leiste — nur bei geschlossenem Panel (das Panel ist schon die große Ansicht) |
 | Cover-Hintergrund | Präsenz des weichgezeichneten Covers hinter dem Panel (0 = aus) |
 | Label-Format | `mpc`-Platzhalter für das Label in der Leiste, mit **Live-Vorschau** |
-| Karte sichtbar | wie lange die Karte bei Titelwechsel stehen bleibt (ms) |
+| Karte bei Titelwechsel sichtbar | wie lange die Karte nach einem neuen Titel von allein stehen bleibt (ms), `enter` zeigt sie sofort |
 | Benachrichtigung bei Titelwechsel | Desktop-Hinweis mit Cover |
 
+Zwei verschiedene Momente, zwei Einstellungen: die eine Karte kommt, wenn man
+mit der Maus aufs Label zeigt (sobald man das Panel offen hat, braucht man sie
+nicht mehr), die andere blitzt bei jedem neuen Titel auf und verschwindet nach
+der eingestellten Zeit von allein.
+
 Bedienung: `enter`/`space` schaltet um, `-`/`+` ändert Zahlen (0–100 in
-10er-Schritten bzw. 500 ms), `enter` auf dem Label-Format öffnet ein Eingabefeld
-— währenddessen zeigt die Fußzeile, was das Muster mit dem **laufenden Titel**
-macht (`→ Air - Kelly, Watch The Stars! …`), `enter` speichert, `esc` bricht ab.
+10er-Schritten bzw. 500 ms) und `enter` auf „Karte bei Titelwechsel sichtbar"
+zeigt die Karte einmal in genau der eingestellten Länge — eine Zahl, die man
+nicht ausprobieren kann, versteht niemand. `enter` auf dem Label-Format öffnet
+ein Eingabefeld — währenddessen zeigt die Fußzeile, was das Muster mit dem
+**laufenden Titel** macht (`→ Air - Kelly, Watch The Stars! …`), `enter`
+speichert, `esc` bricht ab.
 
 Geschrieben wird über die Shell (`omarchy-shell shell setBarWidget`), also
 derselbe Weg wie im Plugin-Einstellungsdialog: **ein** Schreiber für
