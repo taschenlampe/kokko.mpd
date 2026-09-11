@@ -39,6 +39,18 @@ Panel {
     return Math.max(0, Math.min(1, Number(root.host.backdrop) / 100))
   }
 
+  // Which look the player band shows (chosen in the settings tab or the plugin
+  // settings) and what follows from it for the cover behind the panel. The hero
+  // and anchor looks carry the cover inside the band, so the panel stays plain.
+  readonly property string look: {
+    var v = root.host ? String(root.host.coverLook || "") : ""
+    return v === "" ? "klassisch" : v
+  }
+
+  readonly property string backdropMode: root.look === "scharf" ? "sharp"
+    : (root.look === "hero" || root.look === "anker") ? "off"
+    : "blur"
+
   readonly property color fg: Color.popups.text
   readonly property color bg: Color.popups.background
   readonly property color accent: Color.accent
@@ -1064,57 +1076,17 @@ Panel {
       focus: true
       Keys.onPressed: function(event) { root.handleKey(event) }
 
-      // ------------------------------------------------ the cover, blurred
-      //
-      // Behind everything: the now-playing cover, blurred, faded into the panel
-      // colour and, from the lower half down, gone -- that is what keeps the rows
-      // readable. How loud it is comes from one setting (`backdrop`), because the
-      // three levers pull the same way: opacity up, blur down and saturation up
-      // together make a cover read as "more cover". Turning one of them alone
-      // either leaves it washed out (only opacity) or turns it into confetti
-      // (only blur).
-      Item {
+      // ------------------------------------------ the cover behind the panel
+      // Two treatments live in Backdrop.qml: the blurred cover (heute) and the
+      // sharp, dimmed one (musify's trick). Which one shows, and whether any
+      // shows at all, follows the look setting -- the hero and anchor looks
+      // carry their own cover and leave the panel plain.
+      Backdrop {
         id: backdrop
         anchors.fill: parent
-        visible: root.backdropLevel > 0
-                 && root.host !== null && root.host.artPath !== ""
-
-        Image {
-          id: backdropSource
-          anchors.fill: parent
-          source: root.host ? root.host.artPath : ""
-          sourceSize.width: 1200
-          sourceSize.height: 800
-          fillMode: Image.PreserveAspectCrop
-          asynchronous: true
-          visible: false        // MultiEffect draws it; showing it too would double it
-        }
-
-        MultiEffect {
-          anchors.fill: backdrop
-          source: backdropSource
-          autoPaddingEnabled: false
-          blurEnabled: backdropSource.status === Image.Ready
-          blur: 1.0
-          blurMax: 96
-          // 0 -> soft and barely there, 1 -> shapes stay recognisable.
-          blurMultiplier: 1.5 - 1.1 * root.backdropLevel
-          saturation: 0.5 * root.backdropLevel
-          brightness: 0.03 * root.backdropLevel
-          opacity: 0.18 + 0.62 * root.backdropLevel
-        }
-
-        Rectangle {
-          anchors.fill: parent
-          gradient: Gradient {
-            // The fade down starts lower the bolder the backdrop is, so more of
-            // the cover survives above the list.
-            GradientStop { position: 0.0; color: Util.alpha(root.bg, 0.36 - 0.26 * root.backdropLevel) }
-            GradientStop { position: 0.40; color: Util.alpha(root.bg, 0.86 - 0.26 * root.backdropLevel) }
-            GradientStop { position: 0.66 + 0.12 * root.backdropLevel; color: root.bg }
-            GradientStop { position: 1.0; color: root.bg }
-          }
-        }
+        mode: root.backdropMode
+        level: root.backdropLevel
+        source: root.host ? root.host.artPath : ""
       }
 
       // ----------------------------------------------------------- header
@@ -1219,305 +1191,17 @@ Panel {
       }
 
       // ---------------------------------------------------------- now playing
-      // Cover, what is playing, and the controls -- so pausing does not need a
-      // trip to the bar.
-      Item {
+      // The band is its own file per look (Band*.qml): the panel anchors it and
+      // lets the list follow its bottom, so a look may be taller or shorter than
+      // another. Values are bound in wireBand(); the two things the band wants to
+      // say (a footer line, a hover explanation) come back as signals.
+      Loader {
         id: nowBand
         anchors { top: headerRule.bottom; topMargin: Style.space(7)
                   left: parent.left; right: parent.right }
-        height: root.host && root.host.hasSong ? Style.space(74) : 0
-        visible: height > 0
+        sourceComponent: root.bandComponent()
 
-        Rectangle {
-          anchors.fill: parent
-          color: Util.alpha(root.fg, 0.05)
-          radius: Style.cornerRadius
-        }
-
-        Rectangle {
-          id: bandCover
-          anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
-          width: Style.space(58)
-          height: width
-          radius: Style.cornerRadius
-          color: Util.alpha(root.fg, 0.06)
-          border.width: Math.max(1, Style.normalBorderWidth)
-          border.color: root.line
-          clip: true
-
-          Image {
-            id: bandCoverImage
-            anchors.fill: parent
-            source: root.bandArt
-            sourceSize.width: 160
-            sourceSize.height: 160
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            visible: status === Image.Ready
-          }
-
-          Text {
-            anchors.centerIn: parent
-            visible: bandCoverImage.status !== Image.Ready
-            text: root.host && root.host.isPlaying ? "󰏤" : "󰐊"
-            color: root.accent
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.displayLarge
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: if (root.host) root.host.toggleTrack()
-          }
-        }
-
-        Column {
-          id: bandText
-          anchors { left: bandCover.right; leftMargin: Style.space(12)
-                    right: bandViz.left; rightMargin: Style.space(12)
-                    verticalCenter: parent.verticalCenter }
-          spacing: Style.space(3)
-
-          Text {
-            width: parent.width
-            text: root.host && root.host.hasSong
-              ? (String(root.host.song.title || "") || root.host.basename(root.host.song.file))
-              : ""
-            color: root.fg
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            font.bold: true
-            elide: Text.ElideRight
-          }
-
-          Text {
-            width: parent.width
-            text: {
-              if (!root.host || !root.host.hasSong) return ""
-              var bits = []
-              if (root.host.song.artist) bits.push(String(root.host.song.artist))
-              if (root.host.song.album) bits.push(String(root.host.song.album))
-              if (root.host.queueLength > 0) bits.push("#" + (root.host.queuePosition + 1) + "/" + root.host.queueLength)
-              return bits.join("  ·  ")
-            }
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-
-          // Progress: times beside the line, click on the line to seek there.
-          Item {
-            id: bandProgress
-            width: parent.width
-            height: Style.space(16)
-
-            readonly property real fraction: (root.host && root.host.duration > 0)
-              ? Math.max(0, Math.min(1, root.host.elapsed / root.host.duration)) : 0
-
-            Text {
-              id: bandElapsed
-              anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-              text: root.host && root.host.hasSong ? root.host.formatTime(root.host.elapsed) : ""
-              color: root.faint
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            Text {
-              id: bandDuration
-              anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-              text: (root.host && root.host.hasSong && root.host.duration > 0)
-                ? root.host.formatTime(root.host.duration) : ""
-              color: root.faint
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            Rectangle {
-              id: bandBar
-              anchors { left: bandElapsed.right; leftMargin: Style.space(8)
-                        right: bandDuration.left; rightMargin: Style.space(8)
-                        verticalCenter: parent.verticalCenter }
-              height: Style.space(4)
-              radius: height / 2
-              color: root.line
-
-              Rectangle {
-                width: parent.width * bandProgress.fraction
-                height: parent.height
-                radius: parent.radius
-                color: root.accent
-              }
-            }
-
-            MouseArea {
-              anchors { left: bandBar.left; right: bandBar.right
-                        top: parent.top; bottom: parent.bottom }
-              cursorShape: Qt.PointingHandCursor
-              onClicked: function(mouse) {
-                if (!root.host || !root.host.hasSong || root.host.duration <= 0) return
-                root.host.bare("seek " + Math.round((mouse.x / width) * root.host.duration))
-              }
-            }
-          }
-        }
-
-        // cava, live: the bars sit between the text and the buttons.
-        Visualizer {
-          id: bandViz
-          anchors { right: bandButtons.left; rightMargin: Style.space(14)
-                    verticalCenter: parent.verticalCenter }
-          width: Style.space(150)
-          height: Style.space(30)
-          visible: root.host !== null && root.host.queueLength > 0
-          levels: root.host ? root.host.vizBars : []
-          count: root.host ? root.host.vizCount : 12
-        }
-
-        Row {
-          id: bandButtons
-          anchors { right: parent.right; rightMargin: Style.space(10); verticalCenter: parent.verticalCenter }
-          spacing: Style.space(16)
-          // Explicit height: the children say `height: parent.height`, and a Row
-          // whose height comes from its children would resolve that to 0 -- which
-          // is exactly how these buttons disappeared.
-          height: Style.space(30)
-
-          Text {
-            text: "󰒮"
-            color: root.fg
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            height: parent.height
-            verticalAlignment: Text.AlignVCenter
-            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: if (root.host) root.host.previousTrack() }
-          }
-
-          Text {
-            text: root.host && root.host.isPlaying ? "󰏤" : "󰐊"
-            color: root.accent
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.title
-            height: parent.height
-            verticalAlignment: Text.AlignVCenter
-            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: if (root.host) root.host.toggleTrack() }
-          }
-
-          Text {
-            text: "󰒭"
-            color: root.fg
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            height: parent.height
-            verticalAlignment: Text.AlignVCenter
-            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: if (root.host) root.host.nextTrack() }
-          }
-
-          // The same two playback options the hover card offers, in the same
-          // colours: accent while on, dim while off. The footer used to print
-          // them as text; the buttons say it better.
-          Text {
-            text: root.host && root.host.randomOn ? "󰒝" : "󰒞"
-            color: root.host && root.host.randomOn ? root.accent : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            height: parent.height
-            verticalAlignment: Text.AlignVCenter
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: {
-                if (!root.host) return
-                var on = !root.host.randomOn
-                root.host.toggleOption("random")
-                root.flash(on ? "Zufall an" : "Zufall aus")
-              }
-            }
-          }
-
-          Text {
-            text: root.host && root.host.repeatOn
-              ? (root.host.singleMode !== "0" ? "󰑘" : "󰑖") : "󰑗"
-            color: root.host && root.host.repeatOn ? root.accent : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            height: parent.height
-            verticalAlignment: Text.AlignVCenter
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: {
-                if (!root.host) return
-                var on = !root.host.repeatOn
-                root.host.toggleOption("repeat")
-                root.flash(on ? "Wiederholen an" : "Wiederholen aus")
-              }
-            }
-          }
-
-          // Queue: icons instead of the words "löschen"/"nur dieses" -- two
-          // glyphs that are distinct from the per-row bin, with the full wording
-          // in the footer while the pointer rests on them (and in the queue hint
-          // as `D leeren` / `C nur Laufendes behalten` anyway).
-          Item {
-            width: Style.space(26)
-            height: parent.height
-
-            Text {
-              anchors.centerIn: parent
-              text: "󰗩"                     // delete_sweep: everything out
-              color: clearArea.containsMouse ? root.accent : root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.subtitle
-            }
-
-            MouseArea {
-              id: clearArea
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onEntered: root.hoverHint = "Queue leeren — alle Titel entfernen (D)"
-              onExited: root.hoverHint = ""
-              onClicked: {
-                if (!root.host) return
-                root.host.clearQueue()
-                root.flash("Queue geleert")
-              }
-            }
-          }
-
-          Item {
-            width: Style.space(26)
-            height: parent.height
-
-            Text {
-              anchors.centerIn: parent
-              text: "󰆐"                     // content_cut: cut the rest away
-              color: keepArea.containsMouse ? root.accent : root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.subtitle
-            }
-
-            MouseArea {
-              id: keepArea
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onEntered: root.hoverHint = "nur das Laufende behalten — alles andere aus der Queue (C)"
-              onExited: root.hoverHint = ""
-              onClicked: {
-                if (!root.host) return
-                root.host.cropQueue()
-                root.flash("alles außer dem laufenden Titel entfernt")
-              }
-            }
-          }
-        }
+        onLoaded: root.wireBand(item)
       }
 
       // ------------------------------------------------------------- list
@@ -1935,6 +1619,29 @@ Panel {
     }
     return pairs
   }
+
+  // ---------------------------------------------------------------- the band
+  //
+  // Which band component to load. Everything unknown falls back to the classic
+  // band, so a wrong value in the setting cannot leave the panel without a player.
+  function bandComponent() {
+    if (root.look === "scharf" && typeof bandScharf !== "undefined") return bandScharf
+    return bandKlassisch
+  }
+
+  // The band gets its values as bindings -- a plain assignment would freeze at the
+  // first song -- and talks back through its two signals.
+  function wireBand(b) {
+    if (!b) return
+    b.host = Qt.binding(function() { return root.host })
+    b.fontFamily = Qt.binding(function() { return root.fontFamily })
+    b.vizBars = Qt.binding(function() { return root.host ? root.host.vizBars : [] })
+    b.vizCount = Qt.binding(function() { return root.host ? root.host.vizCount : 12 })
+    b.message.connect(function(text) { root.flash(String(text)) })
+    b.hint.connect(function(text) { root.hoverHint = String(text) })
+  }
+
+  Component { id: bandKlassisch; BandKlassisch {} }
 
   function labelFor(key) {
     var names = {
