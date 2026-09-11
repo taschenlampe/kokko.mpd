@@ -84,9 +84,11 @@ Panel {
   readonly property string frameMode: frame ? String(frame.mode || "") : ""
   readonly property string frameTitle: frame ? String(frame.title || "") : ""
   readonly property string promptLabel: promptMode === "save" ? "Queue speichern als:"
-    : (promptMode === "rename" ? "Playlist umbenennen:" : "suchen:")
+    : (promptMode === "rename" ? "Playlist umbenennen:"
+    : (promptMode === "format" ? "Label-Format:" : "suchen:"))
   readonly property string promptPlaceholder: promptMode === "search"
-    ? "Titel, Künstler, Album …" : "Name eintippen, Enter bestätigt"
+    ? "Titel, Künstler, Album …"
+    : (promptMode === "format" ? "[%artist% - ][%title%|%filename%]" : "Name eintippen, Enter bestätigt")
 
   // Passing the frame in rather than reading `frame` inside this handler: QML
   // re-evaluates dependent bindings *after* the change signal, so `root.frame`
@@ -118,6 +120,7 @@ Panel {
     if (tab === "artists") return { mode: "list", tag: "artist", filter: [], title: "Künstler" }
     if (tab === "genres") return { mode: "list", tag: "genre", filter: [], title: "Genres" }
     if (tab === "files") return { mode: "files", path: "", title: "Bibliothek" }
+    if (tab === "settings") return { mode: "settings", title: "Einstellungen" }
     return { mode: "playlists", title: "Playlists" }
   }
 
@@ -168,16 +171,33 @@ Panel {
 
   function loadFrame(which) {
     if (root.stack.length === 0) { root.stack = [root.rootFrameFor(root.tab)]; return }
-    if (!root.up) { root.rows = []; root.setInfo("keine Verbindung zu MPD"); return }
 
     var f = (which !== undefined && which !== null) ? which : root.frame
     if (!f) return
     var mode = String(f.mode || "")
+
+    // The settings tab needs no server: reachable even while MPD is down. The
+    // generation goes up here too -- otherwise the answer to a query from the tab
+    // the user just left lands afterwards and paints its rows over these.
+    if (mode === "settings") {
+      root.loadGeneration = root.loadGeneration + 1
+      root.loading = false
+      // Bound, not copied: a changed value should show in the row immediately.
+      root.rows = Qt.binding(function() { return root.settingRows })
+      root.sel = root.firstSelectable(0)
+      root.setInfo("")
+      return
+    }
+
+    if (!root.up) { root.rows = []; root.setInfo("keine Verbindung zu MPD"); return }
+
     var gen = ++root.loadGeneration
     var term = String(f.term || "").trim()
     root.note("load frame=" + mode + " gen=" + gen + " tag=" + String(f.tag || "") + " term=" + term)
 
     if (mode === "search" && term === "") {
+      // Same reason as the settings branch: drop anything still in flight.
+      root.loadGeneration = root.loadGeneration + 1
       root.rows = []
       root.loading = false
       // No "type a term" line here: the field's placeholder and the empty list
@@ -373,8 +393,53 @@ Panel {
     return String(row.value || row.playlist || "")
   }
 
+  // ------------------------------------------------------------- settings
+  //
+  // The settings tab is a local list -- no MPD query behind it -- so the rows are
+  // built here from what the widget reports. Writing goes through the widget,
+  // which asks the shell (the owner of shell.json) to change the key, and the
+  // shell pushes the new value back: one writer, live, no restart.
+  readonly property var settingRows: {
+    var h = root.host
+    if (h === null) return []
+    return [
+      { type: "setting", kind: "bool", key: "hoverCard", title: "Karte beim Überfahren",
+        value: h.hoverCard === true,
+        hint: "Cover, Fortschritt und die großen Bedienknöpfe unter der Leiste" },
+      { type: "setting", kind: "int", key: "backdrop", title: "Cover-Hintergrund",
+        min: 0, max: 100, step: 10, value: Number(h.backdrop), suffix: " %",
+        hint: "0 schaltet ihn aus; höher = präsenter hinter Queue und Suche" },
+      { type: "setting", kind: "text", key: "format", title: "Label-Format",
+        value: String(h.format),
+        hint: "mpc-Platzhalter — enter zum Bearbeiten, Vorschau unten" },
+      { type: "setting", kind: "int", key: "osdDuration", title: "Karte sichtbar",
+        min: 1000, max: 20000, step: 500, value: Number(h.osdDuration), suffix: " ms",
+        hint: "wie lange die Karte bei Titelwechsel stehen bleibt" },
+      { type: "setting", kind: "bool", key: "notifyTrack", title: "Benachrichtigung bei Titelwechsel",
+        value: h.notifyTrack === true,
+        hint: "Desktop-Hinweis mit Cover" }
+    ]
+  }
+
+  function writeSetting(key, value, label) {
+    if (root.host === null) return
+    root.host.setSetting(key, value)
+    var shown = (value === true) ? "an" : (value === false) ? "aus" : String(value)
+    root.flash(String(label || key) + ": " + shown)
+    root.note("setting " + key + " = " + shown)
+  }
+
+  // What the pattern being typed would produce for the song that is playing.
+  readonly property string formatPreview: {
+    var pattern = root.promptText.trim()
+    if (pattern === "") return "(leer)"
+    var out = root.host !== null ? root.host.previewLabel(pattern) : ""
+    return out === "" ? "(kein laufender Titel)" : out
+  }
+
   function rowSub(row) {
     if (!row) return ""
+    if (row.type === "setting") return String(row.hint || "")
     if (row.type === "group") return row.kind === "album" ? String(row.artist || "") : ""
     if (row.type === "value" || row.type === "playlist") return ""
     if (row.type === "directory") return "Ordner"
@@ -389,6 +454,11 @@ Panel {
 
   function rowRight(row) {
     if (!row) return ""
+    if (row.type === "setting") {
+      if (row.kind === "bool") return row.value === true ? "an" : "aus"
+      if (row.kind === "int") return String(row.value) + String(row.suffix || "")
+      return String(row.value || "")
+    }
     if (row.type === "group") return String(row.count || 0) + " Titel"
     if (row.time) return host.formatTime(row.time)
     if (row.type === "value" || row.type === "directory" || row.type === "playlist") return "›"
@@ -407,8 +477,16 @@ Panel {
   // --------------------------------------------------------------- actions
   function activate() {
     var row = root.rows[root.sel]
-    if (!row || !root.up) return
+    if (!row) return
     var mode = root.frameMode
+
+    // Before the connection check: the settings tab works without MPD.
+    if (mode === "settings") {
+      if (row.kind === "bool") root.writeSetting(row.key, row.value !== true, row.title)
+      else if (row.kind === "text") root.openPrompt("format", String(row.value || ""), true)
+      return
+    }
+    if (!root.up) return
 
     if (mode === "queue") { if (row.id !== undefined) host.playId(row.id); return }
     if (mode === "playlists") {
@@ -569,7 +647,7 @@ Panel {
   readonly property string hint: {
     if (root.promptMode === "search")
       return (root.promptText === "" && !root.promptExplicit)
-        ? "tippen sucht · 1–7 wechseln den Tab · ↓/↑ geht in die Liste · / für Ziffern · esc fertig"
+        ? "tippen sucht · 1–8 wechseln den Tab · ↓/↑ geht in die Liste · / für Ziffern · esc fertig"
         : "tippen filtert · ↓/↑ geht in die Liste · enter spielt den Treffer · ctrl+u leeren · esc fertig"
     if (root.promptMode !== "") return "tippen · enter bestätigen · esc abbrechen"
     var mode = root.frameMode
@@ -580,6 +658,7 @@ Panel {
     if (mode === "files") return "enter hinein/abspielen · a anhängen · A ganzer Ordner · ← zurück"
     if (mode === "playlists") return "enter öffnen · a laden · s Queue speichern · r umbenennen · d löschen"
     if (mode === "plist") return "enter spielen · a anhängen · d Titel entfernen · ← zurück"
+    if (mode === "settings") return "enter/space schalten um · -/+ ändern die Zahl · 8 wählt den Tab · esc zurück"
     return ""
   }
 
@@ -635,9 +714,9 @@ Panel {
     if (focus) Qt.callLater(function() { promptFocusTimer.restart() })
   }
 
-  // 1..7 -> tab name, so the number keys can be read in one place.
+  // 1..8 -> tab name, so the number keys can be read in one place.
   function tabForNumber(value) {
-    var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists"]
+    var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists", "settings"]
     var index = Number(value) - 1
     return (index >= 0 && index < order.length) ? order[index] : ""
   }
@@ -727,6 +806,13 @@ Panel {
       if (text === "" || from === "" || !root.up) return
       mutateAndReload("renameplaylist", { name: from, to: text })
       root.setInfo("„" + from + "“ heißt jetzt „" + text + "“")
+      root.closePrompt()
+      return
+    }
+    if (root.promptMode === "format") {
+      if (text === "") return
+      var srow = root.rows[root.sel]
+      root.writeSetting("format", text, srow ? srow.title : "Label-Format")
       root.closePrompt()
       return
     }
@@ -843,6 +929,27 @@ Panel {
     if (text === "5" || key === Qt.Key_5) { root.setTab("genres"); event.accepted = true; return }
     if (text === "6" || key === Qt.Key_6) { root.setTab("files"); event.accepted = true; return }
     if (text === "7" || key === Qt.Key_7) { root.setTab("playlists"); event.accepted = true; return }
+    if (text === "8" || key === Qt.Key_8) { root.setTab("settings"); event.accepted = true; return }
+
+    // Settings tab: -/+ step a number, space flips a switch. Before the global
+    // volume/play bindings, which own those keys everywhere else.
+    if (root.frameMode === "settings") {
+      var srow = root.rows[root.sel]
+      if (srow && srow.kind === "int" && (text === "-" || text === "+" || text === "=")) {
+        var step = Number(srow.step || 5)
+        var next = Number(srow.value || 0) + ((text === "-") ? -step : step)
+        next = Math.max(Number(srow.min || 0), Math.min(Number(srow.max || 100), next))
+        root.writeSetting(srow.key, next, srow.title)
+        event.accepted = true
+        return
+      }
+      if (srow && srow.kind === "bool"
+          && (key === Qt.Key_Space || key === Qt.Key_Return || key === Qt.Key_Enter || text === "p")) {
+        root.writeSetting(srow.key, srow.value !== true, srow.title)
+        event.accepted = true
+        return
+      }
+    }
 
     if (key === Qt.Key_Slash) { root.setTab("search", true); event.accepted = true; return }
     if (text === "i" && root.frameMode !== "playlists") { root.showDetails(); event.accepted = true; return }
@@ -1047,7 +1154,8 @@ Panel {
               { key: "artists", label: "4" },
               { key: "genres", label: "5" },
               { key: "files", label: "6" },
-              { key: "playlists", label: "7" }
+              { key: "playlists", label: "7" },
+              { key: "settings", label: "8" }
             ]
 
             delegate: Item {
@@ -1481,7 +1589,9 @@ Panel {
           // artist, the folder. The mouse half of `a`.
           Item {
             id: addButton
-            visible: !rowItem.isHeader
+            // Not in the settings tab: appending a setting to the queue makes no
+            // sense, and the button would only be a stray glyph there.
+            visible: !rowItem.isHeader && root.frameMode !== "settings"
             anchors { right: parent.right; rightMargin: Style.space(5)
                       verticalCenter: parent.verticalCenter }
             width: Style.space(22)
@@ -1726,8 +1836,13 @@ Panel {
               // The hits when there are any; the keys otherwise. The hint line
               // below this row is hidden while a prompt is up, so the one place
               // it can appear is here.
-              text: root.infoText !== "" ? root.infoText : root.hint
-              color: root.infoText !== "" ? root.dim : root.faint
+              // While the label format is being edited this slot shows what the
+              // pattern does to the current song.
+              text: root.promptMode === "format"
+                ? "→ " + root.formatPreview
+                : (root.infoText !== "" ? root.infoText : root.hint)
+              color: root.promptMode === "format" ? root.accent
+                : (root.infoText !== "" ? root.dim : root.faint)
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               height: Style.space(22)

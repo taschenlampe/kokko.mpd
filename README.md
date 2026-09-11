@@ -114,6 +114,28 @@ etwas tun — `a` und `A` muss man also nicht auswendig kennen.
   Prüfen: `pgrep -a cava`, Werte stehen in `omarchy-shell kokko.mpd state` als
   `viz` und `vizRunning`.
 
+## Einstellungen im Panel
+
+Tab **8** („Einstellungen") — für die Werte, die man beim Hören anfasst:
+
+| Einstellung | Wirkung |
+| --- | --- |
+| Karte beim Überfahren | die Karte mit Cover, Fortschritt und den großen Knöpfen unter der Leiste |
+| Cover-Hintergrund | Präsenz des weichgezeichneten Covers hinter dem Panel (0 = aus) |
+| Label-Format | `mpc`-Platzhalter für das Label in der Leiste, mit **Live-Vorschau** |
+| Karte sichtbar | wie lange die Karte bei Titelwechsel stehen bleibt (ms) |
+| Benachrichtigung bei Titelwechsel | Desktop-Hinweis mit Cover |
+
+Bedienung: `enter`/`space` schaltet um, `-`/`+` ändert Zahlen (0–100 in
+10er-Schritten bzw. 500 ms), `enter` auf dem Label-Format öffnet ein Eingabefeld
+— währenddessen zeigt die Fußzeile, was das Muster mit dem **laufenden Titel**
+macht (`→ Air - Kelly, Watch The Stars! …`), `enter` speichert, `esc` bricht ab.
+
+Geschrieben wird über die Shell (`omarchy-shell shell setBarWidget`), also
+derselbe Weg wie im Plugin-Einstellungsdialog: **ein** Schreiber für
+`shell.json`, und die Änderung greift sofort. Der Tab braucht keine Verbindung
+zu MPD — er ist auch erreichbar, wenn der Server aus ist.
+
 ## Queue aufräumen
 
 - **Einzelne Titel:** das **🗑** rechts in der Zeile anklicken oder `d`. In einer
@@ -134,7 +156,7 @@ Verbindung steht — dann mit der Fehlermeldung.
 
 | Taste | Wirkung |
 | --- | --- |
-| `1` … `7`, `tab` | Queue · Suche · Alben · Künstler · Genres · Dateien · Playlists — die Ziffern wirken auch bei leerem Suchfeld |
+| `1` … `8`, `tab` | Queue · Suche · Alben · Künstler · Genres · Dateien · Playlists · Einstellungen — die Ziffern wirken auch bei leerem Suchfeld |
 | `j` `k`, `↑` `↓`, `ctrl+u` `ctrl+d`, `pgup` `pgdn` | bewegen |
 | `g` `G` | Anfang / Ende |
 | `enter`, `l` | öffnen — Ordner/Album/Künstler bzw. abspielen |
@@ -242,9 +264,8 @@ eintreffende Antwort keine neuere Ansicht überschreibt.
 
 ## Noch offen
 
-- **Einstellungen direkt in der GUI** (im Panel, nicht nur `shell.json`): Server
-  (Host/Port/Passwort), Label-Format mit Vorschau, Präsenz des Cover-Hintergrunds,
-  OSD-Dauer/-Position, Karten-Verhalten. Geplant über einen achten Tab oder eine
-  Zeile im Band; geschrieben weiterhin über `omarchy-shell shell setBarWidget
-  kokko.mpd <key> <wert> '{}'`, damit die Shell die Änderung sofort durchreicht.
-- Sortierung der Listen wählbar, OSD-Position/Dauer im Panel statt in `shell.json`.
+- **Einstellungen im Panel:** erledigt (Tab 8) für die fünf Werte, die man beim
+  Hören anfasst. Server/Port/Passwort und die Feineinstellungen (`maxWidth`,
+  `overflow`, `whenIdle`, `wheelAction`, `showArt`, `showStateIcon`, `osdOnChange`,
+  `osdOnHover`) bleiben in den Plugin-Einstellungen bzw. `shell.json`.
+- Sortierung der Listen wählbar.

@@ -637,6 +637,32 @@ Panel {
     }
   }
 
+  // ------------------------------------------------------------- settings
+  //
+  // Write a setting the way the plugin settings dialog does: the shell owns
+  // shell.json, we ask it to change the key and it pushes the new value back to
+  // us -- so the change is live, no restart, and there is only one writer.
+  //
+  // The shell takes the value as *JSON* (`setBarWidget(id, key, valueJson, …)`),
+  // so a string has to arrive quoted: a raw `[%artist% - ]` is not valid JSON and
+  // the write is dropped without a word. Numbers and booleans are their own JSON.
+  // argv, not a shell string: a label format may contain anything.
+  function setSetting(key, value) {
+    var json
+    if (value === true) json = "true"
+    else if (value === false) json = "false"
+    else if (typeof value === "number") json = String(value)
+    else json = JSON.stringify(String(value))
+    Util.execArgv(["omarchy-shell", "shell", "setBarWidget", String(moduleName), String(key), json, "{}"])
+  }
+
+  // Preview for the settings tab: what a pattern would produce for the song that
+  // is playing right now.
+  function previewLabel(pattern) {
+    if (!hasSong) return ""
+    return Format.render(String(pattern || ""), tokens)
+  }
+
   // ---------------------------------------------------------------- covers
   //
   // The bridge caches covers by album and answers with a file path. Each request
@@ -912,6 +938,7 @@ Panel {
           info: panelLoader.item.infoText,
           prompt: panelLoader.item.promptMode,
           promptText: panelLoader.item.promptText,
+          preview: panelLoader.item.promptMode === "format" ? panelLoader.item.formatPreview : "",
           hint: panelLoader.item.hint,
           flash: panelLoader.item.flashText,
           peek: panelLoader.item.peek(8),
