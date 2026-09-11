@@ -147,6 +147,17 @@ was das Muster mit dem **laufenden Titel** macht.
 | … sichtbar für | wie lange sie dann bleibt; `enter` zeigt sie sofort |
 | System-Benachrichtigung bei Titelwechsel | Sprechblase des Desktops (App „MPD") — **unabhängig von der Karte** |
 
+**Vier Looks für das Band** (`Cover im Player`) — dieselben Daten, vier Bilder:
+
+![Die vier Cover-Looks](docs/cover-looks.png)
+
+| Look | Was er macht | Preis |
+| --- | --- | --- |
+| `klassisch` | weichgezeichnetes Cover hinter dem Panel, 58 px im Band | — |
+| `scharf` | dasselbe Band mit 88 px Cover, und das Cover hinter dem Panel bleibt ein **Bild** (Deckkraft + Verlauf statt Unschärfe) | bei hohem „Cover-Hintergrund" präsenter als der weiche — Regler ggf. zurücknehmen |
+| `hero` | das Cover **ist** der Hintergrund der Player-Karte, Panel flach | Band höher: rund zwei Listenzeilen weniger |
+| `anker` | großes Cover (104 px), alles andere Text und **eine** Bedienzeile, Panel flach | Band höher: rund zwei Listenzeilen weniger |
+
 Alles andere (Server, Port, Passwort, Labelbreite, Scroll-Verhalten, Karten-Dauer
 beim Zeigen) steht in den Plugin-Einstellungen bzw. in `shell.json`; Änderungen
 greifen ohne Neustart.
