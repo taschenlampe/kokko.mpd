@@ -421,6 +421,10 @@ Panel {
       { type: "setting", kind: "int", key: "backdrop", title: "Cover-Hintergrund",
         min: 0, max: 100, step: 10, value: Number(h.backdrop), suffix: " %",
         hint: "0 schaltet ihn aus; höher = präsenter hinter Queue und Suche" },
+      { type: "setting", kind: "enum", key: "coverLook", title: "Cover im Player",
+        value: String(h.coverLook || "klassisch"),
+        options: ["klassisch", "scharf", "hero", "anker"],
+        hint: "enter oder -/+ schaltet durch — wirkt sofort" },
       { type: "setting", kind: "text", key: "format", title: "Label-Format",
         value: String(h.format),
         hint: "mpc-Platzhalter — enter zum Bearbeiten, Vorschau unten" },
@@ -434,6 +438,16 @@ Panel {
         value: h.notifyTrack === true,
         hint: "Sprechblase des Desktops (App „MPD“) — unabhängig von der Karte" }
     ]
+  }
+
+  // A value list ("enum" setting): -/+ walks it and wraps around, enter walks
+  // forward. Writing goes the same way every other setting goes.
+  function stepEnum(row, delta) {
+    var opts = row.options || []
+    if (opts.length === 0) return
+    var at = opts.indexOf(String(row.value))
+    if (at < 0) at = 0
+    root.writeSetting(row.key, opts[(at + delta + opts.length) % opts.length], row.title)
   }
 
   function writeSetting(key, value, label) {
@@ -509,6 +523,7 @@ Panel {
           root.host.showOsd(false)
       }
       else if (row.kind === "text") root.openPrompt("format", String(row.value || ""), true)
+      else if (row.kind === "enum") root.stepEnum(row, 1)
       // A number you cannot try out is a number nobody understands: show the
       // card for exactly as long as it is set.
       else if (row.kind === "int" && row.key === "osdDuration") {
@@ -966,6 +981,11 @@ Panel {
     // volume/play bindings, which own those keys everywhere else.
     if (root.frameMode === "settings") {
       var srow = root.rows[root.sel]
+      if (srow && srow.kind === "enum" && (text === "-" || text === "+" || text === "=")) {
+        root.stepEnum(srow, text === "-" ? -1 : 1)
+        event.accepted = true
+        return
+      }
       if (srow && srow.kind === "int" && (text === "-" || text === "+" || text === "=")) {
         var step = Number(srow.step || 5)
         var next = Number(srow.value || 0) + ((text === "-") ? -step : step)
@@ -1625,7 +1645,7 @@ Panel {
   // Which band component to load. Everything unknown falls back to the classic
   // band, so a wrong value in the setting cannot leave the panel without a player.
   function bandComponent() {
-    if (root.look === "scharf" && typeof bandScharf !== "undefined") return bandScharf
+    if (root.look === "scharf") return bandScharf
     return bandKlassisch
   }
 
@@ -1642,6 +1662,7 @@ Panel {
   }
 
   Component { id: bandKlassisch; BandKlassisch {} }
+  Component { id: bandScharf; BandScharf {} }
 
   function labelFor(key) {
     var names = {

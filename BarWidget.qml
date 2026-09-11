@@ -57,6 +57,14 @@ Panel {
   }
   readonly property bool notifyTrack: setting("notifyTrack", false) === true
   readonly property bool hoverCard: setting("hoverCard", true) === true
+
+  // Which look the panel's player band shows: klassisch | scharf | hero | anker.
+  // The panel picks its band component from this and decides what the cover
+  // behind it does.
+  readonly property string coverLook: {
+    var v = String(setting("coverLook", "klassisch"))
+    return v === "" ? "klassisch" : v
+  }
   // The blurred cover behind the panel: 0 = off, 100 = as present as it gets.
   readonly property int backdrop: {
     var n = Number(setting("backdrop", 60))
@@ -926,6 +934,8 @@ Panel {
           single: root.singleMode, consume: root.consumeOn
         },
         panelOpen: root.panelOpen,
+        look: root.coverLook,
+        backdrop: root.backdrop,
         osd: { visible: root.osdVisible, on: root.osdOn, hovering: root.hovering },
         hover: { open: root.miniOpen, hovered: root.miniHovered, allowed: root.miniAllowed },
         notifyOnTrack: root.notifyTrack,

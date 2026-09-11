@@ -22,6 +22,8 @@ Item {
   signal message(string text)     // a line for the footer, e.g. "Zufall an"
   signal hint(string text)        // explanation while the pointer rests on a glyph
 
+  property real coverSize: Style.space(58)
+
   readonly property color fg: Color.popups.text
   readonly property color accent: Color.accent
   readonly property color dim: Qt.darker(fg, 1.35)
@@ -42,7 +44,7 @@ Item {
   Rectangle {
     id: cover
     anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
-    width: Style.space(58)
+    width: band.coverSize
     height: width
     radius: Style.cornerRadius
     color: Util.alpha(band.fg, 0.06)

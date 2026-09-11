@@ -34,7 +34,8 @@
       "osdOnChange": true,
       "osdOnHover": false,
       "osdDuration": 4200,
-      "notifyTrack": false
+      "notifyTrack": false,
+      "coverLook": "klassisch"
     },
     "schema": [
       {
@@ -157,6 +158,14 @@
         "label": "Benachrichtigung bei Titelwechsel",
         "defaultValue": false,
         "description": "Desktop-Benachrichtigung mit Cover, Titel und Interpret."
+      },
+      {
+        "key": "coverLook",
+        "type": "enum",
+        "label": "Cover im Player",
+        "options": ["klassisch", "scharf", "hero", "anker"],
+        "defaultValue": "klassisch",
+        "description": "Wie das Band im Panel aussieht: klassisch (weichgezeichnetes Cover hinter dem Panel), scharf (das Cover bleibt ein Bild), hero (Cover als Karte des Players), anker (großes Cover, eine Bedienzeile). Live umschaltbar."
       }
     ]
   }
