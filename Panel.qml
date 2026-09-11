@@ -82,6 +82,13 @@ Panel {
   property bool promptExplicit: false
   // Where the selection should land once the next list arrives ("first"/"last"),
   // set when the user leaves the search field with ↓ or ↑.
+  // Set while the panel is opening: the next queue load lands on the playing track
+  // instead of on row one.
+  property bool jumpToCurrent: false
+  // Index the list should put in the middle. A plain positionViewAtIndex right
+  // after a model change does nothing (the rows are not measured yet), so it is
+  // done a moment later -- the list is ~20 rows, 120 ms is plenty.
+  property int pendingCenter: -1
   property string pendingSelect: ""
   // Set while the pointer rests on a button that is only a glyph: the footer then
   // spells out what it does instead of the key hints.
@@ -237,6 +244,17 @@ Panel {
       }
       root.setInfo(root.infoFor(mode, f, list))
 
+      // Opened on a long queue: put the selection on what is playing and scroll
+      // there, so the list does not start somewhere the music is not.
+      if (mode === "queue" && root.jumpToCurrent) {
+        root.jumpToCurrent = false
+        var here = root.currentIndex()
+        if (here >= 0) {
+          root.sel = here
+          root.centerOn(here)
+        }
+      }
+
       // An artist (or genre) whose tracks carry no album tag has no album list to
       // show. Rather than leaving an empty frame -- a dead end right where the
       // user was looking for something to play -- fall back to the tracks.
@@ -365,6 +383,54 @@ Panel {
     for (var i = Math.max(0, from); i < root.rows.length; i++)
       if (root.isSelectable(root.rows[i])) return i
     return Math.max(0, root.rows.length - 1)
+  }
+
+  // Put a row in the middle of the list, once it can be measured.
+  function centerOn(at) {
+    if (at === undefined || at === null || at < 0) return
+    root.pendingCenter = at
+    centerTimer.restart()
+  }
+
+  // Where the music is, as an index into the rows at hand: the row carrying the
+  // playing song's id. -1 when this list has nothing to do with the queue.
+  function currentIndex() {
+    if (!root.up || !root.host || !root.host.song) return -1
+    var id = Number(root.host.song.id)
+    for (var i = 0; i < root.rows.length; i++) {
+      var row = root.rows[i]
+      if (row && row.id !== undefined && Number(row.id) === id) return i
+    }
+    return -1
+  }
+
+  // t: go to the playing track. From another tab it switches to the queue first --
+  // asking for the current track should always work.
+  function gotoCurrent() {
+    if (root.frameMode !== "queue") {
+      root.jumpToCurrent = true
+      root.setTab("queue")
+      return
+    }
+    var at = root.currentIndex()
+    if (at < 0) { root.flash("kein laufender Titel in dieser Liste"); return }
+    root.sel = at
+    root.centerOn(at)
+    root.flash("laufender Titel — #" + (at + 1) + "/" + root.rows.length)
+  }
+
+  // The list itself, for tests/inspection (`state.panel.visible`).
+  readonly property var listView: list
+
+  Timer {
+    id: centerTimer
+    interval: 120
+    repeat: false
+    onTriggered: {
+      if (root.pendingCenter < 0) return
+      list.positionViewAtIndex(root.pendingCenter, ListView.Center)
+      root.pendingCenter = -1
+    }
   }
 
   function lastSelectable() {
@@ -697,7 +763,7 @@ Panel {
         : "tippen filtert · ↓/↑ geht in die Liste · enter spielt den Treffer · ctrl+u leeren · esc fertig"
     if (root.promptMode !== "") return "tippen · enter bestätigen · esc abbrechen"
     var mode = root.frameMode
-    if (mode === "queue") return "enter spielen · a anhängen · d entfernen · D leeren · C nur Laufendes behalten · J/K verschieben · x mischen"
+    if (mode === "queue") return "enter spielen · a anhängen · d entfernen · D leeren · C nur Laufendes behalten · t laufender Titel"
     if (mode === "search") return "/ tippen · enter öffnen · a anhängen · A alle Treffer · h/esc zurück"
     if (mode === "list") return "enter hinein · a alles davon anhängen · A Auswahl anhängen · h/esc zurück"
     if (mode === "find") return "enter spielen · a anhängen · A ganze Liste · h/esc zurück"
@@ -1011,8 +1077,14 @@ Panel {
     if (key === Qt.Key_Up || text === "k") { root.step(-1); event.accepted = true; return }
     if (key === Qt.Key_PageDown) { root.step(10); event.accepted = true; return }
     if (key === Qt.Key_PageUp) { root.step(-10); event.accepted = true; return }
-    if (text === "g") { root.sel = 0; event.accepted = true; return }
-    if (text === "G" || key === Qt.Key_End) { root.sel = Math.max(0, root.rows.length - 1); event.accepted = true; return }
+    if (text === "t") { root.gotoCurrent(); event.accepted = true; return }
+    if (text === "g") { root.sel = 0; root.centerOn(0); event.accepted = true; return }
+    if (text === "G" || key === Qt.Key_End) {
+      root.sel = Math.max(0, root.rows.length - 1)
+      root.centerOn(root.sel)
+      event.accepted = true
+      return
+    }
 
     if (key === Qt.Key_Return || key === Qt.Key_Enter || text === "l") { root.activate(); event.accepted = true; return }
     if (key === Qt.Key_Backspace || key === Qt.Key_Left || text === "h") {
@@ -1085,6 +1157,9 @@ Panel {
     contentHeight: panel.cappedContentHeight(Style.space(610))
 
     onOpenChanged: if (open) {
+      // Opened on a long queue, the list would start at the top -- the one place
+      // the playing track is not. The queue load picks this up and lands on it.
+      root.jumpToCurrent = true
       if (root.stack.length === 0) root.setTab(root.tab)
       else root.loadFrame()
       Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
@@ -1095,6 +1170,16 @@ Panel {
       anchors.fill: parent
       focus: true
       Keys.onPressed: function(event) { root.handleKey(event) }
+
+      // The panel's own floor. Up to now the opaque part came from the backdrop's
+      // gradient -- so in the looks that carry the cover inside the band (hero,
+      // anker) the panel had no floor at all and everything behind it showed
+      // through. A plain rectangle, in the same colour the gradients end in, so the
+      // blurred looks are unchanged and the flat ones are opaque.
+      Rectangle {
+        anchors.fill: parent
+        color: root.bg
+      }
 
       // ------------------------------------------ the cover behind the panel
       // Two treatments live in Backdrop.qml: the blurred cover (heute) and the

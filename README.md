@@ -46,6 +46,9 @@ Plugin-Einstellungen). Panel-Toggle: **`SUPER + CTRL + M`**.
 
 **Queue — der Player.** Band oben: Cover, Fortschritt, Spektrum, ein Controller.
 Darunter die Warteschlange, unten was gerade passiert und was Tasten tun.
+Beim Öffnen steht die **Auswahl auf dem laufenden Titel** und die Liste ist dorthin
+gescrollt — bei 300 Einträgen wäre der Anfang die eine Stelle, an der die Musik
+nicht ist. Mit `t` springt man jederzeit zurück (auch aus einem anderen Tab).
 
 ![Queue](docs/panel-queue.png)
 
@@ -98,6 +101,7 @@ welche Taste hier gerade etwas tut. Am Anfang schließt `esc` das Panel.
 | Taste | Wirkung |
 | --- | --- |
 | `1` … `8`, `tab` | Queue · Suche · Alben · Künstler · Genres · Dateien · Playlists · Einstellungen |
+| `t` | **zum laufenden Titel** — aus jedem Tab: wechselt in die Queue und stellt ihn mittig |
 | `j` `k`, `↑` `↓`, `pgup` `pgdn`, `g` `G` | bewegen |
 | `enter` | öffnen bzw. spielen |
 | `a` / `A` | anhängen, was die Zeile ist / alles in dieser Liste |

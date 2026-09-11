@@ -462,11 +462,16 @@ Panel {
         }
 
         // The label. Clipped, because the marquee walks out of it.
+        //
+        // The box keeps the full `maxWidth` even for a short title: the hover card
+        // centres itself on this widget, so a width that follows the title made the
+        // card hop on every track change. A fixed box also stops the neighbouring
+        // bar widgets from sliding around.
         Item {
           id: labelBox
           visible: root.vertical ? root.label !== "" : true
           clip: true
-          implicitWidth: root.label === "" ? 0 : Math.min(labelText.implicitWidth, root.maxWidth)
+          implicitWidth: root.label === "" ? 0 : root.maxWidth
           implicitHeight: root.barSize
           readonly property bool overflowing: labelText.implicitWidth > width
 
@@ -952,6 +957,14 @@ Panel {
           hint: panelLoader.item.hint,
           flash: panelLoader.item.flashText,
           peek: panelLoader.item.peek(8),
+          // What the list is actually showing -- a selection can be right and
+          // still sit off-screen, and no other field would say so.
+          visible: (function () {
+            var l = panelLoader.item.listView
+            if (!l) return {}
+            return { first: l.indexAt(0, l.contentY + 4), last: l.indexAt(0, l.contentY + l.height - 6),
+                     y: Math.round(l.contentY), h: Math.round(l.height) }
+          })(),
           gen: panelLoader.item.loadGeneration,
           sent: panelLoader.item.sentQueries,
           answered: panelLoader.item.answeredLoads,
