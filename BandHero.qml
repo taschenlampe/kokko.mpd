@@ -31,7 +31,9 @@ Item {
   readonly property bool hasSong: !!host && host.hasSong === true
   readonly property string art: hasSong && host.artPath !== "" ? host.artPath : ""
 
-  implicitHeight: hasSong ? Style.space(126) : 0
+  // Tall enough that the bottom row sits *below* the cover instead of on top of
+  // it: cover (92) + 12 above + 6 gap + 30 row + 10 below.
+  implicitHeight: hasSong ? Style.space(150) : 0
   visible: implicitHeight > 0
 
   // ---------------------------------------------------------------- the card
@@ -235,11 +237,13 @@ Item {
   }
 
   // --------------------------------------------------- bottom row: levels + options
+  // Left edge on the cover's left edge, so the bars line up with the picture above
+  // them instead of floating somewhere in the middle of the card.
   Item {
     id: foot
-    anchors { left: parent.left; leftMargin: Style.space(14)
+    anchors { left: parent.left; leftMargin: Style.space(12)
               right: parent.right; rightMargin: Style.space(14)
-              bottom: parent.bottom; bottomMargin: Style.space(12) }
+              bottom: parent.bottom; bottomMargin: Style.space(10) }
     height: Style.space(30)
 
     Visualizer {

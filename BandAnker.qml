@@ -280,16 +280,19 @@ Item {
           }
         }
       }
-    }
-  }
 
-  Visualizer {
-    id: viz
-    anchors { right: parent.right; bottom: parent.bottom }
-    width: Style.space(150)
-    height: Style.space(28)
-    visible: band.showViz && band.host !== null && band.host.queueLength > 0
-    levels: band.vizBars
-    count: band.vizCount
+      // The levels are the last child of the row: an anchor across the parent
+      // boundary sat about 15 px too high, and inside the row they cannot be
+      // misaligned at all. Right after the glyphs, like the classic band has them
+      // right after the text.
+      Visualizer {
+        id: viz
+        width: Style.space(150)
+        height: parent.height
+        visible: band.showViz && band.host !== null && band.host.queueLength > 0
+        levels: band.vizBars
+        count: band.vizCount
+      }
+    }
   }
 }
