@@ -412,12 +412,15 @@ Panel {
       { type: "setting", kind: "text", key: "format", title: "Label-Format",
         value: String(h.format),
         hint: "mpc-Platzhalter — enter zum Bearbeiten, Vorschau unten" },
-      { type: "setting", kind: "int", key: "osdDuration", title: "Karte bei Titelwechsel sichtbar",
+      { type: "setting", kind: "bool", key: "osdOnChange", title: "Karte bei Titelwechsel",
+        value: h.osdOnChange === true,
+        hint: "blitzt bei jedem neuen Titel auf — hier ganz abschalten" },
+      { type: "setting", kind: "int", key: "osdDuration", title: "… sichtbar für",
         min: 1000, max: 20000, step: 500, value: Number(h.osdDuration), suffix: " ms",
         hint: "bleibt nach einem neuen Titel so lange stehen — enter zeigt sie jetzt" },
-      { type: "setting", kind: "bool", key: "notifyTrack", title: "Benachrichtigung bei Titelwechsel",
+      { type: "setting", kind: "bool", key: "notifyTrack", title: "System-Benachrichtigung bei Titelwechsel",
         value: h.notifyTrack === true,
-        hint: "Desktop-Hinweis mit Cover" }
+        hint: "Sprechblase des Desktops (App „MPD“) — unabhängig von der Karte" }
     ]
   }
 
@@ -488,6 +491,10 @@ Panel {
         // full view), so the switch alone shows nothing -- say what to do.
         if (row.key === "hoverCard")
           root.flash("Karte " + (row.value !== true ? "an" : "aus") + " — Panel schließen, dann Maus aufs Label")
+        // Switching the track-change card on shows it once: "an" should not be a
+        // word the user has to take on faith.
+        else if (row.key === "osdOnChange" && row.value !== true)
+          root.host.showOsd(false)
       }
       else if (row.kind === "text") root.openPrompt("format", String(row.value || ""), true)
       // A number you cannot try out is a number nobody understands: show the

@@ -123,13 +123,22 @@ Tab **8** („Einstellungen") — für die Werte, die man beim Hören anfasst:
 | Karte beim Zeigen mit der Maus | die Karte mit Cover, Fortschritt und den großen Knöpfen unter der Leiste — nur bei geschlossenem Panel (das Panel ist schon die große Ansicht) |
 | Cover-Hintergrund | Präsenz des weichgezeichneten Covers hinter dem Panel (0 = aus) |
 | Label-Format | `mpc`-Platzhalter für das Label in der Leiste, mit **Live-Vorschau** |
-| Karte bei Titelwechsel sichtbar | wie lange die Karte nach einem neuen Titel von allein stehen bleibt (ms), `enter` zeigt sie sofort |
-| Benachrichtigung bei Titelwechsel | Desktop-Hinweis mit Cover |
+| Karte bei Titelwechsel | blitzt bei jedem neuen Titel auf — hier ganz abschalten |
+| … sichtbar für | wie lange sie dann stehen bleibt (ms), `enter` zeigt sie sofort |
+| System-Benachrichtigung bei Titelwechsel | Sprechblase des Desktops (App „MPD“) — **unabhängig von der Karte** |
 
 Zwei verschiedene Momente, zwei Einstellungen: die eine Karte kommt, wenn man
 mit der Maus aufs Label zeigt (sobald man das Panel offen hat, braucht man sie
 nicht mehr), die andere blitzt bei jedem neuen Titel auf und verschwindet nach
 der eingestellten Zeit von allein.
+
+**Zwei Anzeigen für dasselbe Ereignis:** die Karte zeichnet das Plugin, die
+System-Benachrichtigung schickt `notify-send`. Sie sind unabhängig — wer das
+Aufblitzen bei jedem Titelwechsel loswerden will, schaltet die *Karte* ab, nicht
+die Benachrichtigung (und umgekehrt). Nachweisbar mit einem DBus-Mitschnitt:
+`dbus-monitor --session "interface='org.freedesktop.Notifications',member='Notify'"`
+zeigt bei ausgeschalteter Benachrichtigung **null** Aufrufe, bei eingeschalteter
+einen mit App `MPD` und Cover.
 
 Bedienung: `enter`/`space` schaltet um, `-`/`+` ändert Zahlen (0–100 in
 10er-Schritten bzw. 500 ms) und `enter` auf „Karte bei Titelwechsel sichtbar"
