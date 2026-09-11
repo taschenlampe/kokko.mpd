@@ -118,8 +118,9 @@ etwas tun — `a` und `A` muss man also nicht auswendig kennen.
 
 - **Einzelne Titel:** das **🗑** rechts in der Zeile anklicken oder `d`. In einer
   Playlist entfernt dieselbe Taste den Titel aus der Playlist (die Datei bleibt).
-- **Ganze Queue:** `D` oder der Knopf **„löschen"** im Band (MPD `clear`).
-- **Nur das Laufende behalten:** `C` oder der Knopf **„nur dieses"** im Band
+- **Ganze Queue:** `D` oder der **Papierkorb-Knopf** im Band (MPD `clear`). Der
+  Zeiger darauf nennt unten die ausgeschriebene Bedeutung.
+- **Nur das Laufende behalten:** `C` oder der **Scheren-Knopf** im Band
   (MPD `crop`). Beides geschieht sofort; die Fußzeile meldet es.
 
 ## Im Panel

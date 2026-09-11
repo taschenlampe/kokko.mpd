@@ -71,6 +71,9 @@ Panel {
   // Where the selection should land once the next list arrives ("first"/"last"),
   // set when the user leaves the search field with ↓ or ↑.
   property string pendingSelect: ""
+  // Set while the pointer rests on a button that is only a glyph: the footer then
+  // spells out what it does instead of the key hints.
+  property string hoverHint: ""
 
   // Song details overlay: the row from the `songinfo` query, or null.
   property var detailRow: null
@@ -1328,17 +1331,29 @@ Panel {
             }
           }
 
-          // Queue: everything out, or everything but what is playing.
-          Text {
-            text: "löschen"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+          // Queue: icons instead of the words "löschen"/"nur dieses" -- two
+          // glyphs that are distinct from the per-row bin, with the full wording
+          // in the footer while the pointer rests on them (and in the queue hint
+          // as `D leeren` / `C nur Laufendes behalten` anyway).
+          Item {
+            width: Style.space(26)
             height: parent.height
-            verticalAlignment: Text.AlignVCenter
+
+            Text {
+              anchors.centerIn: parent
+              text: "󰗩"                     // delete_sweep: everything out
+              color: clearArea.containsMouse ? root.accent : root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.subtitle
+            }
+
             MouseArea {
+              id: clearArea
               anchors.fill: parent
+              hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
+              onEntered: root.hoverHint = "Queue leeren — alle Titel entfernen (D)"
+              onExited: root.hoverHint = ""
               onClicked: {
                 if (!root.host) return
                 root.host.clearQueue()
@@ -1347,16 +1362,25 @@ Panel {
             }
           }
 
-          Text {
-            text: "nur dieses"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+          Item {
+            width: Style.space(26)
             height: parent.height
-            verticalAlignment: Text.AlignVCenter
+
+            Text {
+              anchors.centerIn: parent
+              text: "󰆐"                     // content_cut: cut the rest away
+              color: keepArea.containsMouse ? root.accent : root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.subtitle
+            }
+
             MouseArea {
+              id: keepArea
               anchors.fill: parent
+              hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
+              onEntered: root.hoverHint = "nur das Laufende behalten — alles andere aus der Queue (C)"
+              onExited: root.hoverHint = ""
               onClicked: {
                 if (!root.host) return
                 root.host.cropQueue()
@@ -1730,8 +1754,9 @@ Panel {
             }
 
             Text {
-              text: root.hint
-              color: root.faint
+              // The pointer explains a glyph button; otherwise the keys.
+              text: root.hoverHint !== "" ? root.hoverHint : root.hint
+              color: root.hoverHint !== "" ? root.accent : root.faint
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               height: Style.space(22)
