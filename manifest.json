@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "id": "kokko.mpd",
+  "name": "MPD",
+  "version": "0.1.0",
+  "author": "kokko",
+  "description": "MPD-Client für die Omarchy-Leiste: was gerade läuft mit Cover und Transport, dazu ein Panel mit Queue, lokaler Suche in der Bibliothek und Dateibrowser. Spricht das MPD-Protokoll direkt (TCP oder Unix-Socket), Zustand kommt per MPD-idle-Push statt Polling. Läuft auch unter einer Fremd-Leiste, weil die Verbindung als Kindprozess im Widget selbst lebt.",
+  "license": "MIT",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "MPD",
+    "description": "Was gerade läuft, mit Cover und Transportknöpfen. Klick öffnet Queue, Suche und Bibliothek.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "host": "",
+      "port": 6600,
+      "password": "",
+      "format": "[%artist% - ][%title%|%filename%]",
+      "maxWidth": 240,
+      "overflow": "scroll",
+      "showStateIcon": true,
+      "showArt": false,
+      "whenIdle": "icon",
+      "wheelAction": "volume",
+      "hoverCard": true,
+      "backdrop": 60,
+      "osdOnChange": true,
+      "osdOnHover": false,
+      "osdDuration": 4200,
+      "notifyTrack": false
+    },
+    "schema": [
+      {
+        "key": "host",
+        "type": "string",
+        "label": "MPD host",
+        "defaultValue": "",
+        "description": "Hostname oder IP. Ein Pfad oder @name ist ein Unix-Socket. Leer folgt $MPD_HOST, dann 127.0.0.1."
+      },
+      {
+        "key": "port",
+        "type": "integer",
+        "label": "MPD port",
+        "min": 1,
+        "max": 65535,
+        "step": 1,
+        "defaultValue": 6600,
+        "description": "Wird ignoriert, wenn der Host ein Unix-Socket ist."
+      },
+      {
+        "key": "password",
+        "type": "string",
+        "label": "MPD password",
+        "defaultValue": "",
+        "description": "Nur falls der Server eines verlangt. Steht als Klartext in shell.json."
+      },
+      {
+        "key": "format",
+        "type": "string",
+        "label": "Label format",
+        "defaultValue": "[%artist% - ][%title%|%filename%]",
+        "description": "%tag% wird ersetzt, [ ] fällt weg wenn ein Tag darin fehlt, [a|b] nimmt den ersten Treffer."
+      },
+      {
+        "key": "maxWidth",
+        "type": "integer",
+        "label": "Label width (pixels)",
+        "min": 40,
+        "max": 1200,
+        "step": 20,
+        "defaultValue": 240,
+        "description": "Wie viel Platz das Label bekommt, bevor es scrollt oder gekürzt wird."
+      },
+      {
+        "key": "overflow",
+        "type": "string",
+        "label": "When the label is too long",
+        "defaultValue": "scroll",
+        "description": "scroll oder elide."
+      },
+      {
+        "key": "showStateIcon",
+        "type": "boolean",
+        "label": "Play state glyph",
+        "defaultValue": true
+      },
+      {
+        "key": "showArt",
+        "type": "boolean",
+        "label": "Cover thumbnail in the bar",
+        "defaultValue": false,
+        "description": "Das Cover als kleines Bild vor dem Label."
+      },
+      {
+        "key": "whenIdle",
+        "type": "string",
+        "label": "When nothing is playing",
+        "defaultValue": "icon",
+        "description": "icon lässt ein Glyph stehen, hide entfernt das Widget ganz."
+      },
+      {
+        "key": "wheelAction",
+        "type": "string",
+        "label": "Scroll wheel",
+        "defaultValue": "volume",
+        "description": "volume, seek, track oder none."
+      },
+      {
+        "key": "hoverCard",
+        "type": "boolean",
+        "label": "Karte beim Überfahren",
+        "defaultValue": true,
+        "description": "Cover, Fortschritt und die großen Bedienknöpfe als Karte unter der Leiste."
+      },
+      {
+        "key": "backdrop",
+        "type": "integer",
+        "label": "Cover-Hintergrund: Präsenz",
+        "defaultValue": 60,
+        "min": 0,
+        "max": 100,
+        "description": "0 schaltet ihn aus; höhere Werte machen das Cover hinter Queue und Suche präsenter (Deckkraft, Sättigung und Schärfe zusammen), ohne die Zeilen zu verdecken."
+      },
+      {
+        "key": "osdOnChange",
+        "type": "boolean",
+        "label": "Karte bei Titelwechsel",
+        "defaultValue": true,
+        "description": "Cover, Titel und Fortschritt kurz unten einblenden."
+      },
+      {
+        "key": "osdOnHover",
+        "type": "boolean",
+        "label": "Einfache Karte auch beim Überfahren",
+        "defaultValue": false,
+        "description": "Statt der Karte mit Bedienelementen die einfache Anzeige einblenden."
+      },
+      {
+        "key": "osdDuration",
+        "type": "integer",
+        "label": "Karte sichtbar (ms)",
+        "min": 1000,
+        "max": 60000,
+        "step": 500,
+        "defaultValue": 4200
+      },
+      {
+        "key": "notifyTrack",
+        "type": "boolean",
+        "label": "Benachrichtigung bei Titelwechsel",
+        "defaultValue": false,
+        "description": "Desktop-Benachrichtigung mit Cover, Titel und Interpret."
+      }
+    ]
+  }
+}

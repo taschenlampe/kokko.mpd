@@ -1,0 +1,5 @@
+# Nichts Generiertes im Baum; nur Sicherungen und Editor-Krümel draußen halten.
+*.bak
+*.bak.*
+__pycache__/
+*.pyc
