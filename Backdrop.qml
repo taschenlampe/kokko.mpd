@@ -63,20 +63,23 @@ Item {
       : blurGradient
   }
 
-  // Sharp: fade late and firmly, so the cover keeps its shape above the list.
+  // Sharp: the picture stays a picture. The fade starts later the bolder the
+  // setting is -- at the top end the artwork runs behind the whole list, dimmed in
+  // steps instead of washed out, which is what "as present as it gets" should mean.
   readonly property var sharpGradient: Gradient {
-    GradientStop { position: 0.0; color: Util.alpha(root.bg, 0.40 - 0.15 * root.level) }
-    GradientStop { position: 0.55; color: Util.alpha(root.bg, 0.92 - 0.12 * root.level) }
-    GradientStop { position: 0.72; color: root.bg }
+    GradientStop { position: 0.0; color: Util.alpha(root.bg, 0.34 - 0.12 * root.level) }
+    GradientStop { position: 0.50 + 0.25 * root.level; color: Util.alpha(root.bg, 0.80 - 0.18 * root.level) }
+    GradientStop { position: 0.80 + 0.15 * root.level; color: root.bg }
     GradientStop { position: 1.0; color: root.bg }
   }
 
-  // Blur: the fade down starts lower the bolder the backdrop is, so more of the
-  // cover survives above the list.
+  // Blur: same idea -- the bolder the setting, the lower the fade starts, so more
+  // of the cover survives above the list. One lever for both, because they should
+  // behave alike from the user's seat.
   readonly property var blurGradient: Gradient {
-    GradientStop { position: 0.0; color: Util.alpha(root.bg, 0.36 - 0.26 * root.level) }
-    GradientStop { position: 0.40; color: Util.alpha(root.bg, 0.86 - 0.26 * root.level) }
-    GradientStop { position: 0.66 + 0.12 * root.level; color: root.bg }
+    GradientStop { position: 0.0; color: Util.alpha(root.bg, 0.36 - 0.24 * root.level) }
+    GradientStop { position: 0.40; color: Util.alpha(root.bg, 0.86 - 0.30 * root.level) }
+    GradientStop { position: 0.62 + 0.33 * root.level; color: root.bg }
     GradientStop { position: 1.0; color: root.bg }
   }
 }
