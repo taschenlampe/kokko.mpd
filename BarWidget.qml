@@ -475,16 +475,30 @@ Panel {
           implicitHeight: root.barSize
           readonly property bool overflowing: labelText.implicitWidth > width
 
-          Text {
-            id: labelText
-            x: 0
+          // The text sits flush right inside the reserved box: a short title used
+          // to start at the left edge, which left a gap between this widget and its
+          // neighbour on the right. The wrapper is as wide as the text (up to the
+          // box) and hangs on the right edge, so the gap is on the left where
+          // nothing follows it. The marquee animates the text inside the wrapper,
+          // so the two never fight over the same property.
+          Item {
+            id: labelAlign
+            anchors.right: parent.right
             height: parent.height
-            verticalAlignment: Text.AlignVCenter
-            text: root.label
-            color: root.fg
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            elide: (root.overflow === "elide" || labelBox.scrolling) ? Text.ElideRight : Text.ElideNone
+            width: Math.min(labelText.implicitWidth, labelBox.width)
+            clip: true
+
+            Text {
+              id: labelText
+              x: 0
+              height: parent.height
+              verticalAlignment: Text.AlignVCenter
+              text: root.label
+              color: root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              elide: (root.overflow === "elide" || labelBox.scrolling) ? Text.ElideRight : Text.ElideNone
+            }
           }
 
           readonly property bool scrolling: overflowing && root.overflow === "scroll" && width > 0
@@ -979,7 +993,15 @@ Panel {
           hasSong: root.hasSong,
           showArt: root.showArt,
           artIsTheIcon: root.artIsTheIcon,
-          stripWidth: root.implicitWidth
+          stripWidth: root.implicitWidth,
+          // Where the label text sits inside its reserved box -- so "is it flush
+          // right?" is a number, not a screenshot. `boxW` is the reserved width,
+          // `alignX` the wrapper's left edge in it, `textX` the marquee offset.
+          boxW: Math.round(labelBox.width),
+          alignX: Math.round(labelAlign.x),
+          textW: Math.round(labelText.implicitWidth),
+          textX: Math.round(labelText.x),
+          trunc: labelText.truncated
         }
       })
     }
