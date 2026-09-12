@@ -436,21 +436,16 @@ Panel {
     Item {
       id: nowPlaying
       visible: info.implicitWidth > 0
-      // Reserved, not measured: the hover card centres on this item and the
-      // neighbouring bar widgets sit next to it, so neither may move when the title
-      // changes. `stripReserve` is what the label may become at most.
-      implicitWidth: root.vertical ? root.barSize : root.stripReserve
+      // As wide as what it shows: the label grows and shrinks with the title, and a
+      // reserved width would leave that space as a visible hole next to the cover or
+      // the label. What the hover card needs is not a wide widget but a stable
+      // reference -- it gets `stripReserve` passed as its anchor width.
+      implicitWidth: root.vertical ? root.barSize : info.implicitWidth + Style.space(10)
       implicitHeight: root.vertical ? info.implicitHeight + Style.space(8) : root.barSize
 
       Row {
         id: info
-        // Right-aligned, so the content hugs the right edge of the reserve: no gap
-        // towards the next bar element, and none between glyph and label either --
-        // the label box is as wide as the text now. Vertical mode centres instead.
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.right: root.vertical ? undefined : parent.right
-        anchors.rightMargin: root.vertical ? 0 : Style.space(5)
-        anchors.horizontalCenter: root.vertical ? parent.horizontalCenter : undefined
+        anchors.centerIn: parent
         spacing: Style.space(6)
 
         // The cover, as a small square before the text (showArt).
@@ -666,6 +661,13 @@ Panel {
     onLoaded: {
       item.service = root
       item.anchorItem = strip
+      // The widget's right edge is the point that does not move (the bar makes the
+      // widget grow to the left), so the card is centred on a fixed offset back from
+      // it. Mapped *here*, in the widget's own window: mapping from inside the card's
+      // surface (a different layer window) returned nonsense.
+      item.cardCenterX = Qt.binding(function() {
+        return root.mapToItem(null, root.width, 0).x - root.stripReserve / 2
+      })
       item.open = Qt.binding(function() { return root.miniOpen })
       item.hoveredChanged.connect(function() { root.syncMini() })
     }
@@ -1001,6 +1003,16 @@ Panel {
           showArt: root.showArt,
           artIsTheIcon: root.artIsTheIcon,
           stripWidth: root.implicitWidth,
+          // The widget's own x on screen: does a shorter title move the widget (bar
+          // centres its section) or not? Needed to place the card stably.
+          stripX: Math.round(strip.mapToItem(null, 0, 0).x),
+          // The widget's own edges in scene coordinates: the right one must not move
+          // when the label changes, the left one may.
+          widgetX: Math.round(root.mapToItem(null, 0, 0).x),
+          widgetRight: Math.round(root.mapToItem(null, root.width, 0).x),
+          // Where the hover card actually sits -- the number that proves it does not
+          // hop when the label changes.
+          cardX: miniLoader.item ? Math.round(miniLoader.item.cardX) : -1,
           // Where the content sits in the reserved width -- so "is the play glyph
           // right next to the text, and does the content end flush right?" is a
           // number, not a screenshot. `reserve` is the reserved width, `boxW` the

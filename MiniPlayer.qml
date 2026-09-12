@@ -38,6 +38,16 @@ PanelWindow {
   readonly property real anchorX: (anchorItem && anchorWindow)
     ? anchorItem.mapToItem(anchorWindow.contentItem, 0, 0).x + barInset : 0
 
+  // The x the card's centre should sit at, handed over by the widget: it is the one
+  // that knows where it is, and its right edge is what stays put when the label
+  // changes. Screen coordinates -- this surface is screen-wide, so scene == local.
+  // (Mapping the anchor from inside this window gave wrong numbers: the card window
+  // is not the window the bar widget lives in.)
+  property real cardCenterX: NaN
+
+  // Where the card ends up -- exposed so a test can prove it does not hop.
+  readonly property real cardX: card.x
+
   // ---- the surface: screen-wide, as tall as the card, top-anchored ----
   visible: (open || card.opacity > 0) && hasTrack
   color: "transparent"
@@ -99,10 +109,10 @@ PanelWindow {
     id: card
     width: Style.space(346)
     height: Style.space(122)
-    // Under the widget it belongs to: the anchor's x inside the bar plus the bar's
-    // inset, minus half the card, clamped to stay on screen.
+    // Under the widget it belongs to: the centre is dictated by the widget (stable
+    // while the label changes), here only clamped to stay on screen.
     x: Math.max(mini.gap,
-         Math.min(mini.anchorX + (mini.anchorItem ? mini.anchorItem.width / 2 : 0) - width / 2,
+         Math.min(mini.cardCenterX - width / 2,
                   Math.max(mini.gap, mini.width - width - mini.gap)))
     y: mini.barH + mini.gap
     color: Util.alpha(Color.background, 0.98)
