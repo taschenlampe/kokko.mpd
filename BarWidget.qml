@@ -401,6 +401,19 @@ Panel {
     NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
   }
 
+  // What the widget occupies: cover, state glyph, label reserve and the gaps
+  // between them -- computed from the configured maximum, *not* from the current
+  // title. The content inside is right-aligned, so the unused rest of the reserve
+  // shows up at the left, where nothing of ours follows it.
+  readonly property real stripReserve: {
+    var w = Style.space(10)
+    if (showArt && artPath !== "")
+      w += barSize + Style.space(6)
+    if (showStateIcon)
+      w += stateIconText.implicitWidth + Style.space(6)
+    return w + maxWidth
+  }
+
   // %elapsed% and %remaining% move once a second; MPD only reports elapsed
   // when something changes, so the clock is what keeps it honest.
   Timer {
@@ -423,12 +436,21 @@ Panel {
     Item {
       id: nowPlaying
       visible: info.implicitWidth > 0
-      implicitWidth: root.vertical ? root.barSize : info.implicitWidth + Style.space(10)
+      // Reserved, not measured: the hover card centres on this item and the
+      // neighbouring bar widgets sit next to it, so neither may move when the title
+      // changes. `stripReserve` is what the label may become at most.
+      implicitWidth: root.vertical ? root.barSize : root.stripReserve
       implicitHeight: root.vertical ? info.implicitHeight + Style.space(8) : root.barSize
 
       Row {
         id: info
-        anchors.centerIn: parent
+        // Right-aligned, so the content hugs the right edge of the reserve: no gap
+        // towards the next bar element, and none between glyph and label either --
+        // the label box is as wide as the text now. Vertical mode centres instead.
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.right: root.vertical ? undefined : parent.right
+        anchors.rightMargin: root.vertical ? 0 : Style.space(5)
+        anchors.horizontalCenter: root.vertical ? parent.horizontalCenter : undefined
         spacing: Style.space(6)
 
         // The cover, as a small square before the text (showArt).
@@ -452,6 +474,7 @@ Panel {
 
         // The play state, unless the user turned it off.
         Text {
+          id: stateIconText
           visible: root.showStateIcon
           text: root.stateGlyph
           color: root.isPlaying ? Color.accent : root.fg
@@ -461,44 +484,28 @@ Panel {
           height: root.barSize
         }
 
-        // The label. Clipped, because the marquee walks out of it.
-        //
-        // The box keeps the full `maxWidth` even for a short title: the hover card
-        // centres itself on this widget, so a width that follows the title made the
-        // card hop on every track change. A fixed box also stops the neighbouring
-        // bar widgets from sliding around.
+        // The label. Clipped, because the marquee walks out of it. The box is only
+        // as wide as the text (at most `maxWidth`), so it sits right next to the
+        // state glyph; the fixed width that keeps the bar and the hover card still
+        // lives in `stripReserve`, not here.
         Item {
           id: labelBox
           visible: root.vertical ? root.label !== "" : true
           clip: true
-          implicitWidth: root.label === "" ? 0 : root.maxWidth
+          implicitWidth: root.label === "" ? 0 : Math.min(labelText.implicitWidth, root.maxWidth)
           implicitHeight: root.barSize
           readonly property bool overflowing: labelText.implicitWidth > width
 
-          // The text sits flush right inside the reserved box: a short title used
-          // to start at the left edge, which left a gap between this widget and its
-          // neighbour on the right. The wrapper is as wide as the text (up to the
-          // box) and hangs on the right edge, so the gap is on the left where
-          // nothing follows it. The marquee animates the text inside the wrapper,
-          // so the two never fight over the same property.
-          Item {
-            id: labelAlign
-            anchors.right: parent.right
+          Text {
+            id: labelText
+            x: 0
             height: parent.height
-            width: Math.min(labelText.implicitWidth, labelBox.width)
-            clip: true
-
-            Text {
-              id: labelText
-              x: 0
-              height: parent.height
-              verticalAlignment: Text.AlignVCenter
-              text: root.label
-              color: root.fg
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              elide: (root.overflow === "elide" || labelBox.scrolling) ? Text.ElideRight : Text.ElideNone
-            }
+            verticalAlignment: Text.AlignVCenter
+            text: root.label
+            color: root.fg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            elide: (root.overflow === "elide" || labelBox.scrolling) ? Text.ElideRight : Text.ElideNone
           }
 
           readonly property bool scrolling: overflowing && root.overflow === "scroll" && width > 0
@@ -994,12 +1001,18 @@ Panel {
           showArt: root.showArt,
           artIsTheIcon: root.artIsTheIcon,
           stripWidth: root.implicitWidth,
-          // Where the label text sits inside its reserved box -- so "is it flush
-          // right?" is a number, not a screenshot. `boxW` is the reserved width,
-          // `alignX` the wrapper's left edge in it, `textX` the marquee offset.
+          // Where the content sits in the reserved width -- so "is the play glyph
+          // right next to the text, and does the content end flush right?" is a
+          // number, not a screenshot. `reserve` is the reserved width, `boxW` the
+          // label box, `textW` the text, `contentRight` the right edge of the row.
+          reserve: Math.round(root.stripReserve),
           boxW: Math.round(labelBox.width),
-          alignX: Math.round(labelAlign.x),
           textW: Math.round(labelText.implicitWidth),
+          contentRight: Math.round(info.x + info.width),
+          // The two distances the eye notices: glyph -> label (was the complaint)
+          // and content -> right edge of the reserve.
+          glyphGap: Math.round(labelBox.x - (stateIconText.x + stateIconText.width)),
+          rightGap: Math.round(root.stripReserve - (info.x + info.width)),
           textX: Math.round(labelText.x),
           trunc: labelText.truncated
         }
