@@ -316,13 +316,13 @@ Ollerenshaw) — see `NOTICE.md` for the changes. `BarWidget.qml`, `Panel.qml`,
 `MiniPlayer.qml` and `Visualizer.qml` are original work.
 
 The plugin lives in its own repo with an issue tracker:
-**https://git.m2control.de/bm/omarchympd** — bugs and wishes belong there, not in a
+**https://git.m2control.de/bm/kokko.mpd** — bugs and wishes belong there, not in a
 chat session that is forgotten tomorrow.
 
 ## Later / open
 
 The open items live in the **issue tracker** of the repo
-(https://git.m2control.de/bm/omarchympd/issues) — with labels, milestone and a
+(https://git.m2control.de/bm/kokko.mpd/issues) — with labels, milestone and a
 "done when" per entry. Sorted by usefulness, not by effort:
 
 1. **Category search in the queue too** (`playlistsearch`).
