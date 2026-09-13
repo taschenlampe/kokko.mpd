@@ -111,7 +111,7 @@ Panel {
     : (promptMode === "rename" ? "Rename playlist:"
     : (promptMode === "format" ? "Label-Format:"
     : ((promptMode === "category" || promptMode === "filter")
-       ? "filter in " + root.rootFrameFor(root.tab).title + ":" : "suchen:")))
+       ? "filter in " + root.rootFrameFor(root.tab).title + ":" : "search:")))
   readonly property string promptPlaceholder: promptMode === "search"
     ? "tracks, artists, albums …"
     : (promptMode === "format" ? "[%artist% - ][%title%|%filename%]"
@@ -309,7 +309,7 @@ Panel {
   function infoFor(mode, f, list) {
     var n = (list || []).length
     if (mode === "queue") return n + " entries"
-    if (mode === "search") return n + (n >= 800 ? "+" : "") + " Treffer für „" + String(f.term || "") + "“"
+    if (mode === "search") return n + (n >= 800 ? "+" : "") + " hits for “" + String(f.term || "") + "”"
     if (mode === "list") return n + " entries"
     if (mode === "find") return n + " tracks"
     if (mode === "files") return String(f.path || "") === "" ? "Library — " + n + " entries" : String(f.path) + " — " + n
@@ -371,7 +371,7 @@ Panel {
     }
 
     rows.push({ type: "header", title: "Tracks — " + songs.length
-      + (songs.length >= 800 ? "+" : "") + " Treffer" })
+      + (songs.length >= 800 ? "+" : "") + " hits" })
     for (var t = 0; t < songs.length && t < 300; t++) rows.push(songs[t])
     return rows
   }
@@ -699,7 +699,7 @@ Panel {
         what = "all tracks by " + String(row.value || "")
       } else {
         host.mutation("findadd", { filter: [["album", String(row.value || "")]] })
-        what = "Album „" + String(row.value || "") + "“"
+        what = "Album „" + String(row.value || "") + "”"
       }
     } else if (type === "value") {
       var tag = String(root.frame.tag || "")
@@ -937,7 +937,7 @@ Panel {
   function applySearch(term) {
     var trimmed = String(term || "").trim()
     var nextFrame = { mode: "search", term: trimmed,
-                      title: trimmed === "" ? "Search" : "Suche: " + trimmed }
+                      title: trimmed === "" ? "Search" : "Search: " + trimmed }
     var top = root.stack.length > 0 ? root.stack[root.stack.length - 1] : null
     if (top && String(top.mode) === "search") {
       var next = root.stack.slice(0, root.stack.length - 1)
@@ -1034,7 +1034,7 @@ Panel {
     if (root.promptMode === "save") {
       if (text === "" || !root.up) return
       mutateAndReload("saveplaylist", { name: text })
-      root.setInfo("Queue saved as “" + text + "“")
+      root.setInfo("Queue saved as “" + text + "”")
       root.closePrompt()
       return
     }
@@ -1043,7 +1043,7 @@ Panel {
       var from = row ? String(row.playlist || "") : ""
       if (text === "" || from === "" || !root.up) return
       mutateAndReload("renameplaylist", { name: from, to: text })
-      root.setInfo("„" + from + "“ heißt jetzt „" + text + "“")
+      root.setInfo("„" + from + "“ heißt jetzt „" + text + "”")
       root.closePrompt()
       return
     }

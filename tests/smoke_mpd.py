@@ -149,7 +149,7 @@ def main():
             else:
                 print("   note: art without a usable file (%r)" % path[:60])
         elif uri:
-            print("   note: no art event for %r (Lied ohne Cover?)" % uri[:60])
+            print("   note: no art event for %r (track without a cover?)" % uri[:60])
     finally:
         shutil.rmtree(cache, ignore_errors=True)
 
