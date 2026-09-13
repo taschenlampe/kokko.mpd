@@ -173,14 +173,27 @@ greifen ohne Neustart.
 kennt — in MPD 0.24 ist das `cover.*`. Ein `folder.jpg` daneben wird ignoriert
 (gemessen: `albumart` antwortet „No file exists" für `folder.jpg`, `album.jpg` oder
 `Album Art.jpg`; dieselben Bytes liefern sofort ein Ergebnis, sobald eine
-`cover.jpg` existiert). Deshalb liest die Bridge die üblichen Namen — `cover`,
-`folder`, `front`, `album`, `albumart`, `album art`, `artwork`, `thumb`, `case`,
-`cd` in `.jpg/.jpeg/.png/.webp/.gif/.bmp` — selbst aus dem Musikverzeichnis
-(Pfad aus MPDs `mpd.conf`, `music_directory`). Eingebettete Bilder kommen
-unverändert über `readpicture`. Eine Coverdatei schlägt das eingebettete Bild,
-weil sie in der Regel die größere ist — dieselbe Reihenfolge, die MPD selbst
-wählt. Wichtig: Die Dateien müssen für den Benutzer lesbar sein, unter dem die
-Bridge läuft (bei einer Bibliothek auf einem NAS in der Regel kein Problem).
+`cover.jpg` existiert). Deshalb sucht die Bridge selbst im Musikverzeichnis (Pfad
+aus MPDs `mpd.conf`, `music_directory`) — und zwar nach Mustern, nicht nach einer
+festen Namensliste:
+
+| Rang | trifft zu auf | Beispiel |
+| --- | --- | --- |
+| 1 | `cover`, `front`, `folder`, `album`, `album art`, `albumart`, `artwork` (exakt) | `folder.jpg` |
+| 2 | „front" + „cover/art" irgendwo | `Danzig - Danzig - Front Cover.jpg` |
+| 3 | „cover", „artwork" oder „album art" irgendwo | `AlbumArt_{0F838ADF-…}_Large.jpg` |
+| 4 | `case`, `scan`, `cd`, `thumb` (exakt) | — |
+
+Innerhalb eines Rangs gewinnt die **größere** Datei (in der Regel der weniger
+beschnittene Scan). Namen, die meist die falsche Seite zeigen — `back`, `inside`,
+`inlay`, `booklet`, `small`, `disc`, `cd`, `thumb` — werden ans Ende sortiert:
+Ein Album mit nur einem Rückseiten-Scan zeigt den trotzdem, aber eine Vorderseite
+gewinnt immer. Erlaubte Endungen: `.jpg .jpeg .png .webp .gif .bmp`. Eingebettete
+Bilder kommen unverändert über `readpicture`; eine Coverdatei schlägt sie, weil sie
+in der Regel die größere ist — dieselbe Reihenfolge, die MPD selbst wählt.
+Wichtig: Die Dateien müssen für den Benutzer lesbar sein, unter dem die Bridge
+läuft (bei einer Bibliothek auf einem NAS in der Regel kein Problem).
+
 
 
 <details>

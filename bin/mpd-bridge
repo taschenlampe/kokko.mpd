@@ -491,9 +491,20 @@ def fetch_binary(conn: MPDConn, command: str, uri: str) -> tuple:
 # (measured: "No file exists" for folder.jpg, album.jpg, "Album Art.jpg"; the same
 # bytes answer `size: 25872` the moment a cover.jpg exists). The bridge runs on the
 # same machine as the library, so it can read the usual names itself.
-COVER_NAMES = ("cover", "folder", "front", "album", "albumart", "album art",
-               "artwork", "thumb", "case", "cd")
+#
+# Best coverage first; the first pattern that matches wins. Within one pattern the
+# largest file wins, because that is normally the least cropped scan. Names that
+# usually show the *wrong* side of a booklet ("Back Cover", "Inside", "CD",
+# "…Small") are kept, but ranked behind everything else -- an album that only has
+# one of those should still show something.
+COVER_PATTERNS = (
+    r"^(cover|front|folder|album|album art|albumart|artwork)$",
+    r"front[ _-]*(cover|art)",
+    r"(cover|artwork|album[ _-]*art)",
+    r"^(case|scan|cd|thumb)$",
+)
 COVER_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+COVER_WEAK = ("back", "inside", "inlay", "booklet", "small", "disc", "thumb", "cd")
 
 _MUSIC_DIR = None  # cached result of music_directory()
 
@@ -536,32 +547,52 @@ def music_directory() -> str:
 
 
 def local_cover(uri: str) -> tuple:
-    """The cover file beside the song, read from disk.
+    """The best cover image sitting beside the song, read from disk.
 
-    Only a fallback for what `albumart` will not hand out; every name in
-    COVER_NAMES is one players in the wild actually write. Returns (data, mime),
-    empty when there is nothing to read.
+    Only a fallback for what `albumart` will not hand out. Everything a media
+    player in the wild writes is fair game here -- `folder.jpg`, `Album Art.jpg`,
+    `AlbumArt_{GUID}_Large.jpg`, `Artist - Album - Front Cover.jpg`. The picks
+    are ranked by COVER_PATTERNS, then by file size among equals. Returns
+    (data, mime), empty when there is nothing to read.
     """
     base = music_directory()
     if not base or not uri:
         return b"", ""
     directory = os.path.join(base, os.path.dirname(uri))
     try:
-        present = {name.lower(): name for name in os.listdir(directory)}
+        names = os.listdir(directory)
     except OSError:
         return b"", ""
-    for wanted in COVER_NAMES:
-        for ext in COVER_EXTS:
-            name = present.get(wanted + ext)
-            if name is None:
-                continue
-            try:
-                with open(os.path.join(directory, name), "rb") as handle:
-                    data = handle.read(ART_LIMIT + 1)
-            except OSError:
-                continue
-            if 0 < len(data) <= ART_LIMIT:
-                return data, ""
+
+    images = []
+    for name in names:
+        stem, ext = os.path.splitext(name)
+        if ext.lower() not in COVER_EXTS:
+            continue
+        try:
+            size = os.path.getsize(os.path.join(directory, name))
+        except OSError:
+            continue
+        images.append((stem.lower(), os.path.join(directory, name), size))
+    if not images:
+        return b"", ""
+
+    def rank(image: tuple) -> tuple:
+        stem, _path, size = image
+        weak = any(word in stem for word in COVER_WEAK)
+        for index, pattern in enumerate(COVER_PATTERNS):
+            if re.search(pattern, stem):
+                return (index, weak, -size)
+        return (len(COVER_PATTERNS), weak, -size)
+
+    for _stem, path, _size in sorted(images, key=rank):
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read(ART_LIMIT + 1)
+        except OSError:
+            continue
+        if 0 < len(data) <= ART_LIMIT:
+            return data, ""
     return b"", ""
 
 
