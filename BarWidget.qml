@@ -1148,12 +1148,14 @@ Panel {
         enter: Qt.Key_Return, esc: Qt.Key_Escape, tab: Qt.Key_Tab,
         up: Qt.Key_Up, down: Qt.Key_Down, left: Qt.Key_Left, right: Qt.Key_Right,
         space: Qt.Key_Space, backspace: Qt.Key_Backspace, i: Qt.Key_I,
-        pageup: Qt.Key_PageUp, pagedown: Qt.Key_PageDown, slash: Qt.Key_Slash
+        pageup: Qt.Key_PageUp, pagedown: Qt.Key_PageDown, slash: Qt.Key_Slash,
+        minus: Qt.Key_Minus, plus: Qt.Key_Plus, equal: Qt.Key_Equal
       }
       var code = codes[name] !== undefined ? codes[name] : 0
       // Faithful to a real keyboard: Qt delivers a text for printable keys, so
       // symbols have to carry theirs too (the field decides on `text`).
-      var text = name.length === 1 ? name : (name === "space" ? " " : (name === "slash" ? "/" : ""))
+      var texts = { space: " ", slash: "/", minus: "-", plus: "+", equal: "=" }
+      var text = name.length === 1 ? name : (texts[name] !== undefined ? texts[name] : "")
       panelLoader.item.handleKey({ key: code, text: text, modifiers: 0, accepted: false })
       return "ok"
     }

@@ -147,9 +147,9 @@ does what right here. At the start, `esc` closes the panel.
 
 ## Settings
 
-Tab **8** in the panel — click or `enter` toggles, `-`/`+` change numbers, `enter`
-on the label format opens an input field. While you are there, the footer shows
-what the pattern does to the **playing track**.
+Tab **8** in the panel — click or `enter` toggles, `-`/`+` (or the `−`/`+` buttons
+right on the row) change numbers, `enter` on the label format opens an input field.
+While you are there, the footer shows what the pattern does to the **playing track**.
 
 | Setting | Effect |
 | --- | --- |

@@ -536,6 +536,24 @@ Panel {
     root.writeSetting(row.key, opts[(at + delta + opts.length) % opts.length], row.title)
   }
 
+  // One place that moves a value: numbers step inside their min/max, enum rows
+  // walk their list. The keys (-/+), the steppers on the row and the row click
+  // all go through here, so the three cannot drift apart.
+  function stepSetting(row, delta) {
+    if (!row || row.type !== "setting") return
+    if (row.kind === "enum") { root.stepEnum(row, delta); return }
+    if (row.kind !== "int") return
+    var value = Number(row.value || 0)
+    var next = value + Math.max(1, Number(row.step || 1)) * delta
+    if (row.min !== undefined) next = Math.max(Number(row.min), next)
+    if (row.max !== undefined) next = Math.min(Number(row.max), next)
+    if (next === value) {
+      root.note("setting " + row.key + " is at its limit")
+      return
+    }
+    root.writeSetting(row.key, next, row.title)
+  }
+
   function writeSetting(key, value, label) {
     if (root.host === null) return
     root.host.setSetting(key, value)
@@ -616,6 +634,9 @@ Panel {
         root.host.showOsd(false)
         root.flash("Card on track change — " + (Number(row.value) / 1000).toFixed(1) + " s")
       }
+      // Any other number: a click means "more of it", and the −/+ steppers on the
+      // row go both ways. Before this, a click on `Cover backdrop` did nothing.
+      else if (row.kind === "int") root.stepSetting(row, 1)
       return
     }
     if (!root.up) return
@@ -1185,16 +1206,15 @@ Panel {
     // volume/play bindings, which own those keys everywhere else.
     if (root.frameMode === "settings") {
       var srow = root.rows[root.sel]
-      if (srow && srow.kind === "enum" && (text === "-" || text === "+" || text === "=")) {
-        root.stepEnum(srow, text === "-" ? -1 : 1)
-        event.accepted = true
-        return
-      }
-      if (srow && srow.kind === "int" && (text === "-" || text === "+" || text === "=")) {
-        var step = Number(srow.step || 5)
-        var next = Number(srow.value || 0) + ((text === "-") ? -step : step)
-        next = Math.max(Number(srow.min || 0), Math.min(Number(srow.max || 100), next))
-        root.writeSetting(srow.key, next, srow.title)
+      // One branch for both numeric kinds, through the same stepSetting() the
+      // steppers on the row call. The sign arrives as text or as a key code (a
+      // numpad sends the code), and this runs before the volume bindings -- so a
+      // `-` on a settings row can never move the volume.
+      var dir = (text === "-" || key === Qt.Key_Minus) ? -1
+        : (text === "+" || text === "=" || key === Qt.Key_Plus || key === Qt.Key_Equal) ? 1 : 0
+      if (dir !== 0 && srow && srow.type === "setting"
+          && (srow.kind === "int" || srow.kind === "enum")) {
+        root.stepSetting(srow, dir)
         event.accepted = true
         return
       }
@@ -1518,7 +1538,8 @@ Panel {
           Row {
             visible: !rowItem.isHeader
             anchors { left: parent.left; leftMargin: Style.space(8)
-                      right: trashButton.visible ? trashButton.left : addButton.left
+                      right: root.frameMode === "settings" ? stepMinus.left
+                        : (trashButton.visible ? trashButton.left : addButton.left)
                       rightMargin: Style.space(8)
                       verticalCenter: parent.verticalCenter }
             spacing: Style.space(10)
@@ -1548,6 +1569,78 @@ Panel {
               color: rowItem.selected ? root.selFg : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
+            }
+          }
+
+          // In the settings tab the row carries its own steppers: `−` and `+`, the
+          // mouse half of the -/+ keys. Glyphs checked against the font (U+2212,
+          // U+002B in JetBrainsMono Nerd Font), not guessed.
+          Item {
+            id: stepPlus
+            visible: root.frameMode === "settings"
+              && (rowItem.modelData.kind === "int" || rowItem.modelData.kind === "enum")
+            anchors { right: parent.right; rightMargin: Style.space(5)
+                      verticalCenter: parent.verticalCenter }
+            width: Style.space(20)
+            height: Style.space(18)
+
+            Rectangle {
+              anchors.fill: parent
+              radius: Style.cornerRadius
+              color: plusArea.containsMouse ? root.accent : "transparent"
+              border.width: Math.max(1, Style.normalBorderWidth)
+              border.color: rowItem.selected ? root.selFg : root.line
+            }
+
+            Text {
+              anchors.centerIn: parent
+              text: "+"
+              color: plusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            MouseArea {
+              id: plusArea
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, 1) }
+            }
+          }
+
+          Item {
+            id: stepMinus
+            visible: stepPlus.visible
+            anchors { right: stepPlus.left; rightMargin: Style.space(5)
+                      verticalCenter: parent.verticalCenter }
+            width: Style.space(20)
+            height: Style.space(18)
+
+            Rectangle {
+              anchors.fill: parent
+              radius: Style.cornerRadius
+              color: minusArea.containsMouse ? root.accent : "transparent"
+              border.width: Math.max(1, Style.normalBorderWidth)
+              border.color: rowItem.selected ? root.selFg : root.line
+            }
+
+            Text {
+              anchors.centerIn: parent
+              text: "−"
+              color: minusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            MouseArea {
+              id: minusArea
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, -1) }
             }
           }
 
