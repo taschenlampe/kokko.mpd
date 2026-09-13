@@ -163,9 +163,9 @@
         "key": "coverLook",
         "type": "enum",
         "label": "Cover in the player",
-        "options": ["classic", "sharp", "hero", "anchor"],
+        "options": ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split"],
         "defaultValue": "classic",
-        "description": "How the band in the panel looks: classic (soft-blurred cover behind the panel), sharp (the cover stays an image), hero (cover as the card of the player), anchor (big cover, one control row). Switchable live."
+        "description": "How the band in the panel looks: classic (soft-blurred cover behind the panel), sharp (the cover stays an image), hero (cover as the card of the player), anchor (big cover, one control row), vinyl (cover inside a spinning disc), minimal (no artwork, one thin line), split (cover as a full-height column on the left). Switchable live."
       }
     ]
   }

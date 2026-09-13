@@ -159,15 +159,15 @@ its own height — there the look does not change while you watch it.
 | --- | --- |
 | Card on mouse hover | the card under the bar (only while the panel is closed — open, it is already the big view) |
 | Cover backdrop | presence of the cover in the panel, 0 switches it off; higher values let it **run further down** (behind the last row), not just stronger |
-| Cover in the player | **four looks** for the band: `classic`, `sharp`, `hero`, `anchor` — `enter` or `-`/`+` cycles, applies at once |
+| Cover in the player | **seven looks** for the band: `classic`, `sharp`, `hero`, `anchor`, `vinyl`, `minimal`, `split` — `enter` or `-`/`+` cycles, applies at once |
 | Label format | `mpc` placeholders for the bar label, with live preview |
 | Card on track change | flashes on every new track — switch it off entirely here |
 | … visible for | how long it stays then; `enter` shows it right now |
 | Desktop notification on track change | the desktop's bubble (app "MPD") — **independent of the card** |
 
-**Four looks for the band** (`Cover in the player`) — same data, four pictures:
+**Seven looks for the band** (`Cover in the player`) — same data, seven pictures:
 
-![The four cover looks](docs/cover-looks.png)
+![The seven cover looks](docs/cover-looks.png)
 
 | Look | What it does | Price |
 | --- | --- | --- |
@@ -175,6 +175,9 @@ its own height — there the look does not change while you watch it.
 | `sharp` | the same band with an 88 px cover, and the cover behind the panel stays an **image** (opacity + gradient instead of blur) | at a high "Cover backdrop" it is more present than the soft one — turn the slider down if needed |
 | `hero` | the cover **is** the background of the player card, panel flat | band is taller: roughly two list rows less |
 | `anchor` | big cover (104 px), everything else text and **one** control row, panel flat | band is taller: roughly two list rows less |
+| `vinyl` | the cover spins inside a **round disc** — rim line and a spindle dot at the centre, and it stops where you paused | — (same band height as `sharp`) |
+| `minimal` | **no artwork at all** — one thin line: title, progress, transport | 38 px: three more list rows than `classic` |
+| `split` | the cover becomes a full-height **column** on the left, title and year beside it, controls bottom right | third tallest band (112 px) |
 
 Everything else (server, port, password, label width, scroll behaviour, card
 duration on hover) lives in the plugin settings or in `shell.json`; changes apply
