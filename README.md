@@ -272,6 +272,31 @@ o.bind("XF86AudioPrev", "Vorheriger Titel", "omarchy-shell -q kokko.mpd prev", {
 
 </details>
 
+## Tests
+
+Alles, was sich ohne Klick prüfen lässt, läuft in einem Aufruf:
+
+```sh
+tests/run.sh            # alles, inklusive Rauchtest gegen ein laufendes MPD
+tests/run.sh --fast     # ohne MPD -- das benutzt der pre-commit-Hook
+tests/install-hooks.sh  # einmal pro Klon: aktiviert den Hook
+```
+
+Der Hook ist der eigentliche Grund für die Tests: **ein QML-Syntaxfehler ist hier
+unsichtbar** — die Shell startet, das Widget ist einfach weg, ohne Meldung.
+`qmllint` findet ihn (`omarchy plugin validate` tut das nicht), deshalb läuft er vor
+jedem Commit. Im Notfall: `git commit --no-verify`.
+
+Geprüft wird zweierlei. Ohne MPD: die reinen Python-Teile der Bridge — Cover-Auswahl
+mit Rangfolge und Größenlimit, der Filterausdruck samt beider Escape-Schichten, der
+Cache-Schlüssel, der Bildtyp, `music_directory` aus `mpd.conf`. Dazu `qmllint` und
+`omarchy plugin validate`. Mit laufendem MPD: dass die Bridge antwortet, ein Cover
+holt, und dass Titel mit Sonderzeichen (`#1's …`, `( O )( O )( O ), cl-018`) sich
+über den Filterausdruck selbst finden.
+
+Was **nicht** automatisch geht, steht als Issue im Repo (Mauspfade, `crop`) — die
+brauchen einen Menschen mit Zeiger.
+
 ## Herkunft
 
 `bin/mpd-bridge` und `Format.js` stammen aus

@@ -1,0 +1,8 @@
+#!/bin/bash
+# Laueft vor jedem Commit. Noetig ist das, weil ein QML-Syntaxfehler hier nicht
+# auffaellt: die Shell startet, das Widget ist einfach weg -- ohne Meldung.
+#
+#     git commit --no-verify      im Notfall vorbei
+#     tests/run.sh                dieselbe Pruefung von Hand, inkl. MPD-Rauchtest
+ROOT=$(git rev-parse --show-toplevel) || exit 1
+exec "$ROOT/tests/run.sh" --fast
