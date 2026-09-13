@@ -48,7 +48,7 @@ COMMANDS (the "op" key of `cmd`):
     renameplaylist {name,to} | playlistadd {name,uri}
     playlistdelete {name,pos} | playlistclear {name}
     searchadd {term}
-    (Hinweis: `playlistdelete`, `playlistclear` und `searchadd` sind Zusätze dieses Plugins)
+    (note: `playlistdelete`, `playlistclear` and `searchadd` are additions of this plugin)
 
 QUERIES (the "kind" key of `query`):
     queue                     the play queue, in order

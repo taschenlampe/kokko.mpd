@@ -1,9 +1,9 @@
 #!/bin/bash
-# Alles, was sich ohne Klick pruefen laesst: Syntax, Lint, Unit-Tests und ein
-# optionaler Rauchtest gegen ein laufendes MPD.
+# Everything that can be checked without a click: syntax, lint, unit tests and
+# an optional smoke test against a running MPD.
 #
-#     tests/run.sh          alles
-#     tests/run.sh --fast   ohne MPD-Rauchtest (fuer den pre-commit-Hook)
+#     tests/run.sh          everything
+#     tests/run.sh --fast   without the MPD smoke test (what the hook uses)
 set -u
 cd "$(dirname "$0")/.." || exit 1
 FAST=0
@@ -21,8 +21,8 @@ step "unit tests (without MPD)"
 if python3 tests/test_bridge.py; then note "ok"; else bad "unit tests failed"; fi
 
 step "qmllint (QML syntax)"
-# Vanilla-qmllint findet Omarchys Module nur ueber einen Verzeichnis-Trick:
-# qs.Ui/qs.Commons als Ui/Commons unter einem Include-Pfad.
+# Vanilla qmllint only finds Omarchy's modules through a directory trick:
+# qs.Ui/qs.Commons as Ui/Commons under one include path.
 QS=${TMPDIR:-/tmp}/qslint
 mkdir -p "$QS/qs"
 if [ -d /usr/share/omarchy/shell/Ui ]; then

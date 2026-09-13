@@ -1,6 +1,6 @@
 #!/bin/bash
-# Git kann Hooks nicht versionieren, also zeigt dieser Aufruf den Klon auf
-# .githooks/ (einmal pro Klon noetig).
+# Git cannot version hooks, so this points the clone at .githooks/ (needed
+# once per clone).
 set -eu
 cd "$(dirname "$0")/.."
 git config core.hooksPath .githooks

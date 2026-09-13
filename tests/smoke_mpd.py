@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Rauchtest gegen ein laufendes MPD: startet die Bridge, prueft Antwort, Cover
-und den Filterausdruck mit echten Sonderzeichen-Titeln.
+"""Smoke test against a running MPD: starts the bridge, checks the answer, the
+cover and the filter expression against real titles with special characters.
 
     python3 tests/smoke_mpd.py
 
-Bewusst sanft und nur lesend: gefragt werden `status`/`currentsong`/`list album`,
-geschrieben wird in einen eigenen Cache (`XDG_CACHE_HOME` umgelenkt), die Queue
-bleibt unberuehrt. Kein MPD erreichbar -> uebersprungen, nicht fehlgeschlagen.
+Deliberately gentle and read-only: it asks `status`/`currentsong`/`list album`,
+writes into a cache of its own (`XDG_CACHE_HOME` redirected) and leaves the queue
+alone. No MPD reachable -> skipped, not failed.
 
-Wichtig fuer den Bridge-Teil: stdin muss **offen bleiben**. Wird es sofort
-geschlossen, beendet sich die Bridge bei EOF, bevor sie geantwortet hat.
+Important for the bridge part: stdin has to **stay open**. Closed right away,
+the bridge exits on EOF before it has answered.
 """
 import importlib.machinery
 import importlib.util
@@ -91,7 +91,7 @@ def bridge_run(cache, uri):
                             env=dict(os.environ, XDG_CACHE_HOME=cache))
     proc.stdin.write(script.encode())
     proc.stdin.flush()
-    time.sleep(6)                     # stdin offen halten, sonst EOF-Abbruch
+    time.sleep(6)                     # keep stdin open, otherwise EOF ends it early
     try:
         proc.stdin.close()
     except OSError:

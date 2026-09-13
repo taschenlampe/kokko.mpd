@@ -1,8 +1,8 @@
 #!/bin/bash
-# Laueft vor jedem Commit. Noetig ist das, weil ein QML-Syntaxfehler hier nicht
-# auffaellt: die Shell startet, das Widget ist einfach weg -- ohne Meldung.
+# Runs before every commit. It earns its keep because a QML syntax error is
+# invisible here: the shell starts, the widget is simply gone -- no message.
 #
-#     git commit --no-verify      im Notfall vorbei
-#     tests/run.sh                dieselbe Pruefung von Hand, inkl. MPD-Rauchtest
+#     git commit --no-verify      past it, in an emergency
+#     tests/run.sh                the same check by hand, incl. the MPD smoke test
 ROOT=$(git rev-parse --show-toplevel) || exit 1
 exec "$ROOT/tests/run.sh" --fast
