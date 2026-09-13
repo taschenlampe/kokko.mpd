@@ -739,6 +739,14 @@ Panel {
       return
     }
     if (mode === "list") {
+      // A scoped search frame: its rows *are* the matches, so "A" appends those --
+      // one command in the same category, not a walk through every artist.
+      var only = String(root.frame.search || "")
+      if (only !== "") {
+        host.mutation("searchadd", { term: only, tag: String(root.frame.tag || "album") })
+        root.flash("alle Treffer zu „" + only + "“ angehängt")
+        return
+      }
       var base = root.frame.filter || []
       if (base.length === 0) { root.flash("erst Künstler oder Album öffnen, dann A"); return }
       host.mutation("findadd", { filter: base })

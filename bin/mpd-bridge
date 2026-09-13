@@ -388,6 +388,19 @@ def quote_filter_value(value) -> str:
     return str(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
+def contains_expression(tag: str, term: str) -> str:
+    """A case-insensitive substring filter over one tag.
+
+    `contains` compares case-sensitively in a `list` filter (measured: "iam" missed
+    the artist "IAM" -- 5 hits instead of 6), while `=~` with an inline flag finds
+    either spelling. The whole expression has to stay one argument: MPD splits its
+    arguments on spaces and the filter parser then chokes on the quotes. Regex
+    characters in the term are escaped, so searching for "AC/DC + live" looks for
+    that text and not for a pattern.
+    """
+    return "(%s =~ '(?i)%s')" % (tag, quote_filter_value(re.escape(term)))
+
+
 def version_at_least(version: str, major: int, minor: int) -> bool:
     parts = (version or "").split(".")
     try:
@@ -964,10 +977,12 @@ class Bridge:
             self.with_cmd(lambda conn: self.find_add(
                 conn, payload.get("filter") or [], op == "findplay"))
         elif op == "searchadd":
-            # The same, for a free-text search: one command appends every hit.
+            # The same, for a free-text search: one command appends every hit. With a
+            # tag it stays inside that category -- the scoped field of the library tabs.
             term = str(payload.get("term", "") or "").strip()
+            scope = str(payload.get("tag", "") or "").strip()
             if term:
-                self.with_cmd(lambda conn: self.search_add(conn, term))
+                self.with_cmd(lambda conn: self.search_add(conn, term, scope))
         elif op == "remove":
             one("deleteid", int(payload.get("id", 0)))
         elif op == "move":
@@ -1058,17 +1073,20 @@ class Bridge:
             conn.command("play", start)
         return True
 
-    def search_add(self, conn: MPDConn, term: str) -> bool:
+    def search_add(self, conn: MPDConn, term: str, tag: str = "") -> bool:
         """Everything a search matches, appended in one command.
 
         `searchadd` takes the same filter expression `search` does, and it
         answers OK even when nothing matches -- the same silence find_add
-        refuses to pass on.
+        refuses to pass on. A `tag` narrows it to one category: that is what the
+        scoped field in the library tabs hands in -- "append the rows I am looking
+        at", not everything that happens to mention the word somewhere.
         """
         if version_at_least(conn.version, 0, 21):
-            args = ["(any contains '%s')" % quote_filter_value(term)]
+            args = [contains_expression(tag, term) if tag
+                    else "(any contains '%s')" % quote_filter_value(term)]
         else:
-            args = ["any", term]
+            args = [tag, term] if tag else ["any", term]
         start = self.queue_length(conn)
         conn.command("searchadd", *args)
         if self.queue_length(conn) == start:
@@ -1251,17 +1269,27 @@ class Bridge:
             tag = str(request.get("tag", "album"))
             term = str(request.get("search", "")).strip()
             if term:
-                # Scoped search: one category, the same `contains` filter the global
-                # search uses -- "the albums whose name contains this". MPD wants the
-                # whole expression as a single argument (the bridge's quoting takes
-                # care of that), and this MPD cannot combine two tags with OR, which
-                # is exactly the "only this category" the field is for.
-                # 0.20 has no filter expressions; there it is an exact match, which
-                # is still better than nothing on a NAS that old.
-                if version_at_least(conn.version, 0, 21):
-                    args = [tag, "(%s contains '%s')" % (tag, quote_filter_value(term))]
-                else:
+                # Scoped search: one category. Written as a case-insensitive regex,
+                # because `contains` compares case-sensitively here -- "iam" missed the
+                # artist "IAM" (5 hits) while `=~ '(?i)iam'` finds it (6). MPD wants the
+                # whole expression as a single argument (the bridge's quoting does
+                # that), and this MPD cannot combine two tags with OR, which is exactly
+                # the "only this category" the field is for.
+                # 0.20 has no filter expressions; there it is an exact match, which is
+                # still better than nothing on a NAS that old.
+                if not version_at_least(conn.version, 0, 21):
                     args = [tag, tag, term]
+                else:
+                    try:
+                        args = [tag, contains_expression(tag, term)]
+                        rows = tag_values(conn.command("list", *args)[0], tag, limit=limit)
+                    except MPDCommandError:
+                        # An MPD built without regex support: a case-sensitive hit
+                        # still beats no hit at all.
+                        args = [tag, "(%s contains '%s')" % (tag, quote_filter_value(term))]
+                        rows = tag_values(conn.command("list", *args)[0], tag, limit=limit)
+                    rows.sort(key=lambda r: r["value"].lower())
+                    return rows
             else:
                 args = [tag] + self.filter_args(conn, request.get("filter") or [])
             rows = tag_values(conn.command("list", *args)[0], tag, limit=limit)

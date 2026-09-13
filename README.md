@@ -103,7 +103,7 @@ welche Taste hier gerade etwas tut. Am Anfang schließt `esc` das Panel.
 | `1` … `8`, `tab` | Queue · Suche · Alben · Künstler · Genres · Dateien · Playlists · Einstellungen |
 | `t` | **zum laufenden Titel** — aus jedem Tab: wechselt in die Queue und stellt ihn mittig |
 | `<` `>` | vorheriger / nächster Titel (die Belegung von `ncmpcpp`, nicht von `mpc` — das schreibt `prev`/`next`) |
-| `/` | **Feld für das, was du gerade siehst**: in Alben/Künstler/Genres sucht es nur in dieser Kategorie („Alben · danzig"), in Dateien/Playlists filtert es die geladene Liste („4 von 19", `esc` zeigt wieder alles) — in Queue und Suche bleibt es die globale Suche |
+| `/` | **Feld für das, was du gerade siehst**: in Alben/Künstler/Genres sucht es nur in dieser Kategorie („Alben · danzig"), in Dateien/Playlists filtert es die geladene Liste („4 von 19", `esc` zeigt wieder alles) — in Queue und Suche bleibt es die globale Suche. **Groß- und Kleinschreibung ist überall egal** („iam" findet auch „IAM") |
 | `j` `k`, `↑` `↓`, `pgup` `pgdn`, `g` `G` | bewegen |
 | `enter` | öffnen bzw. spielen |
 | `a` / `A` | anhängen, was die Zeile ist / alles in dieser Liste |
@@ -171,15 +171,20 @@ greifen ohne Neustart.
 ## Für Neugierige
 
 **Suchen in der Kategorie.** In den Bibliothek-Tabs sucht `/` nicht global, sondern
-in *dieser* Kategorie: `list album "(album contains 'danzig')"` — MPD filtert also
-selbst, und MPD will den ganzen Ausdruck als **ein** Argument (sonst zerlegt es ihn
-an den Leerzeichen: „Invalid unquoted character"). Zwei Kategorien auf einmal gehen
-nicht: dieses MPD kann Filter nur mit `AND` verbinden, nicht mit `OR` — was genau
-der „nur diese Kategorie"-Idee entspricht. Dateien und Playlists haben bei MPD
-keinen Filter (Pfade und Playlistnamen sind keine Tags), dort filtert das Feld die
-geladene Liste vor Ort; die Info-Zeile sagt dann „4 von 19", und ein `esc` zeigt
-wieder alles. Auf MPD 0.20 (NAS) wird daraus ein exakter Treffer statt eines
-Teiltreffers.
+in *dieser* Kategorie: `list artist "(artist =~ '(?i)iam')"` — MPD filtert also
+selbst. Zwei Eigenheiten von MPD stecken darin: `contains` vergleicht im
+`list`-Filter **groß-/kleinschreibungsabhängig** („iam" fand 5 Künstler, „IAM" war
+nicht dabei), der Regex-Operator `=~` mit `(?i)` findet beide — deshalb der Regex,
+mit `re.escape` für Sonderzeichen und einem Rückfall auf `contains`, falls ein MPD
+ohne Regex gebaut wurde. Und MPD will den ganzen Ausdruck als **ein** Argument
+(sonst zerlegt es ihn an den Leerzeichen: „Invalid unquoted character"). Zwei
+Kategorien auf einmal gehen nicht: dieses MPD verbindet Filter nur mit `AND`, nicht
+mit `OR` — was genau der „nur diese Kategorie"-Idee entspricht. In der *globalen*
+Suche (Tab 2) ist die Schreibweise ohnehin egal, das ist MPDs eigene Suche. Dateien
+und Playlists haben bei MPD keinen Filter (Pfade und Playlistnamen sind keine Tags),
+dort filtert das Feld die geladene Liste vor Ort; die Info-Zeile sagt dann „4 von
+19", und ein `esc` zeigt wieder alles. Auf MPD 0.20 (NAS) wird daraus ein exakter
+Treffer statt eines Teiltreffers.
 
 **Cover-Dateien.** MPD gibt über `albumart` nur Bilddateien heraus, deren Namen es
 kennt — in MPD 0.24 ist das `cover.*`. Ein `folder.jpg` daneben wird ignoriert
