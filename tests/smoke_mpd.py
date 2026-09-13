@@ -110,7 +110,7 @@ def bridge_run(cache, uri):
 
 def main():
     if not reachable():
-        print("   uebersprungen: kein MPD auf %s:%d" % (HOST, PORT))
+        print("   skipped: no MPD on %s:%d" % (HOST, PORT))
         return 0
 
     failed = 0
@@ -119,7 +119,7 @@ def main():
     if values(current, "file"):
         uri = values(current, "file")[0]
 
-    print("=== Bridge starten, Status abfragen%s ===" % (", Cover holen" if uri else ""))
+    print("=== start the bridge, query status%s ===" % (", Cover holen" if uri else ""))
     cache = tempfile.mkdtemp(prefix="mpd-smoke-")
     try:
         code, out, err = bridge_run(cache, uri)
@@ -132,42 +132,42 @@ def main():
                 except ValueError:
                     pass
         kinds = [e.get("event") for e in events if e.get("event")]
-        print("   Prozess beendet mit %s | Ereignisse: %s" % (code, ", ".join(kinds) or "keine"))
+        print("   process exited with %s | events: %s" % (code, ", ".join(kinds) or "keine"))
         if "state" not in kinds:
-            print("   FEHLER: kein state-Ereignis -- die Bridge hat nicht geantwortet")
+            print("   FAIL: no state event -- the bridge did not answer")
             if err.strip():
                 print("   stderr: %s" % err.decode("utf-8", "replace").strip().splitlines()[-1][:140])
             failed = 1
         elif b"Traceback" in err:
-            print("   FEHLER: Traceback im stderr")
+            print("   FAIL: traceback on stderr")
             failed = 1
         art = [e for e in events if e.get("event") == "art"]
         if uri and art:
             path = art[-1].get("path") or ""
             if path and os.path.isfile(path) and os.path.getsize(path) > 0:
-                print("   Cover: %d Bytes (%s)" % (os.path.getsize(path), os.path.basename(path)))
+                print("   cover: %d bytes (%s)" % (os.path.getsize(path), os.path.basename(path)))
             else:
-                print("   Hinweis: art ohne brauchbare Datei (%r)" % path[:60])
+                print("   note: art without a usable file (%r)" % path[:60])
         elif uri:
-            print("   Hinweis: kein art-Ereignis fuer %r (Lied ohne Cover?)" % uri[:60])
+            print("   note: no art event for %r (Lied ohne Cover?)" % uri[:60])
     finally:
         shutil.rmtree(cache, ignore_errors=True)
 
-    print("=== Filterausdruck gegen echte Sonderzeichen-Titel ===")
+    print("=== filter expression against real special-character titles ===")
     module = load_bridge()
     albums = values(raw("list album"), "Album")
     candidates = [a for a in albums if any(ch in a for ch in META)][:6]
     if not candidates:
-        print("   uebersprungen: kein Album mit Sonderzeichen in der Bibliothek")
+        print("   skipped: no album with special characters in the library")
     hits = 0
     for name in candidates:
         expr = module.contains_expression("album", name)
         found = values(raw("list album " + wire(expr)), "Album")
         hit = name in found
         hits += 1 if hit else 0
-        print("   %-44s %s" % (name[:44], "getroffen" if hit else "NICHT getroffen"))
+        print("   %-44s %s" % (name[:44], "found" if hit else "NOT found"))
     if candidates and hits != len(candidates):
-        print("   FEHLER: %d von %d Sonderzeichen-Titeln wurden nicht gefunden" %
+        print("   FAIL: %d of %d titles with special characters were not found" %
               (len(candidates) - hits, len(candidates)))
         failed = 1
 

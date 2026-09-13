@@ -4,7 +4,7 @@
   "name": "MPD",
   "version": "0.1.0",
   "author": "kokko",
-  "description": "MPD-Client für die Omarchy-Leiste: was gerade läuft mit Cover und Transport, dazu ein Panel mit Queue, lokaler Suche in der Bibliothek und Dateibrowser. Spricht das MPD-Protokoll direkt (TCP oder Unix-Socket), Zustand kommt per MPD-idle-Push statt Polling. Läuft auch unter einer Fremd-Leiste, weil die Verbindung als Kindprozess im Widget selbst lebt.",
+  "description": "MPD client for the Omarchy bar: what is playing right now, with cover and transport, plus a panel with queue, local library search and file browser. Talks the MPD protocol directly (TCP or Unix socket); state arrives by MPD idle push instead of polling. Also runs under a third-party bar, because the connection lives as a child process inside the widget itself.",
   "license": "MIT",
   "kinds": [
     "bar-widget"
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "MPD",
-    "description": "Was gerade läuft, mit Cover und Transportknöpfen. Klick öffnet Queue, Suche und Bibliothek.",
+    "description": "What is playing right now, with cover and transport buttons. Click opens queue, search and library.",
     "category": "Media",
     "allowMultiple": false,
     "defaultSection": "center",
@@ -35,7 +35,7 @@
       "osdOnHover": false,
       "osdDuration": 4200,
       "notifyTrack": false,
-      "coverLook": "klassisch"
+      "coverLook": "classic"
     },
     "schema": [
       {
@@ -43,7 +43,7 @@
         "type": "string",
         "label": "MPD host",
         "defaultValue": "",
-        "description": "Hostname oder IP. Ein Pfad oder @name ist ein Unix-Socket. Leer folgt $MPD_HOST, dann 127.0.0.1."
+        "description": "Hostname or IP. A path or @name is a Unix socket. Empty follows $MPD_HOST, then 127.0.0.1."
       },
       {
         "key": "port",
@@ -53,21 +53,21 @@
         "max": 65535,
         "step": 1,
         "defaultValue": 6600,
-        "description": "Wird ignoriert, wenn der Host ein Unix-Socket ist."
+        "description": "Ignored when the host is a Unix socket."
       },
       {
         "key": "password",
         "type": "string",
         "label": "MPD password",
         "defaultValue": "",
-        "description": "Nur falls der Server eines verlangt. Steht als Klartext in shell.json."
+        "description": "Only if the server asks for one. Stored as plain text in shell.json."
       },
       {
         "key": "format",
         "type": "string",
         "label": "Label format",
         "defaultValue": "[%artist% - ][%title%|%filename%]",
-        "description": "%tag% wird ersetzt, [ ] fällt weg wenn ein Tag darin fehlt, [a|b] nimmt den ersten Treffer."
+        "description": "%tag% is substituted, [ ] drops out when a tag inside it is missing, [a|b] takes the first hit."
       },
       {
         "key": "maxWidth",
@@ -77,14 +77,14 @@
         "max": 1200,
         "step": 20,
         "defaultValue": 240,
-        "description": "Wie viel Platz das Label bekommt, bevor es scrollt oder gekürzt wird."
+        "description": "How much room the label gets before it scrolls or is cut."
       },
       {
         "key": "overflow",
         "type": "string",
         "label": "When the label is too long",
         "defaultValue": "scroll",
-        "description": "scroll oder elide."
+        "description": "scroll or elide."
       },
       {
         "key": "showStateIcon",
@@ -97,56 +97,56 @@
         "type": "boolean",
         "label": "Cover thumbnail in the bar",
         "defaultValue": false,
-        "description": "Das Cover als kleines Bild vor dem Label."
+        "description": "The cover as a small image in front of the label."
       },
       {
         "key": "whenIdle",
         "type": "string",
         "label": "When nothing is playing",
         "defaultValue": "icon",
-        "description": "icon lässt ein Glyph stehen, hide entfernt das Widget ganz."
+        "description": "icon keeps a glyph, hide removes the widget entirely."
       },
       {
         "key": "wheelAction",
         "type": "string",
         "label": "Scroll wheel",
         "defaultValue": "volume",
-        "description": "volume, seek, track oder none."
+        "description": "volume, seek, track or none."
       },
       {
         "key": "hoverCard",
         "type": "boolean",
-        "label": "Karte beim Überfahren",
+        "label": "Card on hover",
         "defaultValue": true,
-        "description": "Cover, Fortschritt und die großen Bedienknöpfe als Karte unter der Leiste."
+        "description": "Cover, progress and the big transport buttons as a card under the bar."
       },
       {
         "key": "backdrop",
         "type": "integer",
-        "label": "Cover-Hintergrund: Präsenz",
+        "label": "Cover backdrop: presence",
         "defaultValue": 60,
         "min": 0,
         "max": 100,
-        "description": "0 schaltet ihn aus; höhere Werte machen das Cover hinter Queue und Suche präsenter (Deckkraft, Sättigung und Schärfe zusammen), ohne die Zeilen zu verdecken."
+        "description": "0 turns it off; higher values make the cover behind the lists more present (opacity, saturation and sharpness together) without covering the rows."
       },
       {
         "key": "osdOnChange",
         "type": "boolean",
-        "label": "Karte bei Titelwechsel",
+        "label": "Card on track change",
         "defaultValue": true,
-        "description": "Cover, Titel und Fortschritt kurz unten einblenden."
+        "description": "Briefly show cover, title and progress at the bottom."
       },
       {
         "key": "osdOnHover",
         "type": "boolean",
-        "label": "Einfache Karte auch beim Überfahren",
+        "label": "Simple card on hover as well",
         "defaultValue": false,
-        "description": "Statt der Karte mit Bedienelementen die einfache Anzeige einblenden."
+        "description": "Show the simple display instead of the card with controls."
       },
       {
         "key": "osdDuration",
         "type": "integer",
-        "label": "Karte sichtbar (ms)",
+        "label": "Card visible (ms)",
         "min": 1000,
         "max": 60000,
         "step": 500,
@@ -155,17 +155,17 @@
       {
         "key": "notifyTrack",
         "type": "boolean",
-        "label": "Benachrichtigung bei Titelwechsel",
+        "label": "Notification on track change",
         "defaultValue": false,
-        "description": "Desktop-Benachrichtigung mit Cover, Titel und Interpret."
+        "description": "Desktop notification with cover, title and artist."
       },
       {
         "key": "coverLook",
         "type": "enum",
-        "label": "Cover im Player",
-        "options": ["klassisch", "scharf", "hero", "anker"],
-        "defaultValue": "klassisch",
-        "description": "Wie das Band im Panel aussieht: klassisch (weichgezeichnetes Cover hinter dem Panel), scharf (das Cover bleibt ein Bild), hero (Cover als Karte des Players), anker (großes Cover, eine Bedienzeile). Live umschaltbar."
+        "label": "Cover in the player",
+        "options": ["classic", "sharp", "hero", "anchor"],
+        "defaultValue": "classic",
+        "description": "How the band in the panel looks: classic (soft-blurred cover behind the panel), sharp (the cover stays an image), hero (cover as the card of the player), anchor (big cover, one control row). Switchable live."
       }
     ]
   }

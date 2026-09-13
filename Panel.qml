@@ -44,11 +44,11 @@ Panel {
   // and anchor looks carry the cover inside the band, so the panel stays plain.
   readonly property string look: {
     var v = root.host ? String(root.host.coverLook || "") : ""
-    return v === "" ? "klassisch" : v
+    return v === "" ? "classic" : v
   }
 
-  readonly property string backdropMode: root.look === "scharf" ? "sharp"
-    : (root.look === "hero" || root.look === "anker") ? "off"
+  readonly property string backdropMode: root.look === "sharp" ? "sharp"
+    : (root.look === "hero" || root.look === "anchor") ? "off"
     : "blur"
 
   readonly property color fg: Color.popups.text
@@ -107,16 +107,16 @@ Panel {
   readonly property var frame: stack.length > 0 ? stack[stack.length - 1] : null
   readonly property string frameMode: frame ? String(frame.mode || "") : ""
   readonly property string frameTitle: frame ? String(frame.title || "") : ""
-  readonly property string promptLabel: promptMode === "save" ? "Queue speichern als:"
-    : (promptMode === "rename" ? "Playlist umbenennen:"
+  readonly property string promptLabel: promptMode === "save" ? "Save queue as:"
+    : (promptMode === "rename" ? "Rename playlist:"
     : (promptMode === "format" ? "Label-Format:"
     : ((promptMode === "category" || promptMode === "filter")
-       ? "filtern in " + root.rootFrameFor(root.tab).title + ":" : "suchen:")))
+       ? "filter in " + root.rootFrameFor(root.tab).title + ":" : "suchen:")))
   readonly property string promptPlaceholder: promptMode === "search"
-    ? "Titel, Künstler, Album …"
+    ? "tracks, artists, albums …"
     : (promptMode === "format" ? "[%artist% - ][%title%|%filename%]"
-    : (promptMode === "category" ? "sucht nur in dieser Kategorie"
-    : (promptMode === "filter" ? "filtert diese Liste" : "Name eintippen, Enter bestätigt")))
+    : (promptMode === "category" ? "searches this category only"
+    : (promptMode === "filter" ? "filters this list" : "type a name, enter confirms")))
 
   // Passing the frame in rather than reading `frame` inside this handler: QML
   // re-evaluates dependent bindings *after* the change signal, so `root.frame`
@@ -134,7 +134,7 @@ Panel {
     function onQueueLengthChanged() { if (root.frameMode === "queue") reloadTimer.restart() }
     // MPD answers `findadd`/`searchadd` with a bare OK, so a filter that matches
     // nothing is silent there. The bridge turns that silence into an ack, and the
-    // footer repeats it instead of leaving the optimistic "angehängt" standing.
+    // footer repeats it instead of leaving the optimistic "appended" standing.
     function onLastAckChanged() {
       if (root.host && String(root.host.lastAck || "") !== "") root.flash(String(root.host.lastAck))
     }
@@ -143,12 +143,12 @@ Panel {
   // ----------------------------------------------------------------- frames
   function rootFrameFor(tab) {
     if (tab === "queue") return { mode: "queue", title: "Queue" }
-    if (tab === "search") return { mode: "search", title: "Suche" }
-    if (tab === "albums") return { mode: "list", tag: "album", filter: [], title: "Alben" }
-    if (tab === "artists") return { mode: "list", tag: "artist", filter: [], title: "Künstler" }
+    if (tab === "search") return { mode: "search", title: "Search" }
+    if (tab === "albums") return { mode: "list", tag: "album", filter: [], title: "Albums" }
+    if (tab === "artists") return { mode: "list", tag: "artist", filter: [], title: "Artists" }
     if (tab === "genres") return { mode: "list", tag: "genre", filter: [], title: "Genres" }
-    if (tab === "files") return { mode: "files", path: "", title: "Bibliothek" }
-    if (tab === "settings") return { mode: "settings", title: "Einstellungen" }
+    if (tab === "files") return { mode: "files", path: "", title: "Library" }
+    if (tab === "settings") return { mode: "settings", title: "Settings" }
     return { mode: "playlists", title: "Playlists" }
   }
 
@@ -217,7 +217,7 @@ Panel {
       return
     }
 
-    if (!root.up) { root.rows = []; root.setInfo("keine Verbindung zu MPD"); return }
+    if (!root.up) { root.rows = []; root.setInfo("no connection to MPD"); return }
 
     var gen = ++root.loadGeneration
     var term = String(f.term || "").trim()
@@ -272,7 +272,7 @@ Panel {
       // show. Rather than leaving an empty frame -- a dead end right where the
       // user was looking for something to play -- fall back to the tracks.
       if (mode === "list" && root.rows.length === 0 && !f.search && (f.filter || []).length > 0) {
-        var fallback = { mode: "find", title: String(f.title || "") + " — Titel",
+        var fallback = { mode: "find", title: String(f.title || "") + " — tracks",
                          sort: "track", filter: f.filter }
         root.stack = root.stack.slice(0, root.stack.length - 1).concat([fallback])
         return                      // the stack change loads the new frame
@@ -303,19 +303,19 @@ Panel {
 
     root.loading = false
     root.rows = []
-    root.setInfo("unbekannte Ansicht: " + mode)
+    root.setInfo("unknown view: " + mode)
   }
 
   function infoFor(mode, f, list) {
     var n = (list || []).length
-    if (mode === "queue") return n + " Einträge"
+    if (mode === "queue") return n + " entries"
     if (mode === "search") return n + (n >= 800 ? "+" : "") + " Treffer für „" + String(f.term || "") + "“"
-    if (mode === "list") return n + " Einträge"
-    if (mode === "find") return n + " Titel"
-    if (mode === "files") return String(f.path || "") === "" ? "Bibliothek — " + n + " Einträge" : String(f.path) + " — " + n
+    if (mode === "list") return n + " entries"
+    if (mode === "find") return n + " tracks"
+    if (mode === "files") return String(f.path || "") === "" ? "Library — " + n + " entries" : String(f.path) + " — " + n
     if (mode === "playlists") return n + " Playlists"
-    if (mode === "plist") return n + " Titel"
-    return n + " Einträge"
+    if (mode === "plist") return n + " tracks"
+    return n + " entries"
   }
 
   // ------------------------------------------------------- search grouping
@@ -347,7 +347,7 @@ Panel {
 
     var artists = tally("artist")
     if (artists.order.length > 0) {
-      rows.push({ type: "header", title: "Künstler" })
+      rows.push({ type: "header", title: "Artists" })
       for (var a = 0; a < artists.order.length && a < 30; a++)
         rows.push({ type: "group", kind: "artist", value: artists.order[a],
                     count: artists.counts[artists.order[a]] })
@@ -355,7 +355,7 @@ Panel {
 
     var albums = tally("album")
     if (albums.order.length > 0) {
-      rows.push({ type: "header", title: "Alben" })
+      rows.push({ type: "header", title: "Albums" })
       for (var b = 0; b < albums.order.length && b < 30; b++) {
         var album = albums.order[b]
         var artist = ""
@@ -370,7 +370,7 @@ Panel {
       }
     }
 
-    rows.push({ type: "header", title: "Titel — " + songs.length
+    rows.push({ type: "header", title: "Tracks — " + songs.length
       + (songs.length >= 800 ? "+" : "") + " Treffer" })
     for (var t = 0; t < songs.length && t < 300; t++) rows.push(songs[t])
     return rows
@@ -427,10 +427,10 @@ Panel {
       return
     }
     var at = root.currentIndex()
-    if (at < 0) { root.flash("kein laufender Titel in dieser Liste"); return }
+    if (at < 0) { root.flash("no playing track in this list"); return }
     root.sel = at
     root.centerOn(at)
-    root.flash("laufender Titel — #" + (at + 1) + "/" + root.rows.length)
+    root.flash("playing track — #" + (at + 1) + "/" + root.rows.length)
   }
 
   // The list itself, for tests/inspection (`state.panel.visible`).
@@ -499,28 +499,28 @@ Panel {
     var h = root.host
     if (h === null) return []
     return [
-      { type: "setting", kind: "bool", key: "hoverCard", title: "Karte beim Zeigen mit der Maus",
+      { type: "setting", kind: "bool", key: "hoverCard", title: "Card on mouse hover",
         value: h.hoverCard === true,
-        hint: "Maus aufs Label in der Leiste — nur bei geschlossenem Panel" },
-      { type: "setting", kind: "int", key: "backdrop", title: "Cover-Hintergrund",
+        hint: "hover the bar label — only while the panel is closed" },
+      { type: "setting", kind: "int", key: "backdrop", title: "Cover backdrop",
         min: 0, max: 100, step: 10, value: Number(h.backdrop), suffix: " %",
-        hint: "0 schaltet ihn aus; höher = präsenter hinter Queue und Suche" },
-      { type: "setting", kind: "enum", key: "coverLook", title: "Cover im Player",
-        value: String(h.coverLook || "klassisch"),
-        options: ["klassisch", "scharf", "hero", "anker"],
-        hint: "enter oder -/+ schaltet durch — wirkt sofort" },
-      { type: "setting", kind: "text", key: "format", title: "Label-Format",
+        hint: "0 turns it off; higher = more present behind the lists" },
+      { type: "setting", kind: "enum", key: "coverLook", title: "Cover in the player",
+        value: String(h.coverLook || "classic"),
+        options: ["classic", "sharp", "hero", "anchor"],
+        hint: "enter or -/+ cycles through — applies at once" },
+      { type: "setting", kind: "text", key: "format", title: "Label format",
         value: String(h.format),
-        hint: "mpc-Platzhalter — enter zum Bearbeiten, Vorschau unten" },
-      { type: "setting", kind: "bool", key: "osdOnChange", title: "Karte bei Titelwechsel",
+        hint: "mpc placeholders — enter to edit, preview below" },
+      { type: "setting", kind: "bool", key: "osdOnChange", title: "Card on track change",
         value: h.osdOnChange === true,
-        hint: "blitzt bei jedem neuen Titel auf — hier ganz abschalten" },
-      { type: "setting", kind: "int", key: "osdDuration", title: "… sichtbar für",
+        hint: "flashes on every new track — switch it off here" },
+      { type: "setting", kind: "int", key: "osdDuration", title: "… visible for",
         min: 1000, max: 20000, step: 500, value: Number(h.osdDuration), suffix: " ms",
-        hint: "bleibt nach einem neuen Titel so lange stehen — enter zeigt sie jetzt" },
-      { type: "setting", kind: "bool", key: "notifyTrack", title: "System-Benachrichtigung bei Titelwechsel",
+        hint: "stays that long after a new track — enter shows it now" },
+      { type: "setting", kind: "bool", key: "notifyTrack", title: "Desktop notification on track change",
         value: h.notifyTrack === true,
-        hint: "Sprechblase des Desktops (App „MPD“) — unabhängig von der Karte" }
+        hint: "desktop bubble (app MPD) — independent of the card" }
     ]
   }
 
@@ -537,7 +537,7 @@ Panel {
   function writeSetting(key, value, label) {
     if (root.host === null) return
     root.host.setSetting(key, value)
-    var shown = (value === true) ? "an" : (value === false) ? "aus" : String(value)
+    var shown = (value === true) ? "on" : (value === false) ? "off" : String(value)
     root.flash(String(label || key) + ": " + shown)
     root.note("setting " + key + " = " + shown)
   }
@@ -547,7 +547,7 @@ Panel {
     var pattern = root.promptText.trim()
     if (pattern === "") return "(leer)"
     var out = root.host !== null ? root.host.previewLabel(pattern) : ""
-    return out === "" ? "(kein laufender Titel)" : out
+    return out === "" ? "(no playing track)" : out
   }
 
   function rowSub(row) {
@@ -555,7 +555,7 @@ Panel {
     if (row.type === "setting") return String(row.hint || "")
     if (row.type === "group") return row.kind === "album" ? String(row.artist || "") : ""
     if (row.type === "value" || row.type === "playlist") return ""
-    if (row.type === "directory") return "Ordner"
+    if (row.type === "directory") return "Folder"
     var bits = []
     if (row.artist) bits.push(String(row.artist))
     if (row.album && root.frameTitle !== String(row.album)) bits.push(String(row.album))
@@ -568,11 +568,11 @@ Panel {
   function rowRight(row) {
     if (!row) return ""
     if (row.type === "setting") {
-      if (row.kind === "bool") return row.value === true ? "an" : "aus"
+      if (row.kind === "bool") return row.value === true ? "on" : "off"
       if (row.kind === "int") return String(row.value) + String(row.suffix || "")
       return String(row.value || "")
     }
-    if (row.type === "group") return String(row.count || 0) + " Titel"
+    if (row.type === "group") return String(row.count || 0) + " tracks"
     if (row.time) return host.formatTime(row.time)
     if (row.type === "value" || row.type === "directory" || row.type === "playlist") return "›"
     return ""
@@ -600,8 +600,8 @@ Panel {
         // The hover card needs a closed panel (it would only be noise over the
         // full view), so the switch alone shows nothing -- say what to do.
         if (row.key === "hoverCard")
-          root.flash("Karte " + (row.value !== true ? "an" : "aus") + " — Panel schließen, dann Maus aufs Label")
-        // Switching the track-change card on shows it once: "an" should not be a
+          root.flash("card " + (row.value !== true ? "on" : "off") + " — close the panel, then hover the label")
+        // Switching the track-change card on shows it once: "on" should not be a
         // word the user has to take on faith.
         else if (row.key === "osdOnChange" && row.value !== true)
           root.host.showOsd(false)
@@ -612,7 +612,7 @@ Panel {
       // card for exactly as long as it is set.
       else if (row.kind === "int" && row.key === "osdDuration") {
         root.host.showOsd(false)
-        root.flash("Karte bei Titelwechsel — " + (Number(row.value) / 1000).toFixed(1) + " s")
+        root.flash("Card on track change — " + (Number(row.value) / 1000).toFixed(1) + " s")
       }
       return
     }
@@ -646,14 +646,14 @@ Panel {
       if (byArtist !== "") {
         root.stack = root.stack.concat([
           { mode: "list", tag: "album", title: byArtist, filter: [["artist", byArtist]] },
-          { mode: "find", title: albumName + " — Titel", sort: "track",
+          { mode: "find", title: albumName + " — tracks", sort: "track",
             filter: [["artist", byArtist], ["album", albumName]] }
         ])
         root.sel = 0
         root.detailRow = null
         return
       }
-      root.pushFrame({ mode: "find", title: albumName + " — Titel", sort: "track",
+      root.pushFrame({ mode: "find", title: albumName + " — tracks", sort: "track",
                        filter: [["album", albumName]] })
       return
     }
@@ -665,7 +665,7 @@ Panel {
       var value = String(row.value || "")
       var base = root.frame.filter || []
       if (tag === "album") {
-        root.pushFrame({ mode: "find", title: value + " — Titel", sort: "track",
+        root.pushFrame({ mode: "find", title: value + " — tracks", sort: "track",
                          filter: base.concat([["album", value]]) })
         return
       }
@@ -696,19 +696,19 @@ Panel {
     if (type === "group") {
       if (row.kind === "artist") {
         host.mutation("findadd", { filter: [["artist", String(row.value || "")]] })
-        what = "alle Titel von " + String(row.value || "")
+        what = "all tracks by " + String(row.value || "")
       } else {
         host.mutation("findadd", { filter: [["album", String(row.value || "")]] })
         what = "Album „" + String(row.value || "") + "“"
       }
     } else if (type === "value") {
       var tag = String(root.frame.tag || "")
-      if (tag === "") { root.flash("diese Liste lässt sich nicht als Filter anhängen"); return }
+      if (tag === "") { root.flash("this list cannot be appended as a filter"); return }
       host.mutation("findadd", { filter: (root.frame.filter || []).concat([[tag, String(row.value || "")]]) })
       what = String(row.value || "")
     } else if (type === "directory") {
       host.addUri(String(row.directory || ""))
-      what = "Ordner " + String(row.directory || "")
+      what = "Folder " + String(row.directory || "")
     } else if (type === "playlist") {
       host.mutation("loadplaylist", { name: String(row.playlist || "") })
       what = "Playlist " + String(row.playlist || "") + " (ersetzt die Queue)"
@@ -728,14 +728,14 @@ Panel {
       var term = String(root.frame.term || "").trim()
       if (term === "") return
       host.mutation("searchadd", { term: term })
-      root.flash("alle Treffer für „" + term + "“ angehängt")
+      root.flash("all hits for “" + term + "” appended")
       return
     }
     if (mode === "find") {
       var filter = root.frame.filter || []
-      if (filter.length === 0) { root.flash("nichts anzuhängen"); return }
+      if (filter.length === 0) { root.flash("nothing to append"); return }
       host.mutation("findadd", { filter: filter })
-      root.flash("alle Titel dieser Liste angehängt")
+      root.flash("all tracks of this list appended")
       return
     }
     if (mode === "list") {
@@ -744,25 +744,25 @@ Panel {
       var only = String(root.frame.search || "")
       if (only !== "") {
         host.mutation("searchadd", { term: only, tag: String(root.frame.tag || "album") })
-        root.flash("alle Treffer zu „" + only + "“ angehängt")
+        root.flash("all hits for “" + only + "” appended")
         return
       }
       var base = root.frame.filter || []
-      if (base.length === 0) { root.flash("erst Künstler oder Album öffnen, dann A"); return }
+      if (base.length === 0) { root.flash("open an artist or album first, then A"); return }
       host.mutation("findadd", { filter: base })
-      root.flash("alles unter dieser Auswahl angehängt")
+      root.flash("everything under this selection appended")
       return
     }
     if (mode === "files") {
       var path = String(root.frame.path || "")
       if (path === "") { root.flash("erst in einen Ordner gehen, dann A"); return }
       host.addUri(path)
-      root.flash("Ordner " + path + " angehängt")
+      root.flash("Folder " + path + " appended")
       return
     }
-    if (mode === "plist") { root.flash("Playlist laden: a auf der Liste im Playlists-Tab"); return }
-    if (mode === "queue") { root.flash("in der Queue hängt a einzelne Titel an"); return }
-    root.flash("hier gibt es nichts anzuhängen")
+    if (mode === "plist") { root.flash("load a playlist: a on the list in the Playlists tab"); return }
+    if (mode === "queue") { root.flash("in the queue, a appends single tracks"); return }
+    root.flash("nothing to append here")
   }
 
   // A short confirmation in the footer: MPD answers `findadd` with a bare OK, and
@@ -790,11 +790,11 @@ Panel {
     // A filter that is still set says so -- otherwise "the list is short today"
     // looks like a bug.
     if (root.filterText !== "")
-      return root.hintKeys + " · Filter: " + root.filterText + " · esc zeigt wieder alles"
+      return root.hintKeys + " · Filter: " + root.filterText + " · esc shows everything again"
     var keys = root.hintKeys
     // The two keys that are about the player rather than about this list travel
     // with every view.
-    return keys === "" ? "" : keys + " · <> Titelwechsel · t laufender Titel"
+    return keys === "" ? "" : keys + " · <> prev/next · t playing track"
   }
 
   // The keys of the current view, without the one key that is about the whole
@@ -802,23 +802,23 @@ Panel {
   readonly property string hintKeys: {
     if (root.promptMode === "search")
       return (root.promptText === "" && !root.promptExplicit)
-        ? "tippen sucht · 1–8 wechseln den Tab · ↓/↑ geht in die Liste · / für Ziffern · esc fertig"
-        : "tippen filtert · ↓/↑ geht in die Liste · enter spielt den Treffer · ctrl+u leeren · esc fertig"
+        ? "type to search · 1–8 switch tabs · ↓/↑ enters the list · / for digits · esc done"
+        : "type to filter · ↓/↑ enters the list · enter plays the hit · ctrl+u clears · esc done"
     if (root.promptMode === "category")
-      return "tippen sucht in " + root.rootFrameFor(root.tab).title
-        + " · ↓/↑ geht in die Liste · enter zeigt sie · esc zurück"
+      return "type to search in " + root.rootFrameFor(root.tab).title
+        + " · ↓/↑ enters the list · enter shows them · esc back"
     if (root.promptMode === "filter")
-      return "tippen filtert diese Liste · ↓/↑ geht in die Liste · ctrl+u leeren · esc zeigt alles"
+      return "type to filter this list · ↓/↑ enters the list · ctrl+u clears · esc shows all"
     if (root.promptMode !== "") return "tippen · enter bestätigen · esc abbrechen"
     var mode = root.frameMode
-    if (mode === "queue") return "enter spielen · a anhängen · d entfernen · D leeren · C nur Laufendes behalten"
-    if (mode === "search") return "/ tippen · enter öffnen · a anhängen · A alle Treffer · h/esc zurück"
-    if (mode === "list") return "enter hinein · a alles davon anhängen · A Auswahl anhängen · h/esc zurück"
-    if (mode === "find") return "enter spielen · a anhängen · A ganze Liste · h/esc zurück"
-    if (mode === "files") return "enter hinein/abspielen · a anhängen · A ganzer Ordner · ← zurück"
-    if (mode === "playlists") return "enter öffnen · a laden · s Queue speichern · r umbenennen · d löschen"
-    if (mode === "plist") return "enter spielen · a anhängen · d Titel entfernen · ← zurück"
-    if (mode === "settings") return "enter/space schalten um · -/+ ändern die Zahl · 8 wählt den Tab · esc zurück"
+    if (mode === "queue") return "enter plays · a appends · d removes · D clears · C keeps only the playing track"
+    if (mode === "search") return "/ to type · enter opens · a appends · A all hits · h/esc back"
+    if (mode === "list") return "enter goes in · a appends all of it · A appends the selection · h/esc back"
+    if (mode === "find") return "enter plays · a appends · A whole list · h/esc back"
+    if (mode === "files") return "enter opens/plays · a appends · A whole folder · ← back"
+    if (mode === "playlists") return "enter opens · a loads · s saves the queue · r renames · d deletes"
+    if (mode === "plist") return "enter plays · a appends · d removes the track · ← back"
+    if (mode === "settings") return "enter/space toggles · -/+ change the value · 8 picks the tab · esc back"
     return ""
   }
 
@@ -937,7 +937,7 @@ Panel {
   function applySearch(term) {
     var trimmed = String(term || "").trim()
     var nextFrame = { mode: "search", term: trimmed,
-                      title: trimmed === "" ? "Suche" : "Suche: " + trimmed }
+                      title: trimmed === "" ? "Search" : "Suche: " + trimmed }
     var top = root.stack.length > 0 ? root.stack[root.stack.length - 1] : null
     if (top && String(top.mode) === "search") {
       var next = root.stack.slice(0, root.stack.length - 1)
@@ -991,7 +991,7 @@ Panel {
     }
     root.rows = out
     root.sel = root.firstSelectable(0)
-    root.setInfo(out.length + " von " + root.allRows.length)
+    root.setInfo(out.length + " of " + root.allRows.length)
   }
 
   function applyLocalFilter(term) {
@@ -1034,7 +1034,7 @@ Panel {
     if (root.promptMode === "save") {
       if (text === "" || !root.up) return
       mutateAndReload("saveplaylist", { name: text })
-      root.setInfo("Queue gespeichert als „" + text + "“")
+      root.setInfo("Queue saved as “" + text + "“")
       root.closePrompt()
       return
     }
@@ -1050,7 +1050,7 @@ Panel {
     if (root.promptMode === "format") {
       if (text === "") return
       var srow = root.rows[root.sel]
-      root.writeSetting("format", text, srow ? srow.title : "Label-Format")
+      root.writeSetting("format", text, srow ? srow.title : "Label format")
       root.closePrompt()
       return
     }
@@ -1485,7 +1485,7 @@ Panel {
             radius: Style.cornerRadius
           }
 
-          // A section label: Künstler / Alben / Titel.
+          // A section label: artists / albums / tracks.
           Text {
             visible: rowItem.isHeader
             anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
@@ -1635,10 +1635,10 @@ Panel {
         elide: Text.ElideRight
         text: {
           if (root.loading) return "lade …"
-          if (!root.up) return "keine Verbindung zu MPD"
+          if (!root.up) return "no connection to MPD"
           if (root.frameMode === "search" && String(root.frame.term || "").trim() === "") return "tippen — gesucht wird, während du schreibst"
-          if (root.frameMode === "queue") return "Queue ist leer — a hängt den markierten Titel an"
-          if (root.frameMode === "playlists") return "keine gespeicherten Playlists — s speichert die Queue"
+          if (root.frameMode === "queue") return "queue is empty — a appends the selected track"
+          if (root.frameMode === "playlists") return "no saved playlists — s saves the queue"
           return root.infoText
         }
         color: root.dim
@@ -1727,7 +1727,7 @@ Panel {
 
         Text {
           anchors { right: parent.right; bottom: parent.bottom; margins: Style.space(10) }
-          text: "esc schließt"
+          text: "esc closes"
           color: root.faint
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -1884,9 +1884,9 @@ Panel {
   // Which band component to load. Everything unknown falls back to the classic
   // band, so a wrong value in the setting cannot leave the panel without a player.
   function bandComponent() {
-    if (root.look === "scharf") return bandScharf
+    if (root.look === "sharp") return bandScharf
     if (root.look === "hero") return bandHero
-    if (root.look === "anker") return bandAnker
+    if (root.look === "anchor") return bandAnker
     return bandKlassisch
   }
 
@@ -1909,10 +1909,10 @@ Panel {
 
   function labelFor(key) {
     var names = {
-      artist: "Künstler", albumartist: "Album-Künstler", title: "Titel", album: "Album",
+      artist: "Artists", albumartist: "Album artist", title: "Title", album: "Album",
       track: "Track", disc: "Disc", date: "Datum", genre: "Genre", composer: "Komponist",
-      performer: "Performer", name: "Name", time: "Länge", duration: "Länge (s)",
-      file: "Datei", "last-modified": "Geändert", format: "Format", added: "Hinzugefügt"
+      performer: "Performer", name: "Name", time: "Length", duration: "Length (s)",
+      file: "File", "last-modified": "Modified", format: "Format", added: "Added"
     }
     return names[key] !== undefined ? names[key] : key
   }

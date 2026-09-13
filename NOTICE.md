@@ -1,10 +1,10 @@
-# Herkunft / Attribution
+# Origin / Attribution
 
-`bin/mpd-bridge` ist eine Übernahme aus dem Plugin **omajam** von Nathan Ollerenshaw (matjam),
-Datei `bin/omajam-mpd`, MIT-Lizenz, Copyright (c) 2026 Nathan Ollerenshaw
+`bin/mpd-bridge` is taken from the plugin **omajam** by Nathan Ollerenshaw (matjam),
+file `bin/omajam-mpd`, MIT licence, Copyright (c) 2026 Nathan Ollerenshaw
 (https://github.com/matjam/omajam).
 
-Geändert gegenüber dem Original:
+Changed compared to the original:
 
 * Docstring um diesen Herkunftshinweis ergänzt.
 * Cache-Verzeichnis `~/.cache/omajam` → `~/.cache/kokko-mpd`.

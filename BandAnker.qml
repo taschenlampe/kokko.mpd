@@ -1,7 +1,7 @@
 import QtQuick
 import qs.Commons
 
-// The player band, look "anker": the artwork is the anchor -- big, slightly
+// The player band, look "anchor": the artwork is the anchor -- big, slightly
 // bleeding over the header rule, with everything else reduced to text and one row
 // of controls. The panel stays plain (Backdrop mode "off"), so the cover is the
 // only picture on screen.
@@ -202,7 +202,7 @@ Item {
             if (!band.host) return
             var on = !band.host.randomOn
             band.host.toggleOption("random")
-            band.message(on ? "Zufall an" : "Zufall aus")
+            band.message(on ? "Shuffle on" : "Shuffle off")
           }
         }
       }
@@ -222,7 +222,7 @@ Item {
             if (!band.host) return
             var on = !band.host.repeatOn
             band.host.toggleOption("repeat")
-            band.message(on ? "Wiederholen an" : "Wiederholen aus")
+            band.message(on ? "Repeat on" : "Repeat off")
           }
         }
       }
@@ -244,12 +244,12 @@ Item {
           anchors.fill: parent
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
-          onEntered: band.hint("Queue leeren — alle Titel entfernen (D)")
+          onEntered: band.hint("Clear the queue — remove every track (D)")
           onExited: band.hint("")
           onClicked: {
             if (!band.host) return
             band.host.clearQueue()
-            band.message("Queue geleert")
+            band.message("Queue cleared")
           }
         }
       }
@@ -271,12 +271,12 @@ Item {
           anchors.fill: parent
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
-          onEntered: band.hint("nur das Laufende behalten — alles andere aus der Queue (C)")
+          onEntered: band.hint("Keep only the playing track — drop the rest (C)")
           onExited: band.hint("")
           onClicked: {
             if (!band.host) return
             band.host.cropQueue()
-            band.message("alles außer dem laufenden Titel entfernt")
+            band.message("everything except the playing track removed")
           }
         }
       }

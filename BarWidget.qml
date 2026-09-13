@@ -58,12 +58,12 @@ Panel {
   readonly property bool notifyTrack: setting("notifyTrack", false) === true
   readonly property bool hoverCard: setting("hoverCard", true) === true
 
-  // Which look the panel's player band shows: klassisch | scharf | hero | anker.
+  // Which look the panel's player band shows: classic | sharp | hero | anchor.
   // The panel picks its band component from this and decides what the cover
   // behind it does.
   readonly property string coverLook: {
-    var v = String(setting("coverLook", "klassisch"))
-    return v === "" ? "klassisch" : v
+    var v = String(setting("coverLook", "classic"))
+    return v === "" ? "classic" : v
   }
   // The blurred cover behind the panel: 0 = off, 100 = as present as it gets.
   readonly property int backdrop: {
@@ -235,7 +235,7 @@ Panel {
   // what makes typing in the search box cost one query rather than one per key.
   function query(kind, args, channel, cb) {
     if (!bridge.running) {
-      if (cb) cb([], "Bridge läuft nicht")
+      if (cb) cb([], "bridge is not running")
       return
     }
     var id = nextQueryId++
@@ -1188,7 +1188,7 @@ Panel {
       root.status = ({})
       root.song = ({})
       root.lastError = "Bridge beendet (Code " + code + ")"
-      console.warn("kokko.mpd: Bridge beendet (Code " + code + ") — Neustart in 2,5s")
+      console.warn("kokko.mpd: Bridge beendet (Code " + code + ") — restarting in 2.5s")
       root.failPending("Bridge beendet")
       restartTimer.restart()
     }

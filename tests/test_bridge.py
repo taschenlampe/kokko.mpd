@@ -35,7 +35,7 @@ def check(name, got, want):
         print("   ok    %s" % name)
     else:
         FAILS.append(name)
-        print("   FAIL  %s\n           erwartet: %r\n           bekommen: %r" % (name, want, got))
+        print("   FAIL  %s\n           expected: %r\n           got:      %r" % (name, want, got))
 
 
 def jpeg(size):
@@ -62,59 +62,59 @@ def picked(files):
         shutil.rmtree(base, ignore_errors=True)
 
 
-print("=== Cover-Auswahl (local_cover) ===")
+print("=== cover pick (local_cover) ===")
 # The classic names win over everything else, "folder" is the one this library uses.
-check("folder.jpg schlaegt die Windows-Dateien",
+check("folder.jpg beats the Windows files",
       len(picked([("AlbumArt_{0F838ADF}_Large.jpg", 500), ("folder.jpg", 900)])), 900)
 # A front cover has to beat a back cover, even when the back one is the bigger scan.
-check("Front schlaegt Back",
+check("front beats back",
       len(picked([("X - Front Cover.jpg", 400), ("X - Back Cover.jpg", 900)])), 400)
 # Nothing but a GUID-named Windows file (the case that motivated the pattern ranking).
-check("AlbumArt_{GUID}_Large wird gefunden",
+check("AlbumArt_{GUID}_Large is found",
       len(picked([("AlbumArt_{0F838ADF-41DB-4F92-9414-C6023070E2EA}_Large.jpg", 700)])), 700)
 # Only the wrong side of the booklet: still better than nothing.
-check("nur Back Cover wird genommen",
+check("a lone back cover is still used",
       len(picked([("X - Back Cover.jpg", 600)])), 600)
 # "Album Art.jpg" is a classic name, "Album Art Small" is not.
-check("Album Art schlaegt Album Art Small",
+check("Album Art beats Album Art Small",
       len(picked([("Album Art.jpg", 300), ("Album Art Small.jpg", 800)])), 300)
 # Within one rank the bigger file wins (the better scan).
-check("innerhalb eines Rangs gewinnt die groessere Datei",
+check("within a rank the bigger file wins",
       len(picked([("cover.jpg", 200), ("folder.jpg", 800)])), 800)
 # No image at all.
-check("ohne Bild bleibt es leer", picked([("track.mp3", 100)]), b"")
+check("no image means empty", picked([("track.mp3", 100)]), b"")
 # Larger than the plugin's limit: refuse it rather than read a huge file.
-check("zu grosses Bild wird uebersprungen",
+check("an oversized image is skipped",
       picked([("folder.jpg", B.ART_LIMIT + 10)]), b"")
 
-print("=== Filterausdruck (contains_expression) ===")
-check("Kategorie-Filter mit (?i)", B.contains_expression("artist", "iam"), "(artist =~ '(?i)iam')")
+print("=== filter expression (contains_expression) ===")
+check("category filter with (?i)", B.contains_expression("artist", "iam"), "(artist =~ '(?i)iam')")
 # Two escaping layers are visible here and both are needed: `re.escape` doubles the
 # metacharacters (the regex layer), `quote_filter_value` doubles the backslashes again
 # (the filter's '...' layer). Verified against a live MPD with real album names
 # ("#1's International Version", "( O )( O )( O ), cl-018") -- see tests/smoke_mpd.py.
-check("Sonderzeichen werden escaped",
+check("special characters are escaped",
       B.contains_expression("album", "AC/DC + live"), "(album =~ '(?i)AC/DC\\\\ \\\\+\\\\ live')")
-check("Apostroph im Bandnamen",
+check("apostrophe in an artist name",
       B.quote_filter_value("O'Brien"), "O\\'Brien")
-check("Backslash wird verdoppelt", B.quote_filter_value("a\\b"), "a\\\\b")
+check("backslash is doubled", B.quote_filter_value("a\\b"), "a\\\\b")
 
-print("=== Cache-Schluessel (art_key) ===")
+print("=== cache key (art_key) ===")
 a = B.art_key({"file": "Rock/X/01.mp3", "album": "X", "albumartist": "Y"})
 b = B.art_key({"file": "Rock/X/02.mp3", "album": "X", "albumartist": "Y"})
 c = B.art_key({"file": "Rock/Z/01.mp3", "album": "X", "albumartist": "Y"})
-check("gleiches Album -> gleicher Schluessel", a, b)
-check("anderes Verzeichnis -> anderer Schluessel", a == c, False)
-check("Schluessel ist 20 Zeichen", len(a), 20)
+check("same album -> same key", a, b)
+check("other directory -> other key", a == c, False)
+check("the key is 20 characters", len(a), 20)
 
-print("=== Bildtyp (extension_for) ===")
-check("JPEG erkannt", B.extension_for(b"\xff\xd8\xff\xe0", ""), ".jpg")
-check("PNG erkannt", B.extension_for(b"\x89PNG\r\n\x1a\n", ""), ".png")
-check("WEBP erkannt", B.extension_for(b"RIFF\x00\x00\x00\x00WEBP", ""), ".webp")
-check("Rueckfall auf den MIME-Typ", B.extension_for(b"????", "image/png"), ".png")
-check("unbekannt", B.extension_for(b"????", ""), ".img")
+print("=== image type (extension_for) ===")
+check("JPEG detected", B.extension_for(b"\xff\xd8\xff\xe0", ""), ".jpg")
+check("PNG detected", B.extension_for(b"\x89PNG\r\n\x1a\n", ""), ".png")
+check("WEBP detected", B.extension_for(b"RIFF\x00\x00\x00\x00WEBP", ""), ".webp")
+check("falls back to the MIME type", B.extension_for(b"????", "image/png"), ".png")
+check("unknown", B.extension_for(b"????", ""), ".img")
 
-print("=== Musikverzeichnis (music_directory) ===")
+print("=== music directory (music_directory) ===")
 tmp = tempfile.mkdtemp(prefix="mpd-conf-")
 try:
     os.makedirs(os.path.join(tmp, "mpd"))
@@ -125,7 +125,7 @@ try:
     saved_env = os.environ.get("XDG_CONFIG_HOME")
     os.environ["XDG_CONFIG_HOME"] = tmp
     B._MUSIC_DIR = None                     # the module caches its answer
-    check("liest music_directory aus mpd.conf", B.music_directory(), music)
+    check("reads music_directory from mpd.conf", B.music_directory(), music)
     if saved_env is None:
         os.environ.pop("XDG_CONFIG_HOME", None)
     else:
@@ -136,7 +136,7 @@ finally:
 
 print()
 if FAILS:
-    print("   %d von %d Pruefungen fehlgeschlagen: %s" % (
+    print("   %d of %d checks failed: %s" % (
         len(FAILS), len(FAILS), ", ".join(FAILS)))
     raise SystemExit(1)
-print("   alle Pruefungen bestanden")
+print("   all checks passed")
