@@ -298,8 +298,10 @@ layers, the cache key, the image type, `music_directory` from `mpd.conf`. Plus
 answers, fetches a cover, and that titles with special characters (`#1's …`,
 `( O )( O )( O ), cl-018`) find themselves through the filter expression.
 
-What is **not** possible automatically is filed as an issue in the repo (mouse
-paths, `crop`) — those need a human with a pointer.
+What was **not** possible automatically was filed as an issue in the repo (mouse
+paths, `crop`) — both have since been checked by hand on the running desktop: the
+clicks pass through to the row buttons and the cards, and `crop` keeps the playing
+track as expected.
 
 ## Origin
 
@@ -318,17 +320,17 @@ The open items live in the **issue tracker** of the repo
 (https://git.m2control.de/bm/omarchympd/issues) — with labels, milestone and a
 "done when" per entry. Sorted by usefulness, not by effort:
 
-1. **Walk the mouse paths by hand** — the four band looks, dragging the progress,
-   🗑 and `+` in the list rows, `crop`. Keyboard and IPC paths are checked, real
-   clicks are not (not triggerable in this VM).
-2. **Make cava visible when it is missing** — otherwise the band stays silently
-   empty instead of saying "cava missing".
-3. **Category search in the queue too** (`playlistsearch`).
-4. **Shipping**: tag, release and `omarchy plugin add`; after that the marketplace
+1. **Category search in the queue too** (`playlistsearch`).
+2. **Shipping**: tag, release and `omarchy plugin add`; after that the marketplace
    listing (for that the repo would have to be public).
-5. **Small stuff**: selectable list sorting, look fine tuning, two safeguards and
+3. **cava visible when it is missing** — otherwise the band stays silently empty
+   instead of saying so.
+4. **Small stuff**: selectable list sorting, look fine tuning, two safeguards and
    comments in the bridge — the exact scopes and the reason why two of them are
    *not* bugs are in the issues.
+
+The mouse paths and `crop` used to head this list; both were checked by hand on
+13.09. and their issues are closed.
 
 Deliberately **not** planned: splitting `bin/mpd-bridge` into modules or rewriting
 it to `with_cmd`. The file is a maintained copy of omajam (see `NOTICE.md`); a
