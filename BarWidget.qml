@@ -981,6 +981,8 @@ Panel {
           flash: panelLoader.item.flashText,
           peek: panelLoader.item.peek(8),
           hintTruncated: panelLoader.item.hintTruncated,
+          bandHeight: Math.round(panelLoader.item.bandHeight),
+          listY: Math.round(panelLoader.item.listY),
           filterText: panelLoader.item.filterText,
           promptLabel: panelLoader.item.promptLabel,
           frameTitle: panelLoader.item.frameTitle,

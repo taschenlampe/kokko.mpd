@@ -151,6 +151,10 @@ Tab **8** in the panel — click or `enter` toggles, `-`/`+` (or the `−`/`+` b
 right on the row) change numbers, `enter` on the label format opens an input field.
 While you are there, the footer shows what the pattern does to the **playing track**.
 
+In this tab the band keeps a fixed height (the tallest look's), so cycling through
+the looks never moves the rows under your pointer. Everywhere else each look keeps
+its own height — there the look does not change while you watch it.
+
 | Setting | Effect |
 | --- | --- |
 | Card on mouse hover | the card under the bar (only while the panel is closed — open, it is already the big view) |

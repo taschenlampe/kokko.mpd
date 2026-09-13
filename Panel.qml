@@ -105,6 +105,12 @@ Panel {
   property bool detailLoading: false
 
   readonly property var frame: stack.length > 0 ? stack[stack.length - 1] : null
+
+  // Measured layout, published through `state`: the band slot's height and where
+  // the list starts. Two looks whose bands differ by 22 px must put the list at the
+  // same y in the settings tab -- a picture comparison is ambiguous, a number is not.
+  readonly property real bandHeight: bandSlot.height
+  readonly property real listY: list.y
   readonly property string frameMode: frame ? String(frame.mode || "") : ""
   readonly property string frameTitle: frame ? String(frame.title || "") : ""
   readonly property string promptLabel: promptMode === "save" ? "Save queue as:"
@@ -1467,23 +1473,36 @@ Panel {
       }
 
       // ---------------------------------------------------------- now playing
-      // The band is its own file per look (Band*.qml): the panel anchors it and
-      // lets the list follow its bottom, so a look may be taller or shorter than
-      // another. Values are bound in wireBand(); the two things the band wants to
-      // say (a footer line, a hover explanation) come back as signals.
-      Loader {
-        id: nowBand
+      // The band is its own file per look (Band*.qml). Values are bound in
+      // wireBand(); the two things the band wants to say (a footer line, a hover
+      // explanation) come back as signals.
+      // The band carries its own height, and the looks differ: 74 px (classic),
+      // 100 (sharp), 104 (hero), 126 (anchor). In the settings tab that pushed the
+      // rows below it down or up on every look change -- and the pointer had to
+      // follow the very value it was changing. There the band gets a slot as tall
+      // as the tallest look, so the list never moves; the leftover room stays as
+      // backdrop. Everywhere else each look keeps its own height.
+      Item {
+        id: bandSlot
         anchors { top: headerRule.bottom; topMargin: Style.space(7)
                   left: parent.left; right: parent.right }
-        sourceComponent: root.bandComponent()
+        height: root.frameMode === "settings"
+          ? Style.space(126)
+          : (nowBand.item ? nowBand.item.implicitHeight : 0)
 
-        onLoaded: root.wireBand(item)
+        Loader {
+          id: nowBand
+          anchors { top: parent.top; left: parent.left; right: parent.right }
+          sourceComponent: root.bandComponent()
+
+          onLoaded: root.wireBand(item)
+        }
       }
 
       // ------------------------------------------------------------- list
       ListView {
         id: list
-        anchors { top: nowBand.bottom; topMargin: Style.space(6)
+        anchors { top: bandSlot.bottom; topMargin: Style.space(6)
                   left: parent.left; right: parent.right
                   bottom: footer.top; bottomMargin: Style.space(6) }
         clip: true
