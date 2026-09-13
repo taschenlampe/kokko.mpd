@@ -1249,7 +1249,21 @@ class Bridge:
 
         if kind == "list":
             tag = str(request.get("tag", "album"))
-            args = [tag] + self.filter_args(conn, request.get("filter") or [])
+            term = str(request.get("search", "")).strip()
+            if term:
+                # Scoped search: one category, the same `contains` filter the global
+                # search uses -- "the albums whose name contains this". MPD wants the
+                # whole expression as a single argument (the bridge's quoting takes
+                # care of that), and this MPD cannot combine two tags with OR, which
+                # is exactly the "only this category" the field is for.
+                # 0.20 has no filter expressions; there it is an exact match, which
+                # is still better than nothing on a NAS that old.
+                if version_at_least(conn.version, 0, 21):
+                    args = [tag, "(%s contains '%s')" % (tag, quote_filter_value(term))]
+                else:
+                    args = [tag, tag, term]
+            else:
+                args = [tag] + self.filter_args(conn, request.get("filter") or [])
             rows = tag_values(conn.command("list", *args)[0], tag, limit=limit)
             rows.sort(key=lambda r: r["value"].lower())
             return rows

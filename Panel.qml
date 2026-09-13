@@ -76,6 +76,11 @@ Panel {
   // "" | "search" | "save" | "rename"
   property string promptMode: ""
   property string promptText: ""
+  // Free text for the local filter (Dateien, Playlists): MPD has no filter for paths
+  // or playlist names, so those two lists narrow themselves.
+  property string filterText: ""
+  // The unfiltered list of the current frame, so the filter can be undone.
+  property var allRows: []
   // True when the field was opened with `/` -- the explicit "I want to type"
   // gesture. Only then do digits go into the term while the field is still empty
   // (see the number keys in handleKey).
@@ -104,10 +109,14 @@ Panel {
   readonly property string frameTitle: frame ? String(frame.title || "") : ""
   readonly property string promptLabel: promptMode === "save" ? "Queue speichern als:"
     : (promptMode === "rename" ? "Playlist umbenennen:"
-    : (promptMode === "format" ? "Label-Format:" : "suchen:"))
+    : (promptMode === "format" ? "Label-Format:"
+    : ((promptMode === "category" || promptMode === "filter")
+       ? "filtern in " + root.rootFrameFor(root.tab).title + ":" : "suchen:")))
   readonly property string promptPlaceholder: promptMode === "search"
     ? "Titel, Künstler, Album …"
-    : (promptMode === "format" ? "[%artist% - ][%title%|%filename%]" : "Name eintippen, Enter bestätigt")
+    : (promptMode === "format" ? "[%artist% - ][%title%|%filename%]"
+    : (promptMode === "category" ? "sucht nur in dieser Kategorie"
+    : (promptMode === "filter" ? "filtert diese Liste" : "Name eintippen, Enter bestätigt")))
 
   // Passing the frame in rather than reading `frame` inside this handler: QML
   // re-evaluates dependent bindings *after* the change signal, so `root.frame`
@@ -234,7 +243,11 @@ Panel {
       if (error !== "") { root.setInfo(error); return }
       // A search is grouped into artists and albums first, so the first thing on
       // screen is something to add wholesale rather than 1309 loose tracks.
-      root.rows = (mode === "search") ? root.groupHits(list) : (list || [])
+      root.allRows = (mode === "search") ? root.groupHits(list) : (list || [])
+      root.rows = root.allRows
+      // A filter that is still set (Dateien/Playlists) applies to the list that just
+      // arrived -- and then shows its own count instead of the frame's.
+      if (root.filterText !== "") root.refreshFilteredRows()
       // Leaving the field with ↑ lands at the bottom of the list, with ↓ at the
       // top; the load itself only knows "first hit", so the wish rides along here.
       if (root.pendingSelect === "last") { root.sel = root.lastSelectable(); root.pendingSelect = "" }
@@ -242,7 +255,7 @@ Panel {
         root.sel = root.firstSelectable(0)
         if (root.pendingSelect === "first") root.pendingSelect = ""
       }
-      root.setInfo(root.infoFor(mode, f, list))
+      if (root.filterText === "") root.setInfo(root.infoFor(mode, f, list))
 
       // Opened on a long queue: put the selection on what is playing and scroll
       // there, so the list does not start somewhere the music is not.
@@ -258,7 +271,7 @@ Panel {
       // An artist (or genre) whose tracks carry no album tag has no album list to
       // show. Rather than leaving an empty frame -- a dead end right where the
       // user was looking for something to play -- fall back to the tracks.
-      if (mode === "list" && root.rows.length === 0 && (f.filter || []).length > 0) {
+      if (mode === "list" && root.rows.length === 0 && !f.search && (f.filter || []).length > 0) {
         var fallback = { mode: "find", title: String(f.title || "") + " — Titel",
                          sort: "track", filter: f.filter }
         root.stack = root.stack.slice(0, root.stack.length - 1).concat([fallback])
@@ -270,7 +283,8 @@ Panel {
     if (mode === "queue") { host.query("queue", { limit: 2000 }, "list", answer); return }
     if (mode === "search") { host.query("search", { term: term, limit: 800 }, "list", answer); return }
     if (mode === "list") {
-      host.query("list", { tag: String(f.tag || "album"), filter: f.filter || [], limit: 3000 }, "list", answer)
+      host.query("list", { tag: String(f.tag || "album"), filter: f.filter || [],
+                           search: String(f.search || ""), limit: 3000 }, "list", answer)
       return
     }
     if (mode === "find") {
@@ -765,6 +779,10 @@ Panel {
   // letters belong to the field, and `t` is just a letter.
   readonly property string hint: {
     if (root.promptMode !== "") return root.hintKeys
+    // A filter that is still set says so -- otherwise "the list is short today"
+    // looks like a bug.
+    if (root.filterText !== "")
+      return root.hintKeys + " · Filter: " + root.filterText + " · esc zeigt wieder alles"
     var keys = root.hintKeys
     // The two keys that are about the player rather than about this list travel
     // with every view.
@@ -778,6 +796,11 @@ Panel {
       return (root.promptText === "" && !root.promptExplicit)
         ? "tippen sucht · 1–8 wechseln den Tab · ↓/↑ geht in die Liste · / für Ziffern · esc fertig"
         : "tippen filtert · ↓/↑ geht in die Liste · enter spielt den Treffer · ctrl+u leeren · esc fertig"
+    if (root.promptMode === "category")
+      return "tippen sucht in " + root.rootFrameFor(root.tab).title
+        + " · ↓/↑ geht in die Liste · enter zeigt sie · esc zurück"
+    if (root.promptMode === "filter")
+      return "tippen filtert diese Liste · ↓/↑ geht in die Liste · ctrl+u leeren · esc zeigt alles"
     if (root.promptMode !== "") return "tippen · enter bestätigen · esc abbrechen"
     var mode = root.frameMode
     if (mode === "queue") return "enter spielen · a anhängen · d entfernen · D leeren · C nur Laufendes behalten"
@@ -854,6 +877,7 @@ Panel {
     promptDebounce.stop()
     root.promptMode = ""
     root.promptText = ""
+    if (root.filterText !== "") { root.filterText = ""; root.refreshFilteredRows() }
   }
 
   // Leave the field but keep the term: the results stay on screen, the keys go to
@@ -864,6 +888,8 @@ Panel {
     promptDebounce.stop()
     if (root.promptMode === "search" && root.promptText.trim() !== "")
       root.applySearch(root.promptText)
+    if (root.promptMode === "category")
+      root.applyCategorySearch(root.promptText)
     root.promptMode = ""
   }
 
@@ -871,7 +897,8 @@ Panel {
   // bridge drops the query a newer one supersedes on the same channel -- so
   // typing eight letters costs one MPD search, not eight.
   function searchWhileTyping() {
-    if (root.promptMode !== "search") return
+    if (root.promptMode === "filter") { root.applyLocalFilter(root.promptText); return }
+    if (root.promptMode !== "search" && root.promptMode !== "category") return
     promptDebounce.restart()
   }
 
@@ -884,7 +911,8 @@ Panel {
     id: promptDebounce
     interval: 250
     repeat: false
-    onTriggered: root.applySearch(root.promptText)
+    onTriggered: root.promptMode === "category"
+      ? root.applyCategorySearch(root.promptText) : root.applySearch(root.promptText)
   }
 
   // If no list arrives (the term did not change, nothing was re-queried), the
@@ -914,8 +942,81 @@ Panel {
     root.pushFrame(nextFrame)
   }
 
+  function topFrame() {
+    return root.stack.length > 0 ? root.stack[root.stack.length - 1] : null
+  }
+
+  // The scoped search: "the albums whose name contains this". Same behaviour as the
+  // global one -- the top frame is replaced while typing, so the way back does not
+  // collect one frame per keystroke.
+  function applyCategorySearch(term) {
+    var top = root.topFrame()
+    var tag = (top && String(top.mode) === "list") ? String(top.tag || "album") : "album"
+    var trimmed = String(term || "").trim()
+    var base = root.rootFrameFor(root.tab).title
+    var nextFrame = { mode: "list", tag: tag, filter: [], search: trimmed,
+                      title: trimmed === "" ? base : base + " · " + trimmed }
+    if (top && String(top.mode) === "list" && top.search !== undefined) {
+      root.sel = 0
+      root.detailRow = null
+      root.stack = root.stack.slice(0, root.stack.length - 1).concat([nextFrame])
+      return
+    }
+    root.pushFrame(nextFrame)
+  }
+
+  // The local filter: keeps the loaded list and shows the matching rows. Simple
+  // substring, case-insensitive, over title and subtitle -- what a person sees.
+  function refreshFilteredRows() {
+    var needle = root.filterText.trim().toLowerCase()
+    if (needle === "") {
+      root.rows = root.allRows
+      root.setInfo(root.infoFor(root.frameMode, root.frame || {}, root.allRows))
+      return
+    }
+    var out = []
+    for (var i = 0; i < root.allRows.length; i++) {
+      var row = root.allRows[i]
+      if (String(row.type || "") === "header") { out.push(row); continue }
+      var hay = (String(root.rowTitle(row)) + " " + String(root.rowSub(row))).toLowerCase()
+      if (hay.indexOf(needle) !== -1) out.push(row)
+    }
+    root.rows = out
+    root.sel = root.firstSelectable(0)
+    root.setInfo(out.length + " von " + root.allRows.length)
+  }
+
+  function applyLocalFilter(term) {
+    root.filterText = String(term || "")
+    root.refreshFilteredRows()
+  }
+
+  // What `/` opens here: a scoped search in the library tabs, a plain filter where
+  // MPD has nothing to filter (paths, playlist names), and the global search
+  // everywhere else -- which is what `/` did before.
+  function openPromptForFrame(explicit) {
+    var top = root.topFrame()
+    var mode = top ? String(top.mode || "") : ""
+    if (mode === "list") {
+      root.openPrompt("category", String(top.search || ""), true, explicit)
+      return
+    }
+    if (mode === "files" || mode === "playlists") {
+      root.openPrompt("filter", root.filterText, true, explicit)
+      return
+    }
+    root.setTab("search", true)
+  }
+
   function submitPrompt() {
     var text = root.promptText.trim()
+    // Done typing: the scoped search keeps its result list, the filter keeps
+    // filtering, and in both cases the field goes away. Enter in the *list* then
+    // opens the row, exactly as in every other view.
+    if (root.promptMode === "category" || root.promptMode === "filter") {
+      root.promptMode = ""
+      return
+    }
     if (root.promptMode === "search") {
       if (text === "") return
       root.applySearch(text)
@@ -969,14 +1070,16 @@ Panel {
       // ↓/↑ leave the field and take over the list: "done typing, now picking".
       // The term stays, so `/` brings the field back where it was, and everything
       // the list offers (a, enter, i, j/k) works from here on.
-      if (root.promptMode === "search" && (key === Qt.Key_Down || key === Qt.Key_Up)) {
+      if ((root.promptMode === "search" || root.promptMode === "category"
+           || root.promptMode === "filter") && (key === Qt.Key_Down || key === Qt.Key_Up)) {
+        var wasMode = root.promptMode
         var goLast = (key === Qt.Key_Up)
         var hadTerm = root.promptText.trim() !== ""
         root.leavePrompt()
         root.sel = goLast ? root.lastSelectable() : root.firstSelectable(0)
         // The re-run above answers later and resets the selection to the top hit;
         // the wish has to survive that.
-        if (hadTerm) { root.pendingSelect = goLast ? "last" : "first"; pendingSelectGuard.restart() }
+        if (hadTerm && wasMode !== "filter") { root.pendingSelect = goLast ? "last" : "first"; pendingSelectGuard.restart() }
         event.accepted = true
         return
       }
@@ -1041,11 +1144,19 @@ Panel {
     if (ctrl && text === "d") { root.step(8); event.accepted = true; return }
 
     if (key === Qt.Key_Escape) {
-      // In the order of what is on top: the details overlay, then one frame back,
-      // then closing the panel. Closing the whole panel from three levels deep
-      // is not what somebody pressing `esc` means.
+      // In the order of what is on top: the details overlay, then a set filter,
+      // then one frame back, then closing the panel. Closing the whole panel from
+      // three levels deep is not what somebody pressing `esc` means.
       if (root.detailRow !== null) { root.detailRow = null; event.accepted = true; return }
+      if (root.filterText !== "") {
+        root.filterText = ""
+        root.refreshFilteredRows()
+        event.accepted = true
+        return
+      }
       if (root.popFrame()) { event.accepted = true; return }
+      root.filterText = ""
+      root.setInfo("")
       host.close()
       event.accepted = true
       return
@@ -1087,7 +1198,7 @@ Panel {
       }
     }
 
-    if (key === Qt.Key_Slash) { root.setTab("search", true); event.accepted = true; return }
+    if (key === Qt.Key_Slash) { root.openPromptForFrame(true); event.accepted = true; return }
     if (text === "i" && root.frameMode !== "playlists") { root.showDetails(); event.accepted = true; return }
 
     if (key === Qt.Key_Down || text === "j") { root.step(1); event.accepted = true; return }
