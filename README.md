@@ -38,13 +38,40 @@ while listening, with live preview. No JSON editing needed.
 
 ## Getting started
 
+The plugin is not in the Omarchy marketplace yet, so bring it in with git:
+
 ```bash
+omarchy plugin add https://github.com/taschenlampe/kokko.mpd.git --enable
 omarchy plugin enable kokko.mpd --section center
 omarchy restart shell
 ```
 
-On first start it connects to MPD on `127.0.0.1:6600` (changeable in the plugin
-settings). Panel toggle: **`SUPER + CTRL + M`**.
+Updates then come from Omarchy itself:
+
+```bash
+omarchy plugin update kokko.mpd
+```
+
+**By hand**, if you prefer a folder you control — the directory name has to be the
+plugin id, because that is what `shell.json` and the CLI refer to:
+
+```bash
+git clone https://github.com/taschenlampe/kokko.mpd.git \
+  ~/.config/omarchy/plugins/kokko.mpd
+omarchy plugin enable kokko.mpd --section center
+omarchy restart shell
+```
+
+A hand-made clone is unknown to `omarchy plugin update`, so it updates with a plain
+`git pull` in the plugin folder. Removing works either way:
+`omarchy plugin remove kokko.mpd`.
+
+**What it needs.** A running MPD on `127.0.0.1:6600` (empty password by default, both
+changeable in the plugin settings). The bridge uses nothing but the Python standard
+library — no `mpc`, no extra packages. `cava` is optional: it draws the spectrum in
+the bar, everything else works without it.
+
+Panel toggle: **`SUPER + CTRL + M`**.
 
 ## The views
 
@@ -326,8 +353,8 @@ The open items live in the **issue tracker** of the repo
 "done when" per entry. Sorted by usefulness, not by effort:
 
 1. **Category search in the queue too** (`playlistsearch`).
-2. **Shipping**: tag, release and `omarchy plugin add`; after that the marketplace
-   listing (for that the repo would have to be public).
+2. **Shipping**: tag and release; after that the marketplace
+   listing.
 3. **cava visible when it is missing** — otherwise the band stays silently empty
    instead of saying so.
 4. **Small stuff**: selectable list sorting, look fine tuning, two safeguards and
