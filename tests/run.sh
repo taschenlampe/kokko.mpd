@@ -44,7 +44,22 @@ fi
 
 step "omarchy plugin validate"
 if command -v omarchy >/dev/null 2>&1; then
-  if omarchy plugin validate . >/dev/null 2>&1; then note "ok"; else bad "validate reports a problem"; fi
+  # Read the output *as well as* the exit code: on its own the code is reliable
+  # (measured: rc=1 for a manifest without `kinds`, rc=0 for a good one), but the
+  # text catches failures that arrive without one.
+  # Beware when measuring this by hand: `$?` after a *pipeline* is the status of
+  # the last element -- `validate | head | sed; echo $?` always shows 0. That is
+  # exactly how this was mis-diagnosed once; use PIPESTATUS[0] or no pipeline.
+  OUT=$(omarchy plugin validate . 2>&1); RC=$?
+  if printf '%s' "$OUT" | grep -qiE 'invalid|missing|error|not a plugin|failed'; then
+    printf '%s\n' "$OUT" | head -5 | sed 's/^/   /'
+    bad "validate reported a problem (exit code was $RC -- it is 0 even for a broken manifest)"
+  elif [ "$RC" -ne 0 ]; then
+    printf '%s\n' "$OUT" | head -5 | sed 's/^/   /'
+    bad "validate exited with $RC"
+  else
+    note "ok"
+  fi
 else
   note "skipped: the omarchy CLI is not present here"
 fi
