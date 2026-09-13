@@ -981,6 +981,7 @@ Panel {
           flash: panelLoader.item.flashText,
           peek: panelLoader.item.peek(8),
           hintTruncated: panelLoader.item.hintTruncated,
+          jumpArmed: panelLoader.item.jumpArmed,
           // What the list is actually showing -- a selection can be right and
           // still sit off-screen, and no other field would say so.
           visible: (function () {

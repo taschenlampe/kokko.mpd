@@ -103,6 +103,7 @@ welche Taste hier gerade etwas tut. Am Anfang schließt `esc` das Panel.
 | `1` … `8`, `tab` | Queue · Suche · Alben · Künstler · Genres · Dateien · Playlists · Einstellungen |
 | `t` | **zum laufenden Titel** — aus jedem Tab: wechselt in die Queue und stellt ihn mittig |
 | `<` `>` | vorheriger / nächster Titel (die Belegung von `ncmpcpp`, nicht von `mpc` — das schreibt `prev`/`next`) |
+| `*` + Buchstabe | **Buchstabensprung**: springt zum nächsten Eintrag mit diesem Anfangsbuchstaben — `*` `d` `*` `d` wandert weiter durch alle D, `esc` bricht ab, Umlaute zählen als a/o/u |
 | `j` `k`, `↑` `↓`, `pgup` `pgdn`, `g` `G` | bewegen |
 | `enter` | öffnen bzw. spielen |
 | `a` / `A` | anhängen, was die Zeile ist / alles in dieser Liste |

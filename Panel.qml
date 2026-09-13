@@ -75,6 +75,9 @@ Panel {
 
   // "" | "search" | "save" | "rename"
   property string promptMode: ""
+  // Armed by `*`: the next letter jumps in the list instead of running a command.
+  // A prefix key, because almost every letter already means something here.
+  property bool jumpArmed: false
   property string promptText: ""
   // True when the field was opened with `/` -- the explicit "I want to type"
   // gesture. Only then do digits go into the term while the field is still empty
@@ -377,6 +380,34 @@ Panel {
         + (row.count !== undefined ? " (" + row.count + ")" : ""))
     }
     return out
+  }
+
+  // Umlauts fold onto their base letter: "Ä" has to answer to "a", and nobody
+  // wants to type an umlaut to find "Übermensch".
+  function foldLetter(text) {
+    return String(text || "").toLowerCase()
+      .replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ß/g, "ss")
+  }
+
+  // The next row whose title starts with the letter -- starting *after* the current
+  // one and wrapping, so pressing again walks through the matches instead of
+  // landing on the same entry. Returns false when nothing starts with it.
+  function jumpToLetter(letter) {
+    var needle = root.foldLetter(letter)
+    var count = root.rows.length
+    if (needle === "" || count === 0) return false
+    var start = root.sel >= 0 ? root.sel : -1
+    for (var step = 1; step <= count; step++) {
+      var at = (start + step) % count
+      var row = root.rows[at]
+      if (!root.isSelectable(row)) continue
+      if (root.foldLetter(root.rowTitle(row)).indexOf(needle) === 0) {
+        root.sel = at
+        root.centerOn(at)
+        return true
+      }
+    }
+    return false
   }
 
   function firstSelectable(from) {
@@ -765,10 +796,11 @@ Panel {
   // letters belong to the field, and `t` is just a letter.
   readonly property string hint: {
     if (root.promptMode !== "") return root.hintKeys
+    if (root.jumpArmed) return "Buchstabe drücken: springt zum ersten Eintrag damit · esc bricht ab"
     var keys = root.hintKeys
     // The two keys that are about the player rather than about this list travel
     // with every view.
-    return keys === "" ? "" : keys + " · <> Titelwechsel · t laufender Titel"
+    return keys === "" ? "" : keys + " · * Buchstabe · <> Titelwechsel · t laufender Titel"
   }
 
   // The keys of the current view, without the one key that is about the whole
@@ -780,11 +812,11 @@ Panel {
         : "tippen filtert · ↓/↑ geht in die Liste · enter spielt den Treffer · ctrl+u leeren · esc fertig"
     if (root.promptMode !== "") return "tippen · enter bestätigen · esc abbrechen"
     var mode = root.frameMode
-    if (mode === "queue") return "enter spielen · a anhängen · d entfernen · D leeren · C nur Laufendes behalten"
+    if (mode === "queue") return "enter spielen · a anhängen · d entfernen · D leeren · C Laufendes"
     if (mode === "search") return "/ tippen · enter öffnen · a anhängen · A alle Treffer · h/esc zurück"
-    if (mode === "list") return "enter hinein · a alles davon anhängen · A Auswahl anhängen · h/esc zurück"
+    if (mode === "list") return "enter hinein · a alles anhängen · A Auswahl · h/esc zurück"
     if (mode === "find") return "enter spielen · a anhängen · A ganze Liste · h/esc zurück"
-    if (mode === "files") return "enter hinein/abspielen · a anhängen · A ganzer Ordner · ← zurück"
+    if (mode === "files") return "enter hinein/abspielen · a anhängen · A Ordner · ← zurück"
     if (mode === "playlists") return "enter öffnen · a laden · s Queue speichern · r umbenennen · d löschen"
     if (mode === "plist") return "enter spielen · a anhängen · d Titel entfernen · ← zurück"
     if (mode === "settings") return "enter/space schalten um · -/+ ändern die Zahl · 8 wählt den Tab · esc zurück"
@@ -1025,6 +1057,27 @@ Panel {
         root.searchWhileTyping()
         event.accepted = true
       }
+      return
+    }
+
+    // Armed by `*`: a letter jumps in the list, everything else is still a command.
+    // Handled before every other key, because it is a mode, not a key combination.
+    if (root.jumpArmed) {
+      root.jumpArmed = false
+      root.setInfo("")
+      if (key === Qt.Key_Escape) { event.accepted = true; return }
+      if (/^[a-z0-9]$/.test(root.foldLetter(text))) {
+        var hit = root.jumpToLetter(text)
+        root.flash(hit ? ("Sprung zu " + text.toUpperCase()) : ("nichts mit " + text.toUpperCase()))
+        event.accepted = true
+        return
+      }
+      // fall through: the key was a real command after all
+    }
+    if (text === "*") {
+      root.jumpArmed = true
+      root.setInfo("Buchstabe drücken — springt zum ersten Eintrag damit")
+      event.accepted = true
       return
     }
 
