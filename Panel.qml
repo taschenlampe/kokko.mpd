@@ -48,7 +48,8 @@ Panel {
   }
 
   readonly property string backdropMode: root.look === "sharp" ? "sharp"
-    : (root.look === "hero" || root.look === "anchor") ? "off"
+    : (root.look === "hero" || root.look === "anchor"
+       || root.look === "minimal" || root.look === "split") ? "off"
     : "blur"
 
   readonly property color fg: Color.popups.text
@@ -515,7 +516,7 @@ Panel {
         hint: "0 turns it off; higher = more present behind the lists" },
       { type: "setting", kind: "enum", key: "coverLook", title: "Cover in the player",
         value: String(h.coverLook || "classic"),
-        options: ["classic", "sharp", "hero", "anchor"],
+        options: ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split"],
         hint: "enter or -/+ cycles through — applies at once" },
       { type: "setting", kind: "text", key: "format", title: "Label format",
         value: String(h.format),
@@ -2001,6 +2002,9 @@ Panel {
     if (root.look === "sharp") return bandScharf
     if (root.look === "hero") return bandHero
     if (root.look === "anchor") return bandAnker
+    if (root.look === "vinyl") return bandVinyl
+    if (root.look === "minimal") return bandMinimal
+    if (root.look === "split") return bandSplit
     return bandKlassisch
   }
 
@@ -2020,6 +2024,9 @@ Panel {
   Component { id: bandScharf; BandScharf {} }
   Component { id: bandHero; BandHero {} }
   Component { id: bandAnker; BandAnker {} }
+  Component { id: bandVinyl; BandVinyl {} }
+  Component { id: bandMinimal; BandMinimal {} }
+  Component { id: bandSplit; BandSplit {} }
 
   function labelFor(key) {
     var names = {
