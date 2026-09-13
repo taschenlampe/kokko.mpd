@@ -1527,6 +1527,18 @@ Panel {
             radius: Style.cornerRadius
           }
 
+          // The row that is playing right now. The colour + bold on the title
+          // alone is easy to miss while scrolling a long queue, and it is the
+          // same tone the keyboard selection uses -- so this bar is a second,
+          // independent mark. Square on purpose: a one-sided edge should not be
+          // rounded, and it has to stay visible when the row is also selected.
+          Rectangle {
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+            width: Math.max(2, Style.space(2))
+            color: root.accent
+            visible: !rowItem.isHeader && root.isActiveRow(rowItem.modelData)
+          }
+
           // A section label: artists / albums / tracks.
           Text {
             visible: rowItem.isHeader

@@ -59,6 +59,8 @@ opens, the **selection sits on the playing track** and the list is scrolled ther
 with 300 entries, the top would be the one place where the music is not. `t` jumps
 back there any time (from any tab, too).
 
+The row that is playing carries an accent-coloured bar on its left edge, so it stays findable while you scroll -- independent of the keyboard selection.
+
 ![Queue](docs/panel-queue.png)
 
 **Search.** Hits grouped, `+` appends, `enter` plays.
