@@ -309,7 +309,9 @@ Panel {
   function infoFor(mode, f, list) {
     var n = (list || []).length
     if (mode === "queue") return n + " entries"
-    if (mode === "search") return n + (n >= 800 ? "+" : "") + " hits for “" + String(f.term || "") + "”"
+    if (mode === "search") return n === 0
+      ? "no hits for “" + String(f.term || "") + "” — try fewer words"
+      : n + (n >= 800 ? "+" : "") + " hits for “" + String(f.term || "") + "”"
     if (mode === "list") return n + " entries"
     if (mode === "find") return n + " tracks"
     if (mode === "files") return String(f.path || "") === "" ? "Library — " + n + " entries" : String(f.path) + " — " + n
@@ -717,7 +719,7 @@ Panel {
       what = root.rowTitle(row)
     }
 
-    if (what !== "") root.flash("angehängt: " + what)
+    if (what !== "") root.flash("appended: " + what)
   }
 
   function addAll() {
@@ -809,7 +811,7 @@ Panel {
         + " · ↓/↑ enters the list · enter shows them · esc back"
     if (root.promptMode === "filter")
       return "type to filter this list · ↓/↑ enters the list · ctrl+u clears · esc shows all"
-    if (root.promptMode !== "") return "tippen · enter bestätigen · esc abbrechen"
+    if (root.promptMode !== "") return "type · enter confirms · esc cancels"
     var mode = root.frameMode
     if (mode === "queue") return "enter plays · a appends · d removes · D clears · C keeps only the playing track"
     if (mode === "search") return "/ to type · enter opens · a appends · A all hits · h/esc back"
@@ -1043,7 +1045,7 @@ Panel {
       var from = row ? String(row.playlist || "") : ""
       if (text === "" || from === "" || !root.up) return
       mutateAndReload("renameplaylist", { name: from, to: text })
-      root.setInfo("„" + from + "“ heißt jetzt „" + text + "”")
+      root.setInfo("“" + from + "” is now “" + text + "”")
       root.closePrompt()
       return
     }
@@ -1634,9 +1636,9 @@ Panel {
         horizontalAlignment: Text.AlignHCenter
         elide: Text.ElideRight
         text: {
-          if (root.loading) return "lade …"
+          if (root.loading) return "loading …"
           if (!root.up) return "no connection to MPD"
-          if (root.frameMode === "search" && String(root.frame.term || "").trim() === "") return "tippen — gesucht wird, während du schreibst"
+          if (root.frameMode === "search" && String(root.frame.term || "").trim() === "") return "type — it searches while you type"
           if (root.frameMode === "queue") return "queue is empty — a appends the selected track"
           if (root.frameMode === "playlists") return "no saved playlists — s saves the queue"
           return root.infoText
@@ -1675,7 +1677,7 @@ Panel {
         Text {
           anchors.centerIn: parent
           visible: root.detailLoading
-          text: "lade …"
+          text: "loading …"
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption

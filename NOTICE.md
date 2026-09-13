@@ -6,13 +6,13 @@ file `bin/omajam-mpd`, MIT licence, Copyright (c) 2026 Nathan Ollerenshaw
 
 Changed compared to the original:
 
-* Docstring um diesen Herkunftshinweis ergänzt.
-* Cache-Verzeichnis `~/.cache/omajam` → `~/.cache/kokko-mpd`.
-* Zwei Kommandos ergänzt: `playlistdelete {name,pos}` und `playlistclear {name}` —
-  einen einzelnen Titel aus einer gespeicherten Playlist entfernen bzw. sie leeren
-  (MPD kennt die dafür, das Original hatte sie nicht angebunden).
-* Aufrufer ist dieses Plugins `BarWidget.qml` statt des Shell-Plugin-Service.
+* Docstring extended by this origin note.
+* Cache directory `~/.cache/omajam` → `~/.cache/kokko-mpd`.
+* Two commands added: `playlistdelete {name,pos}` and `playlistclear {name}` —
+  removing a single track from a saved playlist, or emptying it (MPD knows these,
+  the original never wired them up).
+* The caller is this plugin's `BarWidget.qml` instead of the shell plugin service.
 
-`Format.js` ist ebenfalls aus omajam übernommen (unverändert, MIT, gleicher Rechteinhaber).
+`Format.js` is taken from omajam as well (unchanged, MIT, same copyright holder).
 
-Alles andere (`BarWidget.qml`, `Panel.qml`, `manifest.json`) ist eigenständig.
+Everything else (`BarWidget.qml`, `Panel.qml`, `manifest.json`) is original work.

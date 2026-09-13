@@ -1068,13 +1068,13 @@ Panel {
 
     // Both halves of the track-change feedback, on demand.
     function osd(): string {
-      if (!root.hasSong) return "nichts geladen"
+      if (!root.hasSong) return "nothing playing"
       root.showOsd(false)
       return "ok"
     }
 
     function notify(): string {
-      if (!root.hasSong) return "nichts geladen"
+      if (!root.hasSong) return "nothing playing"
       root.notifyTrackChange()
       return "ok"
     }

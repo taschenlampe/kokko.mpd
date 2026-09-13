@@ -4,7 +4,7 @@
 click opens the whole player: queue, search, library, playlists. Everything works
 with the mouse; the keys are a bonus.
 
-![Bar with card](docs/karte.png)
+![The player](docs/panel-queue.png)
 
 ## What it does
 
@@ -47,6 +47,11 @@ On first start it connects to MPD on `127.0.0.1:6600` (changeable in the plugin
 settings). Panel toggle: **`SUPER + CTRL + M`**.
 
 ## The views
+
+**In the bar, and on hover.** The label with cover and transport, and the card that
+appears when you point at the bar.
+
+![Bar and card](docs/karte.png)
 
 **Queue — the player.** The band on top: cover, progress, spectrum, one controller.
 Below it the queue, at the bottom what is happening and what the keys do. When it
