@@ -169,6 +169,20 @@ greifen ohne Neustart.
 
 ## Für Neugierige
 
+**Cover-Dateien.** MPD gibt über `albumart` nur Bilddateien heraus, deren Namen es
+kennt — in MPD 0.24 ist das `cover.*`. Ein `folder.jpg` daneben wird ignoriert
+(gemessen: `albumart` antwortet „No file exists" für `folder.jpg`, `album.jpg` oder
+`Album Art.jpg`; dieselben Bytes liefern sofort ein Ergebnis, sobald eine
+`cover.jpg` existiert). Deshalb liest die Bridge die üblichen Namen — `cover`,
+`folder`, `front`, `album`, `albumart`, `album art`, `artwork`, `thumb`, `case`,
+`cd` in `.jpg/.jpeg/.png/.webp/.gif/.bmp` — selbst aus dem Musikverzeichnis
+(Pfad aus MPDs `mpd.conf`, `music_directory`). Eingebettete Bilder kommen
+unverändert über `readpicture`. Eine Coverdatei schlägt das eingebettete Bild,
+weil sie in der Regel die größere ist — dieselbe Reihenfolge, die MPD selbst
+wählt. Wichtig: Die Dateien müssen für den Benutzer lesbar sein, unter dem die
+Bridge läuft (bei einer Bibliothek auf einem NAS in der Regel kein Problem).
+
+
 <details>
 <summary>Aufbau, Kommandozeile, Feineinstellungen</summary>
 

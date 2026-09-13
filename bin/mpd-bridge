@@ -486,20 +486,109 @@ def fetch_binary(conn: MPDConn, command: str, uri: str) -> tuple:
     return bytes(data), mime
 
 
+# MPD hands out only the cover files it knows by name. MPD 0.24 knows `cover.*`
+# -- a perfectly good `folder.jpg` next to the song is invisible to `albumart`
+# (measured: "No file exists" for folder.jpg, album.jpg, "Album Art.jpg"; the same
+# bytes answer `size: 25872` the moment a cover.jpg exists). The bridge runs on the
+# same machine as the library, so it can read the usual names itself.
+COVER_NAMES = ("cover", "folder", "front", "album", "albumart", "album art",
+               "artwork", "thumb", "case", "cd")
+COVER_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+
+_MUSIC_DIR = None  # cached result of music_directory()
+
+
+def music_directory() -> str:
+    """MPD's `music_directory`, read from its own configuration file.
+
+    The `config` command needs admin rights, and the answer is a path on this
+    machine anyway -- so the file is read directly. Empty when nothing readable
+    is found, which simply disables the disk fallback.
+    """
+    global _MUSIC_DIR
+    if _MUSIC_DIR is not None:
+        return _MUSIC_DIR
+    config_root = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    candidates = (
+        os.path.join(config_root, "mpd", "mpd.conf"),
+        os.path.expanduser("~/.mpdconf"),
+        "/etc/mpd.conf",
+    )
+    found = ""
+    for path in candidates:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    line = line.split("#", 1)[0].strip()
+                    if not line.startswith("music_directory"):
+                        continue
+                    value = line.split(None, 1)[1] if len(line.split(None, 1)) > 1 else ""
+                    value = os.path.expanduser(value.strip().strip('"').strip("'"))
+                    if value and os.path.isdir(value):
+                        found = value
+                    break
+        except OSError:
+            continue
+        if found:
+            break
+    _MUSIC_DIR = found
+    return found
+
+
+def local_cover(uri: str) -> tuple:
+    """The cover file beside the song, read from disk.
+
+    Only a fallback for what `albumart` will not hand out; every name in
+    COVER_NAMES is one players in the wild actually write. Returns (data, mime),
+    empty when there is nothing to read.
+    """
+    base = music_directory()
+    if not base or not uri:
+        return b"", ""
+    directory = os.path.join(base, os.path.dirname(uri))
+    try:
+        present = {name.lower(): name for name in os.listdir(directory)}
+    except OSError:
+        return b"", ""
+    for wanted in COVER_NAMES:
+        for ext in COVER_EXTS:
+            name = present.get(wanted + ext)
+            if name is None:
+                continue
+            try:
+                with open(os.path.join(directory, name), "rb") as handle:
+                    data = handle.read(ART_LIMIT + 1)
+            except OSError:
+                continue
+            if 0 < len(data) <= ART_LIMIT:
+                return data, ""
+    return b"", ""
+
+
 def fetch_art(conn: MPDConn, uri: str) -> tuple:
-    """`albumart` first, then `readpicture`.
+    """The song's cover: `albumart`, then the file on disk, then `readpicture`.
 
     albumart returns the cover file sitting beside the song, which is normally
     the larger of the two; readpicture returns whatever is embedded in the tags
     and is the fallback for a library that keeps no cover files. Either can ACK
     with "no such file" and that is not an error worth reporting.
+
+    Between the two sits the local file: MPD refuses names like `folder.jpg`, and
+    that is exactly what most libraries use. Order matters -- a cover *file* is
+    the better picture, so it beats the embedded one, same as MPD's own choice.
     """
     for command in ("albumart", "readpicture"):
         try:
             data, mime = fetch_binary(conn, command, uri)
         except MPDCommandError:
-            continue
-        if data:
+            data, mime = b"", ""
+        if data and command == "albumart":
+            return data, mime
+        if command == "albumart":
+            data, mime = local_cover(uri)
+            if data:
+                return data, mime
+        elif data:
             return data, mime
     return b"", ""
 
