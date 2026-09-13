@@ -23,6 +23,11 @@ im Hintergrund, die Präsenz regelt ein Regler.
 **Album** gruppiert, während du tippst. `+` an einer Zeile hängt an, was die
 Zeile *ist* — einzelnen Titel, ganzes Album, alles von einem Künstler.
 
+**Suchen in der Kategorie** — in Alben, Künstlern und Genres sucht `/` nicht in
+der ganzen Bibliothek, sondern nur in dem, was du gerade ansiehst („Alben ·
+danzig", 2 statt 1789 Zeilen). Groß- und Kleinschreibung ist dabei egal: „iam"
+findet auch „IAM".
+
 **Aufräumen** — Papierkorb je Zeile, ganze Queue leeren, oder nur das Laufende
 behalten. Ein Klick, sofort, mit Rückmeldung.
 
@@ -56,7 +61,7 @@ nicht ist. Mit `t` springt man jederzeit zurück (auch aus einem anderen Tab).
 
 ![Suche](docs/panel-suche.png)
 
-**Einstellungen.** Sechs Werte, direkt bedienbar.
+**Einstellungen.** Sieben Werte, direkt bedienbar.
 
 ![Einstellungen](docs/einstellungen.png)
 
@@ -244,7 +249,7 @@ meldet sich in der Fußzeile.
 **Einstellungen** liegen in `~/.config/omarchy/shell.json` im Widget-Eintrag:
 `host`, `port`, `password`, `format`, `maxWidth`, `overflow`, `showArt`,
 `showStateIcon`, `whenIdle`, `wheelAction`, `hoverCard`, `backdrop`,
-`osdOnChange`, `osdOnHover`, `osdDuration`, `notifyTrack`.
+`osdOnChange`, `osdOnHover`, `osdDuration`, `notifyTrack`, `coverLook`.
 
 **Von der Kommandozeile:**
 
@@ -304,29 +309,27 @@ brauchen einen Menschen mit Zeiger.
 Nathan Ollerenshaw) — Änderungen siehe `NOTICE.md`. `BarWidget.qml`, `Panel.qml`,
 `MiniPlayer.qml` und `Visualizer.qml` sind eigenständig.
 
+Das Plugin wohnt in einem eigenen Repo mit Issue-Tracker:
+**https://git.m2control.de/bm/omarchympd** — Fehler und Wünsche gehören dorthin,
+nicht in eine Chat-Sitzung, die morgen vergessen ist.
+
 ## Später / offen
 
-Nach Nutzen sortiert, nicht nach Aufwand.
+Die offenen Punkte stehen im **Issue-Tracker** des Repos
+(https://git.m2control.de/bm/omarchympd/issues) — mit Labels, Milestone und einem
+„fertig, wenn" pro Eintrag. Nach Nutzen sortiert, nicht nach Aufwand:
 
-1. **Rauchtest-Skript über die IPC-Schicht** — der wertvollste offene Punkt: jede
-   Prüfung war bisher Handarbeit (Zustandsabfragen, Tastendrücke, Screenshot-Vergleich)
-   und verfällt mit der Sitzung. Nicht destruktiv bauen: Queue vorher `mpc save`,
-   danach `mpc load` — sonst testet es auf Kosten der Musik.
-2. **Maus-Klickpfade von Hand durchspielen**: die vier Band-Looks (Cover-Klick,
-   Fortschritt ziehen, Transport, Zufall/Repeat, Queue-Symbole), 🗑 und `+` in den
-   Listenzeilen, `crop`. Tastatur- und IPC-Pfade sind geprüft, echte Klicks nicht
-   (in dieser VM nicht auslösbar).
-3. **cava sichtbar machen, wenn es fehlt**: `/usr/bin/cava` ist fest verdrahtet,
-   `onExited` schluckt den Grund — ohne das Programm bleibt das Band stumm leer
+1. **Mauspfade von Hand durchspielen** — die vier Band-Looks, Fortschritt ziehen,
+   🗑 und `+` in den Listenzeilen, `crop`. Tastatur- und IPC-Pfade sind geprüft,
+   echte Klicks nicht (in dieser VM nicht auslösbar).
+2. **cava sichtbar machen, wenn es fehlt** — sonst bleibt das Band stumm leer
    statt „cava fehlt" zu sagen.
-4. **`tag`-Whitelist** in der Bridge (`album|artist|genre`). Kein erreichbarer
-   Pfad, und `quote()` schützt ohnehin: Gürtel zum Hosenträger, kein Bug.
-5. **Zwei Kommentare** in der Bridge: `self.generation` (warum nur ein Thread
-   schreibt und Leser nur vergleichen) und `emit()` (warum das Halten des
-   Schlosses harmlos ist).
-6. **Sortierung der Listen** wählbar (Alben, Künstler, Dateien).
-7. **Kleinigkeiten an den Looks**: Deckkraft des Kartenbildes in `hero` (eine
-   Zahl in `BandKlassisch.qml`), Look-Prinzip auf die Hover-Karte übertragen.
+3. **Kategoriesuche auch in der Queue** (`playlistsearch`).
+4. **Auslieferung**: Tag, Release und `omarchy plugin add`; danach das
+   Marketplace-Listing (dafür müsste das Repo öffentlich sein).
+5. **Kleinkram**: Sortierung der Listen wählbar, Sortierung der Looks, zwei
+   Sicherungen bzw. Kommentare in der Bridge — die genauen Zuschnitte und die
+   Begründung, warum zwei davon *keine* Bugs sind, stehen in den Issues.
 
 Bewusst **nicht** geplant: `bin/mpd-bridge` in Module zerlegen oder `with_cmd`
 umschreiben. Die Datei ist eine gepflegte Kopie von omajam (siehe `NOTICE.md`);
