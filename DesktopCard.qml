@@ -199,6 +199,8 @@ Item {
         id: buttonsRow
         Layout.fillWidth: true
         Layout.topMargin: 4
+        // Die Reihe sitzt mittig, nicht linksbuendig.
+        Layout.alignment: Qt.AlignHCenter
         spacing: Style.spacing.xs
 
         PanelActionButton {

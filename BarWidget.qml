@@ -66,6 +66,24 @@ Panel {
     return v === "" ? "classic" : v
   }
   // The blurred cover behind the panel: 0 = off, 100 = as present as it gets.
+  // Die Desktop-Karte. Alle Werte kommen ueber setting(), das den Eintrag aus
+  // dem Schema liest -- dieselbe Mechanik wie coverLook und backdrop.
+  readonly property bool desktopWidget: {
+    var v = setting("desktopWidget", true)
+    return v === true || String(v) === "true"
+  }
+  readonly property string desktopSize: String(setting("desktopSize", "card"))
+  readonly property string desktopCorner: String(setting("desktopCorner", "bottom-right"))
+  readonly property string desktopLayer: String(setting("desktopLayer", "desktop"))
+  readonly property bool desktopDimOnPause: {
+    var v = setting("desktopDimOnPause", true)
+    return v === true || String(v) === "true"
+  }
+  readonly property bool desktopInputOn: {
+    var v = setting("desktopInput", true)
+    return v === true || String(v) === "true"
+  }
+
   readonly property int backdrop: {
     var n = Number(setting("backdrop", 60))
     return isNaN(n) ? 60 : Math.max(0, Math.min(100, Math.round(n)))
@@ -1238,7 +1256,9 @@ Panel {
       PanelWindow {
         required property var modelData
         screen: modelData
-        visible: true
+        // Der Schalter aus dem Einstellungstab: aus heisst, es gibt gar keine
+        // Flaeche -- nicht nur eine unsichtbare.
+        visible: root.desktopWidget
         color: "transparent"
         anchors { bottom: true; right: true }
         margins { bottom: 28; right: 28 }

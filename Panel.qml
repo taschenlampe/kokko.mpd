@@ -529,7 +529,25 @@ Panel {
         hint: "stays that long after a new track — enter shows it now" },
       { type: "setting", kind: "bool", key: "notifyTrack", title: "Desktop notification on track change",
         value: h.notifyTrack === true,
-        hint: "desktop bubble (app MPD) — independent of the card" }
+        hint: "desktop bubble (app MPD) — independent of the card" },
+      { type: "setting", kind: "bool", key: "desktopWidget", title: "Card on the wallpaper",
+        value: h.desktopWidget === true || String(h.desktopWidget) === "true" },
+      { type: "setting", kind: "enum", key: "desktopSize", title: "Card size (desktop)",
+        value: String(h.desktopSize || "card"),
+        options: ["card", "mini"],
+        hint: "enter or -/+ cycles through — applies at once" },
+      { type: "setting", kind: "enum", key: "desktopCorner", title: "Card position (desktop)",
+        value: String(h.desktopCorner || "bottom-right"),
+        options: ["bottom-right", "bottom-left", "top-right", "top-left", "center"],
+        hint: "enter or -/+ cycles through — applies at once" },
+      { type: "setting", kind: "enum", key: "desktopLayer", title: "Card layer (desktop)",
+        value: String(h.desktopLayer || "desktop"),
+        options: ["desktop", "above"],
+        hint: "desktop = under the windows, above = always visible" },
+      { type: "setting", kind: "bool", key: "desktopDimOnPause", title: "Dim card when paused",
+        value: h.desktopDimOnPause === true || String(h.desktopDimOnPause) === "true" },
+      { type: "setting", kind: "bool", key: "desktopInput", title: "Card takes clicks",
+        value: h.desktopInput === true || String(h.desktopInput) === "true" },
     ]
   }
 
