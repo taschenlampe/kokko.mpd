@@ -4,22 +4,21 @@ import Qt5Compat.GraphicalEffects
 import qs.Commons
 import qs.Ui
 
-// Die Karte auf dem Hintergrundbild (Entwurf D).
+// The card on the wallpaper (design D).
 //
-// Aufbau von oben nach unten in einer Spalte, damit sich die Karte selbst
-// dimensioniert. Feste Abstaende in Kartenhoehe waeren hier falsch: sie muessen
-// bei jeder Aenderung nachgezogen werden und brechen still, sobald ein Element
-// dazukommt.
+// Laid out top to bottom in a single column so the card sizes itself. Fixed
+// offsets in card height would be wrong here: they have to be adjusted with
+// every change and break silently as soon as an element is added.
 //
-// Material: die Grundpalette des Themes mit Deckkraft, keine Oberflaechenrolle.
-// Keine der Rollen in Color.qml beschreibt eine Karte, die AUF dem
-// Hintergrundbild liegt -- Popups und Tooltips werden ueber Fenstern gezeichnet
-// und sind entsprechend deckend. Der Haarstrich kommt aus foreground, nicht aus
-// accent: eine Akzentkontur macht aus jedem Widget eine Benachrichtigung.
+// Material: the theme's foundational palette with an alpha, not a surface role.
+// No role in Color.qml describes a card that sits ON the wallpaper -- popups and
+// tooltips are drawn over windows and are opaque enough to say so. The hairline
+// comes from foreground, not accent: an accent outline turns every widget into a
+// notification.
 Item {
   id: card
 
-  // Das BarWidget: von dort kommen Zustand, Cover und die cava-Pegel.
+  // The bar widget: state, cover and the cava levels come from there.
   property var host: null
   property int cardWidth: 300
   property bool showWave: true
@@ -44,7 +43,7 @@ Item {
     return Math.max(0, Math.min(1, e / d))
   }
 
-  // Bei Pause zurueckgenommen, aber nicht versteckt: die Karte bleibt lesbar.
+  // Taken back while paused, not hidden: the card stays readable.
   opacity: (dimWhenPaused && !playing) ? 0.55 : 1.0
   Behavior on opacity { NumberAnimation { duration: 220 } }
 
@@ -68,11 +67,11 @@ Item {
       }
       spacing: Style.space(4)
 
-      // 1. Cover in eigenem, leicht eingelassenem Rahmen.
+      // 1. Cover in its own, slightly inset frame.
       BorderSurface {
         id: coverFrame
         Layout.fillWidth: true
-        // Quadrat: die Hoehe folgt der zugeteilten Breite.
+        // Square: the height follows the width it is given.
         Layout.preferredHeight: width
         radius: Math.max(4, card.cardRadius - Math.round(Style.normalBorderWidth))
         color: Util.alpha(Color.foreground, 0.05)
@@ -92,11 +91,11 @@ Item {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             smooth: true
-            visible: false      // sichtbar wird die Maske darunter
+            visible: false      // the mask below is what shows
           }
 
-          // clip:true plus radius rundet in dieser Laufzeit NICHT (am
-          // Vinyl-Look gemessen). Die Maske ist der Weg, der wirklich rundet.
+          // clip:true plus radius does NOT round in this runtime (measured on
+          // the vinyl look). The mask is the way that really rounds.
           OpacityMask {
             anchors.fill: parent
             source: coverImage
@@ -110,7 +109,7 @@ Item {
           }
         }
 
-        // Rueckfall, solange kein Cover da ist.
+        // Fallback while there is no cover yet.
         Text {
           anchors.centerIn: parent
           visible: card.coverPath === ""
@@ -121,7 +120,7 @@ Item {
         }
       }
 
-      // 2. Titel und Interpret.
+      // 2. Title and artist.
       Column {
         Layout.fillWidth: true
         spacing: 2
@@ -149,12 +148,12 @@ Item {
         }
       }
 
-      // 3. Welle: dieselbe Komponente wie die Spielleiste, 18 Balken, live von
-      // cava. Sie liest die Pegel des Widgets, weil sie im selben Baum lebt.
+      // 3. Wave: the same component the playback band uses, live from cava. It
+      // reads the widget's levels because it lives in the same tree.
       Item {
         id: waveBox
         Layout.fillWidth: true
-        // Ohne Welle faellt der Platz weg statt leer zu bleiben.
+        // Without the wave the space goes away instead of staying empty.
         visible: card.showWave
         Layout.preferredHeight: card.showWave ? 42 : 0
 
@@ -166,7 +165,7 @@ Item {
         }
       }
 
-      // 4. Fortschritt: Spur, Fuellung im Akzent, Knopf.
+      // 4. Progress: track, fill in the accent, knob.
       Item {
         id: progressBox
         Layout.fillWidth: true
@@ -200,14 +199,14 @@ Item {
         }
       }
 
-      // 5. Die fuenf Knoepfe: Zufall, Zurueck, Play als gefuellter Kreis, Vor,
-      // Queue. Alles laeuft ueber das Widget -- die Karte haelt keinen eigenen
-      // MPD-Zustand.
+      // 5. The five buttons: shuffle, previous, play as a filled circle, next,
+      // queue. Everything goes through the widget -- the card keeps no MPD state
+      // of its own.
       RowLayout {
         id: buttonsRow
         Layout.fillWidth: true
         Layout.topMargin: 4
-        // Die Reihe sitzt mittig, nicht linksbuendig.
+        // The row sits centred, not flush left.
         Layout.alignment: Qt.AlignHCenter
         spacing: Style.spacing.xs
 
@@ -225,8 +224,8 @@ Item {
           onClicked: if (card.host) card.host.previousTrack()
         }
 
-        // Play/Pause als gefuellter Kreis: die eine Stelle, an der die Karte
-        // Farbe traegt, damit der Zustand ohne Icon-Vergleich ablesbar ist.
+        // Play/pause as a filled circle: the one place the card carries colour,
+        // so the state reads without comparing two icons.
         Rectangle {
           id: playButton
           Layout.preferredWidth: 38

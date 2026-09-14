@@ -8,38 +8,25 @@ with the mouse; the keys are a bonus.
 
 ## What it does
 
-**In the bar** — a label with the current track (scrolling or truncating, your
-choice), a play state glyph, middle click = next track, scroll = volume/seek/track.
-
-**On hover** — the same music as a card under the bar: cover, progress (drag it to
-seek), **big** buttons ⏮ ⏸ ⏭, shuffle/repeat, volume on the wheel. It stays open
-while the pointer is on the bar or the card.
-
-**On the wallpaper** — the same card as a desktop widget: cover, live spectrum,
-progress you can drag, the five transport buttons. It sits on the bottom layer,
-so you see it where the desktop is not covered by a window; one setting lifts it
-above the windows for when you would rather always have it in reach.
-
-**In the panel** — transport, spectrum (cava), queue, library, file tree and saved
-playlists in one place. The current track's cover sits softly in the background,
-its presence controlled by a slider.
-
-**Searching like on the web** — type, hits appear grouped by **artist** and
-**album** while you type. `+` on a row appends what that row *is* — a single track,
-a whole album, everything by one artist.
-
-**Searching this category only** — in albums, artists and genres, `/` does not
-search the whole library but only what you are looking at ("Albums · danzig",
-2 rows instead of 1789). Case does not matter: "iam" finds "IAM" too.
-
-**Cleaning up** — a bin per row, clear the whole queue, or keep only the playing
-track. One click, immediately, with feedback.
-
-**On every new track** — a card at the bottom for a moment, optionally a desktop
-notification with cover. Both can be switched off separately.
-
-**Settings in the panel** — tab **8** holds the twelve values you actually touch
-while listening, with live preview. No JSON editing needed.
+- **In the bar** — the current track as a label (scrolling or truncating, your
+  choice), a play state glyph, middle click = next track, scroll = volume/seek/track.
+- **On hover** — the same music as a card under the bar: cover, progress you can
+  drag to seek, **big** buttons ⏮ ⏸ ⏭, shuffle/repeat, volume on the wheel.
+- **On the wallpaper** — the same card as a desktop widget: cover, live spectrum,
+  progress, five transport buttons. It sits under the windows and is visible where
+  the desktop is free; one setting lifts it above them.
+- **In the panel** — transport, spectrum (cava), queue, library, file tree and saved
+  playlists in one place, with the playing cover softly behind the list.
+- **Searching like on the web** — hits appear grouped by **artist** and **album**
+  while you type. `+` on a row appends what that row *is*.
+- **Searching this category only** — in albums, artists and genres, `/` searches
+  what you are looking at, not the whole library. Case never matters.
+- **Cleaning up** — a bin per row, clear the whole queue, or keep only the playing
+  track. One click, immediately, with feedback.
+- **On every new track** — a card at the bottom for a moment, optionally a desktop
+  notification with cover. Both switch off separately.
+- **Settings in the panel** — tab **8** holds the twelve values you actually touch
+  while listening, with live preview. No JSON editing.
 
 ## Getting started
 
@@ -80,18 +67,14 @@ Panel toggle: **`SUPER + CTRL + M`**.
 
 ## The views
 
-**In the bar, and on hover.** The label with cover and transport, and the card that
-appears when you point at the bar.
+**Bar and card.** The label with cover and transport, and the card that appears
+when you point at the bar.
 
 ![Bar and card](docs/karte.png)
 
-**Queue — the player.** The band on top: cover, progress, spectrum, one controller.
-Below it the queue, at the bottom what is happening and what the keys do. When it
-opens, the **selection sits on the playing track** and the list is scrolled there —
-with 300 entries, the top would be the one place where the music is not. `t` jumps
-back there any time (from any tab, too).
-
-The row that is playing carries an accent-coloured bar on its left edge, so it stays findable while you scroll -- independent of the keyboard selection.
+**Queue.** The band on top — cover, progress, spectrum, one controller. The row
+that is playing carries an accent-coloured bar on its left edge, so it stays
+findable while you scroll; `t` jumps back to it from any tab.
 
 ![Queue](docs/panel-queue.png)
 
@@ -109,7 +92,7 @@ The row that is playing carries an accent-coloured bar on its left edge, so it s
 
 **On the wallpaper.** Cover, live spectrum, progress and the transport, sitting on
 the desktop under every window — here on a clear workspace, where it has room.
-Clicks land on the card and nowhere else: the rest of the screen stays untouched.
+Clicks land on the card and nowhere else.
 
 ![Card on the wallpaper](docs/desktop-card.png)
 
@@ -191,10 +174,6 @@ Tab **8** in the panel — click or `enter` toggles, `-`/`+` (or the `−`/`+` b
 right on the row) change numbers, `enter` on the label format opens an input field.
 While you are there, the footer shows what the pattern does to the **playing track**.
 
-In this tab the band keeps a fixed height (the tallest look's), so cycling through
-the looks never moves the rows under your pointer. Everywhere else each look keeps
-its own height — there the look does not change while you watch it.
-
 | Setting | Effect |
 | --- | --- |
 | Card on mouse hover | the card under the bar (only while the panel is closed — open, it is already the big view) |
@@ -210,6 +189,10 @@ its own height — there the look does not change while you watch it.
 | Card layer (desktop) | `desktop` keeps it under every window, so it shows where the desktop is free; `above` floats it over them, which also survives fullscreen video |
 | Dim card when paused | fades it while playback is stopped, so a paused card does not compete with your work |
 
+
+<details>
+<summary>The seven looks for the band</summary>
+
 **Seven looks for the band** (`Cover in the player`) — same data, seven pictures:
 
 ![The seven cover looks](docs/cover-looks.png)
@@ -224,132 +207,12 @@ its own height — there the look does not change while you watch it.
 | `minimal` | **no artwork at all** — one thin line: title, progress, transport | 38 px: three more list rows than `classic` |
 | `split` | the cover becomes a full-height **column** on the left, title and year beside it, controls bottom right | third tallest band (112 px) |
 
-Everything else (server, port, password, label width, scroll behaviour, card
-duration on hover) lives in the plugin settings or in `shell.json`; changes apply
-without a restart.
-
-## For the curious
-
-**Searching in a category.** In the library tabs, `/` does not search globally but
-in *that* category: `list artist "(artist =~ '(?i)iam')"` — MPD does the filtering.
-Two MPD quirks are in there: `contains` compares **case-sensitively** in the `list`
-filter ("iam" found 5 artists, "IAM" was not among them), the regex operator `=~`
-with `(?i)` finds both — hence the regex, with `re.escape` for special characters
-and a fallback to `contains` if an MPD was built without regex. And MPD wants the
-whole expression as **one** argument (otherwise it splits it at the spaces:
-"Invalid unquoted character"). Two categories at once do not work: this MPD
-combines filters with `AND` only, not with `OR` — which is exactly the "this
-category only" idea. In the *global* search (tab 2) case does not matter anyway,
-that is MPD's own search. Files and playlists have no filter in MPD (paths and
-playlist names are not tags); there the field filters the loaded list on the spot,
-the info line says "4 of 19", and `esc` shows everything again. On MPD 0.20 (NAS)
-that becomes an exact match instead of a partial one.
-
-**Cover files.** Over `albumart`, MPD only hands out image files whose names it
-knows — in MPD 0.24 that is `cover.*`. A `folder.jpg` next to it is ignored
-(measured: `albumart` answers "No file exists" for `folder.jpg`, `album.jpg` or
-`Album Art.jpg`; the same bytes give a result as soon as a `cover.jpg` exists).
-That is why the bridge searches the music directory itself (path from MPD's
-`mpd.conf`, `music_directory`) — by patterns, not by a fixed name list:
-
-| Rank | Matches | Example |
-| --- | --- | --- |
-| 1 | `cover`, `front`, `folder`, `album`, `album art`, `albumart`, `artwork` (exact) | `folder.jpg` |
-| 2 | "front" + "cover/art" anywhere | `Danzig - Danzig - Front Cover.jpg` |
-| 3 | "cover", "artwork" or "album art" anywhere | `AlbumArt_{0F838ADF-…}_Large.jpg` |
-| 4 | `case`, `scan`, `cd`, `thumb` (exact) | — |
-
-Within a rank the **bigger** file wins (usually the less cropped scan). Names that
-usually show the wrong side — `back`, `inside`, `inlay`, `booklet`, `small`, `disc`,
-`cd`, `thumb` — are sorted to the end: an album with only a back cover scan shows
-that one, but a front always wins. Allowed extensions: `.jpg .jpeg .png .webp .gif
-.bmp`. Embedded images come through `readpicture` unchanged; a cover file beats
-them, because it is usually the bigger one — the same order MPD itself chooses.
-Important: the files have to be readable for the user the bridge runs as (usually
-no problem with a library on a NAS).
-
-<details>
-<summary>Structure, command line, fine tuning</summary>
-
-**Covers** appear where they are seen: big in the band, small in the header, big in
-the song info — not in every queue row (with 300 entries that would be 300 MPD
-queries and 300 images). The bridge caches them under `~/.cache/kokko-mpd`.
-
-**Spectrum** comes from **cava** (`bin/cava.conf`, 12 bars, 30 fps) and runs only
-while music plays *and* the panel is open — unseen it would be work for nobody.
-
-**The bridge** (`bin/mpd-bridge`, Python, stdlib only) holds the MPD connections
-and talks to the widget in one JSON line per direction; state arrives by MPD
-`idle` push, not by polling. It is a **child process of the widget**, not a shell
-service — under a third-party bar (`charlieras262.floating-bar`) a widget cannot
-reach its own service. The price: one bridge per monitor.
-
-**The card** is a layer surface of its own with an input mask only over the card
-(the rest stays click-through) and is created only while it is visible. No
-`PopupWindow`: a Quickshell popup on a layer surface makes screen recording hang in
-this compositor.
-
-**Appending** is always *one* MPD command (`findadd`/`searchadd`), not `add` per
-track — an artist with 900 tracks costs one query. Every action reports in the
-footer.
-
-**Settings** live in `~/.config/omarchy/shell.json` in the widget entry:
-`host`, `port`, `password`, `format`, `maxWidth`, `overflow`, `showArt`,
-`showStateIcon`, `whenIdle`, `wheelAction`, `hoverCard`, `backdrop`,
-`osdOnChange`, `osdOnHover`, `osdDuration`, `notifyTrack`, `coverLook`.
-
-**From the command line:**
-
-```bash
-omarchy-shell kokko.mpd state                 # JSON: connection, label, panel, card
-omarchy-shell -q kokko.mpd toggle             # play/pause (next, prev, stop as well)
-omarchy-shell -q kokko.mpd volume +5          # sign = nudge, number = set
-omarchy-shell -q kokko.mpd option random      # repeat, random, single, consume
-omarchy-shell kokko.mpd panel                 # panel on/off
-omarchy-shell kokko.mpd tab artists           # set the tab
-omarchy-shell kokko.mpd find "kate bush"      # run a search
-omarchy-shell kokko.mpd key j                 # simulate a key press
-omarchy-shell kokko.mpd hover on              # show the card without a mouse (screenshots/tests)
-omarchy-shell kokko.mpd debug on              # protocol to the shell log
-```
-
-**Hyprland** (`~/.config/hypr/bindings.lua`):
-
-```lua
-o.bind("SUPER + CTRL + M", "MPD player", "omarchy-shell kokko.mpd panel")
-o.bind("XF86AudioPlay", "Play/pause", "omarchy-shell -q kokko.mpd toggle", { locked = true })
-o.bind("XF86AudioNext", "Next track", "omarchy-shell -q kokko.mpd next", { locked = true })
-o.bind("XF86AudioPrev", "Previous track", "omarchy-shell -q kokko.mpd prev", { locked = true })
-```
-
 </details>
 
-## Tests
-
-Everything that can be checked without a click runs in one call:
-
-```sh
-tests/run.sh            # everything, including a smoke test against a running MPD
-tests/run.sh --fast     # without MPD -- that is what the pre-commit hook uses
-tests/install-hooks.sh  # once per clone: activates the hook
-```
-
-The hook is the actual reason the tests exist: **a QML syntax error is invisible
-here** — the shell starts, the widget is simply gone, without a message. `qmllint`
-finds it (`omarchy plugin validate` does not), which is why it runs before every
-commit. In an emergency: `git commit --no-verify`.
-
-Two things are checked. Without MPD: the pure Python parts of the bridge — cover
-picking with its ranking and size limit, the filter expression with both escaping
-layers, the cache key, the image type, `music_directory` from `mpd.conf`. Plus
-`qmllint` and `omarchy plugin validate`. With a running MPD: that the bridge
-answers, fetches a cover, and that titles with special characters (`#1's …`,
-`( O )( O )( O ), cl-018`) find themselves through the filter expression.
-
-What was **not** possible automatically was filed as an issue in the repo (mouse
-paths, `crop`) — both have since been checked by hand on the running desktop: the
-clicks pass through to the row buttons and the cards, and `crop` keeps the playing
-track as expected.
+Beyond the tab, the connection (server, port, password) and a few display details
+(label width, wheel behaviour) are set with the CLI or in
+`~/.config/omarchy/shell.json` — all keys are listed in
+[docs/internals.md](docs/internals.md). Changes apply without a restart.
 
 ## Origin
 
@@ -358,29 +221,14 @@ track as expected.
 Ollerenshaw) — see `NOTICE.md` for the changes. `BarWidget.qml`, `Panel.qml`,
 `MiniPlayer.qml` and `Visualizer.qml` are original work.
 
-The plugin lives in its own repo with an issue tracker:
-**https://git.m2control.de/bm/kokko.mpd** — bugs and wishes belong there, not in a
-chat session that is forgotten tomorrow.
+The plugin lives in its own repo: **https://git.m2control.de/bm/kokko.mpd** — bugs,
+wishes and the roadmap (with labels, milestone and a "done when" per entry) live in
+its issue tracker, not in a chat that is forgotten tomorrow. There is deliberately
+no open-items list in this file.
 
-## Later / open
+## More
 
-The open items live in the **issue tracker** of the repo
-(https://git.m2control.de/bm/kokko.mpd/issues) — with labels, milestone and a
-"done when" per entry. Sorted by usefulness, not by effort:
-
-1. **Category search in the queue too** (`playlistsearch`).
-2. **Shipping**: tag and release; after that the marketplace
-   listing.
-3. **cava visible when it is missing** — otherwise the band stays silently empty
-   instead of saying so.
-4. **Small stuff**: selectable list sorting, look fine tuning, two safeguards and
-   comments in the bridge — the exact scopes and the reason why two of them are
-   *not* bugs are in the issues.
-
-The mouse paths and `crop` used to head this list; both were checked by hand on
-13.09. and their issues are closed.
-
-Deliberately **not** planned: splitting `bin/mpd-bridge` into modules or rewriting
-it to `with_cmd`. The file is a maintained copy of omajam (see `NOTICE.md`); a
-module split would destroy the upstream comparison and cost more than the
-structure brings in.
+- **[docs/internals.md](docs/internals.md)** — how it works inside: the bridge, cover
+  picking, MPD quirks, the command line, Hyprland bindings.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — tests, the pre-commit hook, and what not
+  to change.

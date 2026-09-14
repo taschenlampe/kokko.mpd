@@ -1,4 +1,4 @@
-# Nichts Generiertes im Baum; nur Sicherungen und Editor-Krümel draußen halten.
+# Nothing generated in the tree; keep only backups and editor crumbs out of it.
 *.bak
 *.bak.*
 __pycache__/
