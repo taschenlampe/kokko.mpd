@@ -191,6 +191,68 @@ Item {
           border.color: Util.alpha(Color.background, 0.55)
         }
       }
+
+      // 5. Die fuenf Knoepfe: Zufall, Zurueck, Play als gefuellter Kreis, Vor,
+      // Queue. Alles laeuft ueber das Widget -- die Karte haelt keinen eigenen
+      // MPD-Zustand.
+      RowLayout {
+        id: buttonsRow
+        Layout.fillWidth: true
+        Layout.topMargin: 4
+        spacing: Style.spacing.xs
+
+        PanelActionButton {
+          iconText: "\uF0456"            // Zufall
+          tooltipText: "Shuffle"
+          foreground: card.host && card.host.randomOn ? Color.accent : card.faintColor
+          onClicked: if (card.host) card.host.toggleOption("random")
+        }
+
+        PanelActionButton {
+          iconText: "\uF04AE"            // Zurueck
+          tooltipText: "Previous"
+          foreground: card.textColor
+          onClicked: if (card.host) card.host.previousTrack()
+        }
+
+        // Play/Pause als gefuellter Kreis: die eine Stelle, an der die Karte
+        // Farbe traegt, damit der Zustand ohne Icon-Vergleich ablesbar ist.
+        Rectangle {
+          id: playButton
+          Layout.preferredWidth: 38
+          Layout.preferredHeight: 38
+          radius: width / 2
+          color: Color.accent
+
+          Text {
+            anchors.centerIn: parent
+            text: card.playing ? "\uF03E4" : "\uF040A"
+            color: Color.background
+            font.family: Style.font.family
+            font.pixelSize: Style.font.icon
+          }
+
+          TapHandler {
+            onTapped: if (card.host) card.host.toggleTrack()
+          }
+
+          HoverHandler { cursorShape: Qt.PointingHandCursor }
+        }
+
+        PanelActionButton {
+          iconText: "\uF04AD"            // Vor
+          tooltipText: "Next"
+          foreground: card.textColor
+          onClicked: if (card.host) card.host.nextTrack()
+        }
+
+        PanelActionButton {
+          iconText: "\uF075A"            // Queue
+          tooltipText: "Queue"
+          foreground: card.textColor
+          onClicked: if (card.host) card.host.toggle()
+        }
+      }
     }
   }
 }

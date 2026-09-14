@@ -1243,6 +1243,17 @@ Panel {
         anchors { bottom: true; right: true }
         margins { bottom: 28; right: 28 }
         exclusiveZone: 0
+        // Eingabebereich: standardmaessig nimmt die Flaeche KEINE Klicks an,
+        // damit sie dem Desktop und den Fenstern nichts wegnimmt. Die Maske
+        // gibt genau das Rechteck der Karte zurueck -- nicht mehr.
+        mask: Region {
+          id: inputMask
+          x: 0
+          y: 0
+          width: desktopCard.width
+          height: desktopCard.height
+        }
+
         WlrLayershell.namespace: "kokko-mpd-desktop"
         // Bottom: die Karte liegt auf dem Hintergrundbild, unter jedem Fenster.
         WlrLayershell.layer: WlrLayer.Bottom
