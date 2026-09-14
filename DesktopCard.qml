@@ -22,6 +22,8 @@ Item {
   // Das BarWidget: von dort kommen Zustand, Cover und die cava-Pegel.
   property var host: null
   property int cardWidth: 300
+  property bool showWave: true
+  property bool dimWhenPaused: true
   readonly property int inset: 14
 
   readonly property color textColor: Color.foreground
@@ -41,6 +43,10 @@ Item {
     var e = Number(host.elapsed) || 0
     return Math.max(0, Math.min(1, e / d))
   }
+
+  // Bei Pause zurueckgenommen, aber nicht versteckt: die Karte bleibt lesbar.
+  opacity: (dimWhenPaused && !playing) ? 0.55 : 1.0
+  Behavior on opacity { NumberAnimation { duration: 220 } }
 
   implicitWidth: cardWidth
   implicitHeight: column.implicitHeight + 2 * inset
@@ -148,7 +154,9 @@ Item {
       Item {
         id: waveBox
         Layout.fillWidth: true
-        Layout.preferredHeight: 42
+        // Ohne Welle faellt der Platz weg statt leer zu bleiben.
+        visible: card.showWave
+        Layout.preferredHeight: card.showWave ? 42 : 0
 
         Visualizer {
           anchors.fill: parent

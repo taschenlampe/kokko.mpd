@@ -79,6 +79,15 @@ Panel {
     var v = setting("desktopDimOnPause", true)
     return v === true || String(v) === "true"
   }
+  // Die Ecke in vier Wahrheitswerte zerlegt: die Layerschicht kennt nur
+  // top/bottom/left/right, kein "unten rechts".
+  readonly property bool dcBottom: desktopCorner.indexOf("bottom") === 0
+  readonly property bool dcTop: desktopCorner.indexOf("top") === 0
+  readonly property bool dcLeft: desktopCorner.indexOf("left") >= 0
+  readonly property bool dcRight: desktopCorner.indexOf("right") >= 0
+  readonly property bool dcMiddle: desktopCorner === "center"
+  readonly property int dcMargin: 28
+
   readonly property bool desktopInputOn: {
     var v = setting("desktopInput", true)
     return v === true || String(v) === "true"
@@ -1260,29 +1269,47 @@ Panel {
         // Flaeche -- nicht nur eine unsichtbare.
         visible: root.desktopWidget
         color: "transparent"
-        anchors { bottom: true; right: true }
-        margins { bottom: 28; right: 28 }
+        // Position aus der Einstellung. Bei "center" bleibt bewusst jede Kante
+        // unverankert: die Layerschicht zentriert dann von selbst.
+        anchors {
+          top: root.dcTop
+          bottom: root.dcBottom
+          left: root.dcLeft
+          right: root.dcRight
+        }
+        margins {
+          top: root.dcMargin
+          bottom: root.dcMargin
+          left: root.dcMargin
+          right: root.dcMargin
+        }
         exclusiveZone: 0
+
         // Eingabebereich: standardmaessig nimmt die Flaeche KEINE Klicks an,
         // damit sie dem Desktop und den Fenstern nichts wegnimmt. Die Maske
-        // gibt genau das Rechteck der Karte zurueck -- nicht mehr.
+        // gibt genau das Rechteck der Karte zurueck -- nicht mehr. Schalter
+        // aus heisst: Rechteck der Groesse null, also gar keine Eingabe.
         mask: Region {
           id: inputMask
           x: 0
           y: 0
-          width: desktopCard.width
-          height: desktopCard.height
+          width: root.desktopInputOn ? desktopCard.width : 0
+          height: root.desktopInputOn ? desktopCard.height : 0
         }
 
         WlrLayershell.namespace: "kokko-mpd-desktop"
         // Bottom: die Karte liegt auf dem Hintergrundbild, unter jedem Fenster.
-        WlrLayershell.layer: WlrLayer.Bottom
+        // Die Einstellung darf sie darueber heben, etwa fuer Vollbildvideos.
+        WlrLayershell.layer: root.desktopLayer === "above" ? WlrLayer.Top : WlrLayer.Bottom
         implicitWidth: desktopCard.implicitWidth
         implicitHeight: desktopCard.implicitHeight
 
         DesktopCard {
           id: desktopCard
           host: root
+          cardWidth: root.desktopSize === "mini" ? 200 : 300
+          showWave: root.desktopSize !== "mini"
+          dimWhenPaused: root.desktopDimOnPause
         }
       }
     }
