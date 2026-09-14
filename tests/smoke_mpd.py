@@ -132,7 +132,7 @@ def main():
                 except ValueError:
                     pass
         kinds = [e.get("event") for e in events if e.get("event")]
-        print("   process exited with %s | events: %s" % (code, ", ".join(kinds) or "keine"))
+        print("   process exited with %s | events: %s" % (code, ", ".join(kinds) or "none"))
         if "state" not in kinds:
             print("   FAIL: no state event -- the bridge did not answer")
             if err.strip():

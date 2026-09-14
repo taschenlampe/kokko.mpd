@@ -588,7 +588,7 @@ Panel {
   // What the pattern being typed would produce for the song that is playing.
   readonly property string formatPreview: {
     var pattern = root.promptText.trim()
-    if (pattern === "") return "(leer)"
+    if (pattern === "") return "(empty)"
     var out = root.host !== null ? root.host.previewLabel(pattern) : ""
     return out === "" ? "(no playing track)" : out
   }
@@ -801,7 +801,7 @@ Panel {
     }
     if (mode === "files") {
       var path = String(root.frame.path || "")
-      if (path === "") { root.flash("erst in einen Ordner gehen, dann A"); return }
+      if (path === "") { root.flash("open a folder first, then A"); return }
       host.addUri(path)
       root.flash("Folder " + path + " appended")
       return
@@ -1988,7 +1988,7 @@ Panel {
               elide: Text.ElideRight
               // Everything the info line does not need. It used to take a flat 58 %
               // whether the info needed it or not, which is why the end of the key
-              // hints kept disappearing ("t laufender Titel" among it).
+              // hints kept disappearing ("t playing track" among them).
               width: Math.max(Style.space(140), statusRow.width - statusInfo.width - Style.space(12))
             }
           }

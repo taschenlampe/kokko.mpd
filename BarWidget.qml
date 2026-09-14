@@ -66,8 +66,8 @@ Panel {
     return v === "" ? "classic" : v
   }
   // The blurred cover behind the panel: 0 = off, 100 = as present as it gets.
-  // Die Desktop-Karte. Alle Werte kommen ueber setting(), das den Eintrag aus
-  // dem Schema liest -- dieselbe Mechanik wie coverLook und backdrop.
+  // The desktop card. Every value comes through setting(), which reads the entry
+  // from the schema -- the same mechanism as coverLook and backdrop.
   readonly property bool desktopWidget: {
     var v = setting("desktopWidget", true)
     return v === true || String(v) === "true"
@@ -79,8 +79,8 @@ Panel {
     var v = setting("desktopDimOnPause", true)
     return v === true || String(v) === "true"
   }
-  // Die Ecke in vier Wahrheitswerte zerlegt: die Layerschicht kennt nur
-  // top/bottom/left/right, kein "unten rechts".
+  // The corner split into four booleans: the layer shell knows only
+  // top/bottom/left/right, not "bottom right".
   readonly property bool dcBottom: desktopCorner.indexOf("bottom") === 0
   readonly property bool dcTop: desktopCorner.indexOf("top") === 0
   readonly property bool dcLeft: desktopCorner.indexOf("left") >= 0
@@ -158,12 +158,6 @@ Panel {
 
   readonly property string stateIcon: isPlaying ? "󰐊" : (isPaused ? "󰏤" : "󰓛")
   readonly property string stateGlyph: !connected ? "󰝛" : (hasSong ? stateIcon : "󰝚")
-
-  // Die Desktop-Flaeche (Plugin-Art "panel") bekommt denselben Zustand wie das
-  // Panel: sie kennt ihr eigenes QML, aber nicht die Bridge. Statt sie zweimal
-  // verbinden zu lassen, reicht das Widget sich selbst weiter, sobald die Shell
-  // den Loader der Flaeche registriert hat.
-
 
   function formatTime(seconds) {
     var total = Math.max(0, Math.floor(Number(seconds) || 0))
@@ -600,10 +594,9 @@ Panel {
   property var vizBars: []
   readonly property int vizCount: 12
   property bool miniOpen: false
-  // cava feeds the panel band only -- the hover card trades the bars for bigger
-  // buttons, so the process runs exactly while the panel is up.
-  // Die Karte auf dem Hintergrundbild braucht die Welle ebenfalls -- sonst
-  // stuende sie still, sobald das Panel zu ist.
+  // cava feeds the panel band and the desktop card's wave. The hover card trades
+  // the bars for bigger buttons, so it does not need the process -- which is why
+  // the gate below also asks for the card, not only for the panel.
   property bool desktopCardVisible: true
   readonly property bool vizWanted: isPlaying && (panelOpen || desktopCardVisible)
 
@@ -1250,23 +1243,23 @@ Panel {
     onTriggered: if (root.bridgePath !== "" && !bridge.running) bridge.running = true
   }
 
-  // Die Karte auf dem Hintergrundbild. Das Fenster gehoert bewusst dem Widget
-  // selbst und nicht der panel-Art: die Shell laedt eine panel-Flaeche zwar,
-  // gibt dem Widget aber keinen Zugriff darauf (panelLoaders enthaelt nur die
-  // eingebauten Panels, panelEntries nur unseren Manifest-Eintrag). So hat die
-  // Flaeche den Zustand, weil dasselbe Objekt beides besitzt.
+  // The card on the wallpaper. This window belongs to the widget itself and not
+  // to the panel kind: the shell does load a panel surface, but it never gives
+  // the widget access to it (panelLoaders holds only the built-in panels,
+  // panelEntries only our manifest entry). This way the surface has the state
+  // because the same object owns both.
   Variants {
     model: Quickshell.screens
     delegate: Component {
       PanelWindow {
         required property var modelData
         screen: modelData
-        // Der Schalter aus dem Einstellungstab: aus heisst, es gibt gar keine
-        // Flaeche -- nicht nur eine unsichtbare.
+        // The switch from the settings tab: off means there is no surface at
+        // all, not merely an invisible one.
         visible: root.desktopWidget
         color: "transparent"
-        // Position aus der Einstellung. Bei "center" bleibt bewusst jede Kante
-        // unverankert: die Layerschicht zentriert dann von selbst.
+        // Position from the settings. For "center" every edge stays unanchored
+        // on purpose: the layer shell then centres it by itself.
         anchors {
           top: root.dcTop
           bottom: root.dcBottom
@@ -1281,11 +1274,10 @@ Panel {
         }
         exclusiveZone: 0
 
-        // Eingabebereich: standardmaessig nimmt die Flaeche KEINE Klicks an,
-        // damit sie dem Desktop und den Fenstern nichts wegnimmt. Die Maske
-        // gibt genau das Rechteck der Karte zurueck -- nicht mehr. Die Karte
-        // ist damit immer bedienbar, ohne dass eine Einstellung sie stumm
-        // schalten kann.
+        // Input region: by default the surface takes NO clicks, so it never
+        // steals one meant for the desktop or a window. The mask returns exactly
+        // the card's rectangle and nothing else, which keeps the card usable
+        // without a setting that could silence it.
         mask: Region {
           id: inputMask
           x: 0
@@ -1295,8 +1287,8 @@ Panel {
         }
 
         WlrLayershell.namespace: "kokko-mpd-desktop"
-        // Bottom: die Karte liegt auf dem Hintergrundbild, unter jedem Fenster.
-        // Die Einstellung darf sie darueber heben, etwa fuer Vollbildvideos.
+        // Bottom: the card lies on the wallpaper, under every window. The
+        // setting may lift it above them, for fullscreen video for instance.
         WlrLayershell.layer: root.desktopLayer === "above" ? WlrLayer.Top : WlrLayer.Bottom
         implicitWidth: desktopCard.implicitWidth
         implicitHeight: desktopCard.implicitHeight
