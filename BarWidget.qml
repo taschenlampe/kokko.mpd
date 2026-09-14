@@ -136,6 +136,12 @@ Panel {
   readonly property string stateIcon: isPlaying ? "󰐊" : (isPaused ? "󰏤" : "󰓛")
   readonly property string stateGlyph: !connected ? "󰝛" : (hasSong ? stateIcon : "󰝚")
 
+  // Die Desktop-Flaeche (Plugin-Art "panel") bekommt denselben Zustand wie das
+  // Panel: sie kennt ihr eigenes QML, aber nicht die Bridge. Statt sie zweimal
+  // verbinden zu lassen, reicht das Widget sich selbst weiter, sobald die Shell
+  // den Loader der Flaeche registriert hat.
+
+
   function formatTime(seconds) {
     var total = Math.max(0, Math.floor(Number(seconds) || 0))
     var mins = Math.floor(total / 60)
@@ -1217,4 +1223,35 @@ Panel {
     repeat: false
     onTriggered: if (root.bridgePath !== "" && !bridge.running) bridge.running = true
   }
+
+  // === SPIKE A: Darf ein Plugin aus seinem eigenen Baum eine Fensterflaeche
+  // oeffnen? Gruener Streifen, damit er nicht mit dem orangen Streifen der
+  // panel-Art verwechselt wird. Namespace absichtlich anders.
+  Variants {
+    model: Quickshell.screens
+    delegate: Component {
+      PanelWindow {
+        required property var modelData
+        screen: modelData
+        visible: true
+        color: "transparent"
+        anchors { top: true; left: true; right: true }
+        exclusiveZone: 0
+        WlrLayershell.namespace: "kokko-mpd-probe"
+        WlrLayershell.layer: WlrLayer.Bottom
+        implicitHeight: 34
+        Rectangle {
+          anchors.fill: parent
+          color: "#1FA97A"
+          Text {
+            anchors.centerIn: parent
+            color: "#08110D"
+            font.pixelSize: 16
+            text: "SPIKE A: Flaeche aus dem Widget-Baum"
+          }
+        }
+      }
+    }
+  }
+
 }
