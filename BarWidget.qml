@@ -66,6 +66,29 @@ Panel {
     return v === "" ? "classic" : v
   }
   // The blurred cover behind the panel: 0 = off, 100 = as present as it gets.
+  // Die Desktop-Karte. Alle Werte kommen ueber setting(), das den Eintrag aus
+  // dem Schema liest -- dieselbe Mechanik wie coverLook und backdrop.
+  readonly property bool desktopWidget: {
+    var v = setting("desktopWidget", true)
+    return v === true || String(v) === "true"
+  }
+  readonly property string desktopSize: String(setting("desktopSize", "card"))
+  readonly property string desktopCorner: String(setting("desktopCorner", "bottom-right"))
+  readonly property string desktopLayer: String(setting("desktopLayer", "desktop"))
+  readonly property bool desktopDimOnPause: {
+    var v = setting("desktopDimOnPause", true)
+    return v === true || String(v) === "true"
+  }
+  // Die Ecke in vier Wahrheitswerte zerlegt: die Layerschicht kennt nur
+  // top/bottom/left/right, kein "unten rechts".
+  readonly property bool dcBottom: desktopCorner.indexOf("bottom") === 0
+  readonly property bool dcTop: desktopCorner.indexOf("top") === 0
+  readonly property bool dcLeft: desktopCorner.indexOf("left") >= 0
+  readonly property bool dcRight: desktopCorner.indexOf("right") >= 0
+  readonly property bool dcMiddle: desktopCorner === "center"
+  readonly property int dcMargin: 28
+
+
   readonly property int backdrop: {
     var n = Number(setting("backdrop", 60))
     return isNaN(n) ? 60 : Math.max(0, Math.min(100, Math.round(n)))
@@ -135,6 +158,12 @@ Panel {
 
   readonly property string stateIcon: isPlaying ? "󰐊" : (isPaused ? "󰏤" : "󰓛")
   readonly property string stateGlyph: !connected ? "󰝛" : (hasSong ? stateIcon : "󰝚")
+
+  // Die Desktop-Flaeche (Plugin-Art "panel") bekommt denselben Zustand wie das
+  // Panel: sie kennt ihr eigenes QML, aber nicht die Bridge. Statt sie zweimal
+  // verbinden zu lassen, reicht das Widget sich selbst weiter, sobald die Shell
+  // den Loader der Flaeche registriert hat.
+
 
   function formatTime(seconds) {
     var total = Math.max(0, Math.floor(Number(seconds) || 0))
@@ -573,7 +602,10 @@ Panel {
   property bool miniOpen: false
   // cava feeds the panel band only -- the hover card trades the bars for bigger
   // buttons, so the process runs exactly while the panel is up.
-  readonly property bool vizWanted: isPlaying && panelOpen
+  // Die Karte auf dem Hintergrundbild braucht die Welle ebenfalls -- sonst
+  // stuende sie still, sobald das Panel zu ist.
+  property bool desktopCardVisible: true
+  readonly property bool vizWanted: isPlaying && (panelOpen || desktopCardVisible)
 
   function applyViz(line) {
     var parts = String(line).split(";")
@@ -1217,4 +1249,67 @@ Panel {
     repeat: false
     onTriggered: if (root.bridgePath !== "" && !bridge.running) bridge.running = true
   }
+
+  // Die Karte auf dem Hintergrundbild. Das Fenster gehoert bewusst dem Widget
+  // selbst und nicht der panel-Art: die Shell laedt eine panel-Flaeche zwar,
+  // gibt dem Widget aber keinen Zugriff darauf (panelLoaders enthaelt nur die
+  // eingebauten Panels, panelEntries nur unseren Manifest-Eintrag). So hat die
+  // Flaeche den Zustand, weil dasselbe Objekt beides besitzt.
+  Variants {
+    model: Quickshell.screens
+    delegate: Component {
+      PanelWindow {
+        required property var modelData
+        screen: modelData
+        // Der Schalter aus dem Einstellungstab: aus heisst, es gibt gar keine
+        // Flaeche -- nicht nur eine unsichtbare.
+        visible: root.desktopWidget
+        color: "transparent"
+        // Position aus der Einstellung. Bei "center" bleibt bewusst jede Kante
+        // unverankert: die Layerschicht zentriert dann von selbst.
+        anchors {
+          top: root.dcTop
+          bottom: root.dcBottom
+          left: root.dcLeft
+          right: root.dcRight
+        }
+        margins {
+          top: root.dcMargin
+          bottom: root.dcMargin
+          left: root.dcMargin
+          right: root.dcMargin
+        }
+        exclusiveZone: 0
+
+        // Eingabebereich: standardmaessig nimmt die Flaeche KEINE Klicks an,
+        // damit sie dem Desktop und den Fenstern nichts wegnimmt. Die Maske
+        // gibt genau das Rechteck der Karte zurueck -- nicht mehr. Die Karte
+        // ist damit immer bedienbar, ohne dass eine Einstellung sie stumm
+        // schalten kann.
+        mask: Region {
+          id: inputMask
+          x: 0
+          y: 0
+          width: desktopCard.width
+          height: desktopCard.height
+        }
+
+        WlrLayershell.namespace: "kokko-mpd-desktop"
+        // Bottom: die Karte liegt auf dem Hintergrundbild, unter jedem Fenster.
+        // Die Einstellung darf sie darueber heben, etwa fuer Vollbildvideos.
+        WlrLayershell.layer: root.desktopLayer === "above" ? WlrLayer.Top : WlrLayer.Bottom
+        implicitWidth: desktopCard.implicitWidth
+        implicitHeight: desktopCard.implicitHeight
+
+        DesktopCard {
+          id: desktopCard
+          host: root
+          cardWidth: root.desktopSize === "mini" ? 200 : 300
+          showWave: root.desktopSize !== "mini"
+          dimWhenPaused: root.desktopDimOnPause
+        }
+      }
+    }
+  }
+
 }

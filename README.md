@@ -15,6 +15,11 @@ choice), a play state glyph, middle click = next track, scroll = volume/seek/tra
 seek), **big** buttons ⏮ ⏸ ⏭, shuffle/repeat, volume on the wheel. It stays open
 while the pointer is on the bar or the card.
 
+**On the wallpaper** — the same card as a desktop widget: cover, live spectrum,
+progress you can drag, the five transport buttons. It sits on the bottom layer,
+so you see it where the desktop is not covered by a window; one setting lifts it
+above the windows for when you would rather always have it in reach.
+
 **In the panel** — transport, spectrum (cava), queue, library, file tree and saved
 playlists in one place. The current track's cover sits softly in the background,
 its presence controlled by a slider.
@@ -33,7 +38,7 @@ track. One click, immediately, with feedback.
 **On every new track** — a card at the bottom for a moment, optionally a desktop
 notification with cover. Both can be switched off separately.
 
-**Settings in the panel** — tab **8** holds the seven values you actually touch
+**Settings in the panel** — tab **8** holds the twelve values you actually touch
 while listening, with live preview. No JSON editing needed.
 
 ## Getting started
@@ -94,13 +99,19 @@ The row that is playing carries an accent-coloured bar on its left edge, so it s
 
 ![Search](docs/panel-suche.png)
 
-**Settings.** Seven values, directly operable.
+**Settings.** Twelve values, directly operable.
 
 ![Settings](docs/einstellungen.png)
 
 **On track change.** Brief, with cover, disappears by itself.
 
 ![Card on track change](docs/titelwechsel.png)
+
+**On the wallpaper.** Cover, live spectrum, progress and the transport, sitting on
+the desktop under every window — here on a clear workspace, where it has room.
+Clicks land on the card and nowhere else: the rest of the screen stays untouched.
+
+![Card on the wallpaper](docs/desktop-card.png)
 
 ## Using it — the short way
 
@@ -193,6 +204,11 @@ its own height — there the look does not change while you watch it.
 | Card on track change | flashes on every new track — switch it off entirely here |
 | … visible for | how long it stays then; `enter` shows it right now |
 | Desktop notification on track change | the desktop's bubble (app "MPD") — **independent of the card** |
+| Card on the wallpaper | the card on your desktop instead of only in the bar — same cover, same live spectrum, same buttons |
+| Card size (desktop) | `card` (full, with spectrum) or `mini` (narrow, no spectrum) |
+| Card position (desktop) | which corner it takes — `bottom-right`, `bottom-left`, `top-right`, `top-left` or `center` |
+| Card layer (desktop) | `desktop` keeps it under every window, so it shows where the desktop is free; `above` floats it over them, which also survives fullscreen video |
+| Dim card when paused | fades it while playback is stopped, so a paused card does not compete with your work |
 
 **Seven looks for the band** (`Cover in the player`) — same data, seven pictures:
 

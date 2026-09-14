@@ -9,6 +9,7 @@
   "kinds": [
     "bar-widget"
   ],
+  "keepLoaded": true,
   "entryPoints": {
     "barWidget": "BarWidget.qml"
   },
@@ -163,9 +164,67 @@
         "key": "coverLook",
         "type": "enum",
         "label": "Cover in the player",
-        "options": ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split"],
+        "options": [
+          "classic",
+          "sharp",
+          "hero",
+          "anchor",
+          "vinyl",
+          "minimal",
+          "split"
+        ],
         "defaultValue": "classic",
         "description": "How the band in the panel looks: classic (soft-blurred cover behind the panel), sharp (the cover stays an image), hero (cover as the card of the player), anchor (big cover, one control row), vinyl (cover inside a spinning disc), minimal (no artwork, one thin line), split (cover as a full-height column on the left). Switchable live."
+      },
+      {
+        "key": "desktopWidget",
+        "type": "boolean",
+        "label": "Desktop card",
+        "defaultValue": true,
+        "description": "Draw the music card on the wallpaper. It sits on the bottom layer, so it is visible where the desktop is not covered by a window."
+      },
+      {
+        "key": "desktopSize",
+        "type": "enum",
+        "label": "Desktop card size",
+        "defaultValue": "card",
+        "description": "card or mini.",
+        "options": [
+          "card",
+          "mini"
+        ]
+      },
+      {
+        "key": "desktopCorner",
+        "type": "enum",
+        "label": "Desktop card corner",
+        "defaultValue": "bottom-right",
+        "description": "bottom-right, bottom-left, top-right, top-left or center.",
+        "options": [
+          "bottom-right",
+          "bottom-left",
+          "top-right",
+          "top-left",
+          "center"
+        ]
+      },
+      {
+        "key": "desktopLayer",
+        "type": "enum",
+        "label": "Desktop card layer",
+        "defaultValue": "desktop",
+        "description": "desktop keeps it under every window; above floats it over them, which also survives fullscreen video.",
+        "options": [
+          "desktop",
+          "above"
+        ]
+      },
+      {
+        "key": "desktopDimOnPause",
+        "type": "boolean",
+        "label": "Dim the card when paused",
+        "defaultValue": true,
+        "description": "Fade the card while playback is stopped."
       }
     ]
   }
