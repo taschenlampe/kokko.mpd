@@ -546,8 +546,6 @@ Panel {
         hint: "desktop = under the windows, above = always visible" },
       { type: "setting", kind: "bool", key: "desktopDimOnPause", title: "Dim card when paused",
         value: h.desktopDimOnPause === true || String(h.desktopDimOnPause) === "true" },
-      { type: "setting", kind: "bool", key: "desktopInput", title: "Card takes clicks",
-        value: h.desktopInput === true || String(h.desktopInput) === "true" },
     ]
   }
 

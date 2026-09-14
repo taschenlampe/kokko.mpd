@@ -225,13 +225,6 @@
         "label": "Dim the card when paused",
         "defaultValue": true,
         "description": "Fade the card while playback is stopped."
-      },
-      {
-        "key": "desktopInput",
-        "type": "boolean",
-        "label": "Desktop card takes clicks",
-        "defaultValue": true,
-        "description": "Off leaves every click to the desktop and the windows underneath."
       }
     ]
   }

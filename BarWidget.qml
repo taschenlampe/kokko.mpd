@@ -88,10 +88,6 @@ Panel {
   readonly property bool dcMiddle: desktopCorner === "center"
   readonly property int dcMargin: 28
 
-  readonly property bool desktopInputOn: {
-    var v = setting("desktopInput", true)
-    return v === true || String(v) === "true"
-  }
 
   readonly property int backdrop: {
     var n = Number(setting("backdrop", 60))
@@ -1287,14 +1283,15 @@ Panel {
 
         // Eingabebereich: standardmaessig nimmt die Flaeche KEINE Klicks an,
         // damit sie dem Desktop und den Fenstern nichts wegnimmt. Die Maske
-        // gibt genau das Rechteck der Karte zurueck -- nicht mehr. Schalter
-        // aus heisst: Rechteck der Groesse null, also gar keine Eingabe.
+        // gibt genau das Rechteck der Karte zurueck -- nicht mehr. Die Karte
+        // ist damit immer bedienbar, ohne dass eine Einstellung sie stumm
+        // schalten kann.
         mask: Region {
           id: inputMask
           x: 0
           y: 0
-          width: root.desktopInputOn ? desktopCard.width : 0
-          height: root.desktopInputOn ? desktopCard.height : 0
+          width: desktopCard.width
+          height: desktopCard.height
         }
 
         WlrLayershell.namespace: "kokko-mpd-desktop"
