@@ -579,7 +579,10 @@ Panel {
   property bool miniOpen: false
   // cava feeds the panel band only -- the hover card trades the bars for bigger
   // buttons, so the process runs exactly while the panel is up.
-  readonly property bool vizWanted: isPlaying && panelOpen
+  // Die Karte auf dem Hintergrundbild braucht die Welle ebenfalls -- sonst
+  // stuende sie still, sobald das Panel zu ist.
+  property bool desktopCardVisible: true
+  readonly property bool vizWanted: isPlaying && (panelOpen || desktopCardVisible)
 
   function applyViz(line) {
     var parts = String(line).split(";")
