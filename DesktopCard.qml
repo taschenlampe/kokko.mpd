@@ -152,7 +152,7 @@ Item {
 
         Visualizer {
           anchors.fill: parent
-          count: 18
+          count: 12
           levels: card.host ? card.host.vizBars : []
           barColor: card.playing ? Color.accent : card.faintColor
         }
@@ -202,14 +202,14 @@ Item {
         spacing: Style.spacing.xs
 
         PanelActionButton {
-          iconText: "\uF0456"            // Zufall
+          iconText: "󰑖"            // Zufall
           tooltipText: "Shuffle"
           foreground: card.host && card.host.randomOn ? Color.accent : card.faintColor
           onClicked: if (card.host) card.host.toggleOption("random")
         }
 
         PanelActionButton {
-          iconText: "\uF04AE"            // Zurueck
+          iconText: "󰒮"            // Zurueck
           tooltipText: "Previous"
           foreground: card.textColor
           onClicked: if (card.host) card.host.previousTrack()
@@ -226,7 +226,7 @@ Item {
 
           Text {
             anchors.centerIn: parent
-            text: card.playing ? "\uF03E4" : "\uF040A"
+            text: card.playing ? "󰏤" : "󰐊"
             color: Color.background
             font.family: Style.font.family
             font.pixelSize: Style.font.icon
@@ -240,14 +240,14 @@ Item {
         }
 
         PanelActionButton {
-          iconText: "\uF04AD"            // Vor
+          iconText: "󰒭"            // Vor
           tooltipText: "Next"
           foreground: card.textColor
           onClicked: if (card.host) card.host.nextTrack()
         }
 
         PanelActionButton {
-          iconText: "\uF075A"            // Queue
+          iconText: "󰝚"            // Queue
           tooltipText: "Queue"
           foreground: card.textColor
           onClicked: if (card.host) card.host.toggle()
