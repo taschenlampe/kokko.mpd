@@ -1224,9 +1224,11 @@ Panel {
     onTriggered: if (root.bridgePath !== "" && !bridge.running) bridge.running = true
   }
 
-  // === SPIKE A: Darf ein Plugin aus seinem eigenen Baum eine Fensterflaeche
-  // oeffnen? Gruener Streifen, damit er nicht mit dem orangen Streifen der
-  // panel-Art verwechselt wird. Namespace absichtlich anders.
+  // Die Karte auf dem Hintergrundbild. Das Fenster gehoert bewusst dem Widget
+  // selbst und nicht der panel-Art: die Shell laedt eine panel-Flaeche zwar,
+  // gibt dem Widget aber keinen Zugriff darauf (panelLoaders enthaelt nur die
+  // eingebauten Panels, panelEntries nur unseren Manifest-Eintrag). So hat die
+  // Flaeche den Zustand, weil dasselbe Objekt beides besitzt.
   Variants {
     model: Quickshell.screens
     delegate: Component {
@@ -1235,20 +1237,18 @@ Panel {
         screen: modelData
         visible: true
         color: "transparent"
-        anchors { top: true; left: true; right: true }
+        anchors { bottom: true; right: true }
+        margins { bottom: 28; right: 28 }
         exclusiveZone: 0
-        WlrLayershell.namespace: "kokko-mpd-probe"
+        WlrLayershell.namespace: "kokko-mpd-desktop"
+        // Bottom: die Karte liegt auf dem Hintergrundbild, unter jedem Fenster.
         WlrLayershell.layer: WlrLayer.Bottom
-        implicitHeight: 34
-        Rectangle {
-          anchors.fill: parent
-          color: "#1FA97A"
-          Text {
-            anchors.centerIn: parent
-            color: "#08110D"
-            font.pixelSize: 16
-            text: "SPIKE A: Flaeche aus dem Widget-Baum"
-          }
+        implicitWidth: desktopCard.implicitWidth
+        implicitHeight: desktopCard.implicitHeight
+
+        DesktopCard {
+          id: desktopCard
+          host: root
         }
       }
     }
