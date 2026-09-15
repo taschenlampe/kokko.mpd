@@ -90,8 +90,9 @@
       {
         "key": "showStateIcon",
         "type": "boolean",
-        "label": "Play state glyph",
-        "defaultValue": true
+        "label": "Play indicator in the bar",
+        "defaultValue": true,
+        "description": "A small spectrum while a track plays, the play state glyph when it does not. A click on the strip toggles playback, the middle button skips, the wheel does what `wheelAction` says."
       },
       {
         "key": "showArt",
