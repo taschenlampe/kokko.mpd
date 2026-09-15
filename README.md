@@ -8,8 +8,10 @@ with the mouse; the keys are a bonus.
 
 ## What it does
 
-- **In the bar** — the current track as a label (scrolling or truncating, your
-  choice), a play state glyph, middle click = next track, scroll = volume/seek/track.
+- **In the bar** — the current track as a label (scrolling while it plays, with an
+  ellipsis when it does not), a small **live spectrum** on the left while a track
+  plays (the play state glyph when it does not), left click = play/pause, middle
+  click = next track, scroll = volume/seek/track.
 - **On hover** — the same music as a card under the bar: cover, progress you can
   drag to seek, **big** buttons ⏮ ⏸ ⏭, shuffle/repeat, volume on the wheel.
 - **On the wallpaper** — the same card as a desktop widget: cover, live spectrum,
