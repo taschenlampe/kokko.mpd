@@ -246,6 +246,17 @@ Panel {
   // Commands with no answer of their own.
   function bare(command) { send(command) }
 
+  // Library maintenance, from the panel or the command line. The path is optional
+  // and limits the scan to one folder -- with the library on a network share that
+  // is the difference between seconds and minutes. MPD runs the scan in the
+  // background either way; this only starts it. What the user is told about it
+  // belongs in the panel, which owns the footer.
+  function updateDatabase(mode, path) {
+    var verb = String(mode || "update")
+    var where = String(path || "").trim()
+    root.bare(where === "" ? verb : verb + " " + where)
+  }
+
   // One queue or library mutation: {op, ...} as bin/mpd-bridge documents.
   function mutation(op, args) {
     var obj = { op: op }
@@ -1070,7 +1081,10 @@ Panel {
     function prev(): void { root.previousTrack() }
     function refresh(): void { root.bare("refresh") }
     function reconnect(): void { root.sendConfig() }
-    function update(): void { root.bare("update") }
+    function update(path: string): void { root.updateDatabase("update", path) }
+    // `rescan` re-reads unchanged files and drops entries for files that are
+    // gone -- the one to use after deleting or renaming.
+    function rescan(path: string): void { root.updateDatabase("rescan", path) }
 
     // Debug: open or close the hover card without a pointer. The card itself is
     // verified with `hover on` plus a screenshot; the pointer path is the same
