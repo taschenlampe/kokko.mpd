@@ -26,7 +26,8 @@ with the mouse; the keys are a bonus.
 - **On every new track** — a card at the bottom for a moment, optionally a desktop
   notification with cover. Both switch off separately.
 - **Settings in the panel** — tab **8** holds the twelve values you actually touch
-  while listening, with live preview. No JSON editing.
+  while listening, with live preview, plus the two library actions (update and
+  rescan). No JSON editing.
 
 ## Getting started
 
@@ -82,7 +83,7 @@ findable while you scroll; `t` jumps back to it from any tab.
 
 ![Search](docs/panel-suche.png)
 
-**Settings.** Twelve values, directly operable.
+**Settings.** Twelve values and the two library actions, directly operable.
 
 ![Settings](docs/einstellungen.png)
 
@@ -188,6 +189,8 @@ While you are there, the footer shows what the pattern does to the **playing tra
 | Card position (desktop) | which corner it takes — `bottom-right`, `bottom-left`, `top-right`, `top-left` or `center` |
 | Card layer (desktop) | `desktop` keeps it under every window, so it shows where the desktop is free; `above` floats it over them, which also survives fullscreen video |
 | Dim card when paused | fades it while playback is stopped, so a paused card does not compete with your work |
+| Update the music library | reads new and changed files — the everyday one after adding music; MPD works through it in the background |
+| Rescan the music library | re-reads everything and drops entries for files that are gone — use it after deleting or renaming; slow when the library is on a network share |
 
 
 <details>

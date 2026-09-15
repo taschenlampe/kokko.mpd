@@ -132,10 +132,19 @@ Panel {
   onStackChanged: root.loadFrame(root.stack[root.stack.length - 1])
   onUpChanged: if (root.up) root.loadFrame()
 
+  // Set when the settings tab starts a library scan, so the confirmation names
+  // what happened instead of firing on every scan another client happens to run.
+  property bool scanRequested: false
+
   Connections {
     target: root.host
     function onConnectedChanged() { if (root.host && root.host.connected) root.loadFrame() }
-    function onDatabaseRevisionChanged() { root.loadFrame() }
+    function onDatabaseRevisionChanged() {
+      root.loadFrame()
+      // A scan the panel started reports back here -- and the bridge only raises
+      // this when the scan actually found something, so it is a real answer.
+      if (root.scanRequested) { root.scanRequested = false; root.flash("music library updated") }
+    }
     // The queue can change from anywhere (the bar, a bind, another client), so
     // re-read it when MPD says its length moved.
     function onQueueLengthChanged() { if (root.frameMode === "queue") reloadTimer.restart() }
@@ -546,11 +555,28 @@ Panel {
         hint: "desktop = under the windows, above = always visible" },
       { type: "setting", kind: "bool", key: "desktopDimOnPause", title: "Dim card when paused",
         value: h.desktopDimOnPause === true || String(h.desktopDimOnPause) === "true" },
+      { type: "setting", kind: "action", action: "update", title: "Update the music library",
+        hint: "reads new and changed files — the everyday one" },
+      { type: "setting", kind: "action", action: "rescan", title: "Rescan the music library",
+        hint: "re-reads everything, drops removed files — slow on a NAS" },
     ]
   }
 
   // A value list ("enum" setting): -/+ walks it and wraps around, enter walks
   // forward. Writing goes the same way every other setting goes.
+  // Library maintenance: MPD scans in the background, so the row starts it and
+  // gets out of the way. The widget flashes what started and reports back when
+  // the library really changed.
+  function runLibraryAction(row) {
+    if (!row || root.host === null) return
+    var mode = String(row.action || "update") === "rescan" ? "rescan" : "update"
+    root.scanRequested = true
+    root.host.updateDatabase(mode, "")
+    root.flash(mode === "rescan"
+      ? "rescan started — re-reads everything, this can take a while"
+      : "update started — MPD works through it in the background")
+  }
+
   function stepEnum(row, delta) {
     var opts = row.options || []
     if (opts.length === 0) return
@@ -611,6 +637,7 @@ Panel {
   function rowRight(row) {
     if (!row) return ""
     if (row.type === "setting") {
+      if (row.kind === "action") return "run"
       if (row.kind === "bool") return row.value === true ? "on" : "off"
       if (row.kind === "int") return String(row.value) + String(row.suffix || "")
       return String(row.value || "")
@@ -638,6 +665,9 @@ Panel {
 
     // Before the connection check: the settings tab works without MPD.
     if (mode === "settings") {
+      // An action row: it carries no value and no steppers, it does something
+      // when it is taken.
+      if (row.kind === "action") { root.runLibraryAction(row); return }
       if (row.kind === "bool") {
         root.writeSetting(row.key, row.value !== true, row.title)
         // The hover card needs a closed panel (it would only be noise over the

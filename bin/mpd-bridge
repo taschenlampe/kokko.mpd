@@ -34,7 +34,7 @@ Input (stdin, one line each):
     seek <seconds>            absolute, in the current song
     volume <0-100>
     setopt <repeat|random|single|consume> <value>
-    update | rescan           (re)scan the music database
+    update [path] | rescan [path]   (re)scan the library, optionally one folder
     refresh                   re-emit state now
     cmd <json>                one queue/library mutation, see COMMANDS below
     query <json>              {"id":..,"kind":..,"channel":..,..} -- see QUERIES
@@ -1481,10 +1481,14 @@ class Bridge:
                 self.do("playid", int(rest))
             except ValueError:
                 pass
-        elif verb == "update":
-            self.do("update")
-        elif verb == "rescan":
-            self.do("rescan")
+        elif verb in ("update", "rescan"):
+            # An optional path limits the scan to one folder under the music
+            # directory -- seconds instead of minutes when the library sits on a
+            # network share. `update` reads only new and changed files; `rescan`
+            # also re-reads unchanged ones and drops entries for files that are
+            # gone, so it is for deletions and renames.
+            where = rest.strip()
+            self.do(verb, *([where] if where else []))
         elif verb == "cmd":
             try:
                 payload = json.loads(rest or "{}")
