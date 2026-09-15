@@ -517,47 +517,63 @@ Panel {
     var h = root.host
     if (h === null) return []
     return [
-      { type: "setting", kind: "bool", key: "hoverCard", title: "Card on mouse hover",
+      // Grouped by surface, in the order the README introduces them. The header
+      // rows carry the context, which is why the rows underneath need only a short
+      // title -- "Size" instead of "Card size (desktop)". Headers are section
+      // labels: the selection steps over them (firstSelectable, step), and the
+      // delegate draws them as a dim caption instead of a row.
+      { type: "header", title: "In the bar" },
+      { type: "setting", kind: "text", key: "format", title: "Format",
+        value: String(h.format),
+        hint: "mpc placeholders — enter to edit, preview below" },
+
+      { type: "header", title: "On hover" },
+      { type: "setting", kind: "bool", key: "hoverCard", title: "Show the card",
         value: h.hoverCard === true,
         hint: "hover the bar label — only while the panel is closed" },
-      { type: "setting", kind: "int", key: "backdrop", title: "Cover backdrop",
-        min: 0, max: 100, step: 10, value: Number(h.backdrop), suffix: " %",
-        hint: "0 turns it off; higher = more present behind the lists" },
-      { type: "setting", kind: "enum", key: "coverLook", title: "Cover in the player",
+
+      { type: "header", title: "In the player" },
+      { type: "setting", kind: "enum", key: "coverLook", title: "Cover look",
         value: String(h.coverLook || "classic"),
         options: ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split"],
         hint: "enter or -/+ cycles through — applies at once" },
-      { type: "setting", kind: "text", key: "format", title: "Label format",
-        value: String(h.format),
-        hint: "mpc placeholders — enter to edit, preview below" },
-      { type: "setting", kind: "bool", key: "osdOnChange", title: "Card on track change",
+      { type: "setting", kind: "int", key: "backdrop", title: "Backdrop",
+        min: 0, max: 100, step: 10, value: Number(h.backdrop), suffix: " %",
+        hint: "0 turns it off; higher = more present behind the lists" },
+
+      { type: "header", title: "On a new track" },
+      { type: "setting", kind: "bool", key: "osdOnChange", title: "Show the card",
         value: h.osdOnChange === true,
         hint: "flashes on every new track — switch it off here" },
-      { type: "setting", kind: "int", key: "osdDuration", title: "… visible for",
+      { type: "setting", kind: "int", key: "osdDuration", title: "For how long",
         min: 1000, max: 20000, step: 500, value: Number(h.osdDuration), suffix: " ms",
         hint: "stays that long after a new track — enter shows it now" },
-      { type: "setting", kind: "bool", key: "notifyTrack", title: "Desktop notification on track change",
+      { type: "setting", kind: "bool", key: "notifyTrack", title: "Notification",
         value: h.notifyTrack === true,
         hint: "desktop bubble (app MPD) — independent of the card" },
-      { type: "setting", kind: "bool", key: "desktopWidget", title: "Card on the wallpaper",
+
+      { type: "header", title: "On the wallpaper" },
+      { type: "setting", kind: "bool", key: "desktopWidget", title: "Show the card",
         value: h.desktopWidget === true || String(h.desktopWidget) === "true" },
-      { type: "setting", kind: "enum", key: "desktopSize", title: "Card size (desktop)",
+      { type: "setting", kind: "enum", key: "desktopSize", title: "Size",
         value: String(h.desktopSize || "card"),
         options: ["card", "mini"],
         hint: "enter or -/+ cycles through — applies at once" },
-      { type: "setting", kind: "enum", key: "desktopCorner", title: "Card position (desktop)",
+      { type: "setting", kind: "enum", key: "desktopCorner", title: "Position",
         value: String(h.desktopCorner || "bottom-right"),
         options: ["bottom-right", "bottom-left", "top-right", "top-left", "center"],
         hint: "enter or -/+ cycles through — applies at once" },
-      { type: "setting", kind: "enum", key: "desktopLayer", title: "Card layer (desktop)",
+      { type: "setting", kind: "enum", key: "desktopLayer", title: "Layer",
         value: String(h.desktopLayer || "desktop"),
         options: ["desktop", "above"],
         hint: "desktop = under the windows, above = always visible" },
-      { type: "setting", kind: "bool", key: "desktopDimOnPause", title: "Dim card when paused",
+      { type: "setting", kind: "bool", key: "desktopDimOnPause", title: "Dim when paused",
         value: h.desktopDimOnPause === true || String(h.desktopDimOnPause) === "true" },
-      { type: "setting", kind: "action", action: "update", title: "Update the music library",
+
+      { type: "header", title: "Music library" },
+      { type: "setting", kind: "action", action: "update", title: "Update",
         hint: "reads new and changed files — the everyday one" },
-      { type: "setting", kind: "action", action: "rescan", title: "Rescan the music library",
+      { type: "setting", kind: "action", action: "rescan", title: "Rescan",
         hint: "re-reads everything, drops removed files — slow on a NAS" },
     ]
   }
@@ -1561,10 +1577,15 @@ Panel {
           required property var modelData
           required property int index
           width: list.width
-          height: rowItem.isHeader ? Style.space(22) : Style.space(26)
+          height: rowItem.settingsHeader ? Style.space(29)
+            : (rowItem.isHeader ? Style.space(22) : Style.space(26))
 
           readonly property string rowType: String(rowItem.modelData.type || "")
           readonly property bool isHeader: rowItem.rowType === "header"
+          // A header in the settings tab is a heading over a group, not a divider
+          // between result groups -- so it is drawn as a quiet label with a rule
+          // above it, while the search tab keeps its accent labels.
+          readonly property bool settingsHeader: rowItem.isHeader && root.frameMode === "settings"
           readonly property bool selected: index === root.sel && !rowItem.isHeader
 
           Rectangle {
@@ -1585,16 +1606,36 @@ Panel {
             visible: !rowItem.isHeader && root.isActiveRow(rowItem.modelData)
           }
 
+          // The rule between two groups in the settings tab. Only from the second
+          // group on: above the first one a line would cut the list off from the
+          // band, and there is nothing above it to separate from.
+          Rectangle {
+            id: groupRule
+            visible: rowItem.settingsHeader && index > 0
+            x: Style.space(8)
+            y: Style.space(6)
+            width: parent.width - Style.space(16)
+            height: 1
+            color: root.dim
+            opacity: 0.35
+          }
+
           // A section label: artists / albums / tracks.
           Text {
             visible: rowItem.isHeader
             anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
+            anchors.verticalCenterOffset: rowItem.settingsHeader && index > 0 ? Style.space(3) : 0
             text: rowItem.isHeader ? String(rowItem.modelData.title || "") : ""
-            color: root.accent
-            opacity: 0.9
+            color: rowItem.settingsHeader ? root.dim : root.accent
+            opacity: rowItem.settingsHeader ? 1 : 0.9
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-            font.bold: true
+            font.bold: !rowItem.settingsHeader
+            // Capitalisation is a display choice, not data: the row keeps "In the
+            // bar" (so the README and the search tab stay untouched) and reads as
+            // a heading here.
+            font.capitalization: rowItem.settingsHeader ? Font.AllUppercase : Font.MixedCase
+            font.letterSpacing: rowItem.settingsHeader ? 1.1 : 0
           }
 
           // The row's click target: declared before the `+` so the button keeps

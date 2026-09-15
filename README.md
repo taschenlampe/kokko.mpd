@@ -175,35 +175,45 @@ Tab **8** in the panel — click or `enter` toggles, `-`/`+` (or the `−`/`+` b
 right on the row) change numbers, `enter` on the label format opens an input field.
 While you are there, the footer shows what the pattern does to the **playing track**.
 
+The rows are grouped by surface, in the order the sections above introduce them.
+The group heading carries the context, which is why the row itself stays short —
+"Size" instead of "Card size (desktop)".
+
 | Setting | Effect |
 | --- | --- |
-| Card on mouse hover | the card under the bar (only while the panel is closed — open, it is already the big view) |
-| Cover backdrop | presence of the cover in the panel, 0 switches it off; higher values let it **run further down** (behind the last row), not just stronger |
-| Cover in the player | **seven looks** for the band: `classic`, `sharp`, `hero`, `anchor`, `vinyl`, `minimal`, `split` — `enter` or `-`/`+` cycles, applies at once |
-| Label format | `mpc` placeholders for the bar label, with live preview |
-| Card on track change | flashes on every new track — switch it off entirely here |
-| … visible for | how long it stays then; `enter` shows it right now |
-| Desktop notification on track change | the desktop's bubble (app "MPD") — **independent of the card** |
-| Card on the wallpaper | the card on your desktop instead of only in the bar — same cover, same live spectrum, same buttons |
-| Card size (desktop) | `card` (full, with spectrum) or `mini` (narrow, no spectrum) |
-| Card position (desktop) | which corner it takes — `bottom-right`, `bottom-left`, `top-right`, `top-left` or `center` |
-| Card layer (desktop) | `desktop` keeps it under every window, so it shows where the desktop is free; `above` floats it over them, which also survives fullscreen video |
-| Dim card when paused | fades it while playback is stopped, so a paused card does not compete with your work |
-| Update the music library | reads new and changed files — the everyday one after adding music; MPD works through it in the background |
-| Rescan the music library | re-reads everything and drops entries for files that are gone — use it after deleting or renaming; slow when the library is on a network share |
+| **In the bar** | |
+| Format | `mpc` placeholders for the bar label, with live preview |
+| **On hover** | |
+| Show the card | the card under the bar (only while the panel is closed — open, it is already the big view) |
+| **In the player** | |
+| Cover look | **seven looks** for the band: `classic`, `sharp`, `hero`, `anchor`, `vinyl`, `minimal`, `split` — `enter` or `-`/`+` cycles, applies at once |
+| Backdrop | presence of the cover in the panel, 0 switches it off; higher values let it **run further down** (behind the last row), not just stronger |
+| **On a new track** | |
+| Show the card | flashes on every new track — switch it off entirely here |
+| For how long | how long it stays then; `enter` shows it right now |
+| Notification | the desktop's bubble (app "MPD") — **independent of the card** |
+| **On the wallpaper** | |
+| Show the card | the card on your desktop instead of only in the bar — same cover, same live spectrum, same buttons |
+| Size | `card` (full, with spectrum) or `mini` (narrow, no spectrum) |
+| Position | which corner it takes — `bottom-right`, `bottom-left`, `top-right`, `top-left` or `center` |
+| Layer | `desktop` keeps it under every window, so it shows where the desktop is free; `above` floats it over them, which also survives fullscreen video |
+| Dim when paused | fades it while playback is stopped, so a paused card does not compete with your work |
+| **Music library** | |
+| Update | reads new and changed files — the everyday one after adding music; MPD works through it in the background |
+| Rescan | re-reads everything and drops entries for files that are gone — use it after deleting or renaming; slow when the library is on a network share |
 
 
 <details>
 <summary>The seven looks for the band</summary>
 
-**Seven looks for the band** (`Cover in the player`) — same data, seven pictures:
+**Seven looks for the band** (`Cover look`) — same data, seven pictures:
 
 ![The seven cover looks](docs/cover-looks.png)
 
 | Look | What it does | Price |
 | --- | --- | --- |
 | `classic` | softly drawn cover behind the panel, 58 px in the band | — |
-| `sharp` | the same band with an 88 px cover, and the cover behind the panel stays an **image** (opacity + gradient instead of blur) | at a high "Cover backdrop" it is more present than the soft one — turn the slider down if needed |
+| `sharp` | the same band with an 88 px cover, and the cover behind the panel stays an **image** (opacity + gradient instead of blur) | at a high "Backdrop" it is more present than the soft one — turn the slider down if needed |
 | `hero` | the cover **is** the background of the player card, panel flat | band is taller: roughly two list rows less |
 | `anchor` | big cover (104 px), everything else text and **one** control row, panel flat | band is taller: roughly two list rows less |
 | `vinyl` | the cover spins inside a **round disc** — rim line and a spindle dot at the centre, and it stops where you paused | — (same band height as `sharp`) |
