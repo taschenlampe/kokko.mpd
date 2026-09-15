@@ -122,7 +122,7 @@ Item {
         Text {
           anchors.centerIn: parent
           visible: card.coverPath === ""
-          text: "\u266b"
+          text: "♫"
           color: card.faintColor
           font.pixelSize: Math.round(parent.width * 0.28)
           font.family: Style.font.family
