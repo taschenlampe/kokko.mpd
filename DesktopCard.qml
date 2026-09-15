@@ -35,13 +35,22 @@ Item {
   readonly property string artist: (host && host.song && (host.song.artist || host.song.albumartist)) ? String(host.song.artist || host.song.albumartist) : ""
   readonly property bool playing: host ? !!host.isPlaying : false
 
+  readonly property real duration: host ? (Number(host.duration) || 0) : 0
+
   readonly property real progress: {
-    if (!host) return 0
-    var d = Number(host.duration) || 0
-    if (d <= 0) return 0
-    var e = Number(host.elapsed) || 0
-    return Math.max(0, Math.min(1, e / d))
+    if (duration <= 0) return 0
+    var e = Number(host && host.elapsed) || 0
+    return Math.max(0, Math.min(1, e / duration))
   }
+
+  // Scrubbing. While the pointer holds the bar the fill and the knob follow the
+  // pointer instead of the playback position: the widget interpolates elapsed
+  // between MPD's status pushes, so without this the knob would walk away under a
+  // held finger. Nothing is sent while the pointer moves -- one seek on release,
+  // which is also why dragging does not flood MPD with commands.
+  property bool dragging: false
+  property real dragFrac: -1
+  readonly property real displayFrac: (dragging && dragFrac >= 0) ? dragFrac : progress
 
   // Taken back while paused, not hidden: the card stays readable.
   opacity: (dimWhenPaused && !playing) ? 0.55 : 1.0
@@ -181,7 +190,7 @@ Item {
 
         Rectangle {
           anchors.verticalCenter: parent.verticalCenter
-          width: Math.round(parent.width * card.progress)
+          width: Math.round(parent.width * card.displayFrac)
           height: 4
           radius: 2
           color: Color.accent
@@ -189,13 +198,37 @@ Item {
 
         Rectangle {
           anchors.verticalCenter: parent.verticalCenter
-          x: Math.round(parent.width * card.progress) - width / 2
+          x: Math.round(parent.width * card.displayFrac) - width / 2
           width: 11
           height: 11
           radius: 6
           color: Color.foreground
           border.width: 1
           border.color: Util.alpha(Color.background, 0.55)
+        }
+
+        // Click or drag: a click jumps to that spot, a drag scrubs. Declared last
+        // so it sits above the bar and the knob -- it is the only interactive
+        // element here, so nothing else can lose its clicks to it.
+        MouseArea {
+          id: scrubArea
+          anchors.fill: parent
+          cursorShape: Qt.PointingHandCursor
+          onPressed: function(mouse) {
+            card.dragging = true
+            card.dragFrac = Math.max(0, Math.min(1, mouse.x / width))
+          }
+          onPositionChanged: function(mouse) {
+            if (card.dragging) card.dragFrac = Math.max(0, Math.min(1, mouse.x / width))
+          }
+          onReleased: function(mouse) {
+            if (!card.dragging) return
+            var target = card.dragFrac * card.duration
+            card.dragging = false
+            card.dragFrac = -1
+            if (card.host && card.duration > 0) card.host.bare("seek " + Math.round(target))
+          }
+          onCanceled: { card.dragging = false; card.dragFrac = -1 }
         }
       }
 
