@@ -60,8 +60,11 @@ without a restart.
 the song info — not in every queue row (with 300 entries that would be 300 MPD
 queries and 300 images). The bridge caches them under `~/.cache/kokko-mpd`.
 
-**Spectrum** comes from **cava** (`bin/cava.conf`, 12 bars, 30 fps) and runs only
-while music plays *and* the panel is open — unseen it would be work for nobody.
+**Spectrum** comes from **cava** (`bin/cava.conf`, 12 bars, 30 fps) and runs while music
+plays *and* something shows the bars: the panel's band, the desktop card, or the bar's
+play indicator. Because the bar and the card both show a spectrum while playing, cava
+now runs whenever something plays — one small process (measured: about 3 % of one
+core), one writer for all surfaces, no second cava per card.
 
 **The bridge** (`bin/mpd-bridge`, Python, stdlib only) holds the MPD connections
 and talks to the widget in one JSON line per direction; state arrives by MPD

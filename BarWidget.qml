@@ -444,7 +444,7 @@ Panel {
     if (showArt && artPath !== "")
       w += barSize + Style.space(6)
     if (showStateIcon)
-      w += stateIconText.implicitWidth + Style.space(6)
+      w += stateIndicator.implicitWidth + Style.space(6)
     return w + maxWidth
   }
 
@@ -501,16 +501,63 @@ Panel {
           }
         }
 
-        // The play state, unless the user turned it off.
-        Text {
-          id: stateIconText
+        // The play state, unless the user turned it off: while a track plays this is a
+        // small spectrum, which says "playing" better than a glyph; when nothing
+        // plays, the glyph. Both live in one item of fixed width, so the label next
+        // to it does not jump when the two swap.
+        //
+        // Clicks are deliberately not handled here: the strip's own MouseArea below
+        // toggles playback (left), skips (middle) and takes the wheel. A second
+        // MouseArea that accepted buttons would swallow exactly that, so the one
+        // here asks for no button at all and only borrows the hover state.
+        Item {
+          id: stateIndicator
           visible: root.showStateIcon
-          text: root.stateGlyph
-          color: root.isPlaying ? Color.accent : root.fg
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          verticalAlignment: Text.AlignVCenter
-          height: root.barSize
+          implicitWidth: Math.max(stateIconText.implicitWidth, miniBars.width)
+          implicitHeight: root.barSize
+
+          // A plate behind it while the pointer is on it, so the thing that answers a
+          // click looks like it answers a click.
+          Rectangle {
+            anchors.centerIn: parent
+            width: parent.implicitWidth + Style.space(6)
+            height: Math.min(parent.height - Style.space(6), Style.space(20))
+            radius: Style.cornerRadius
+            color: Util.alpha(Color.foreground, 0.10)
+            opacity: indicatorHover.containsMouse ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+          }
+
+          Text {
+            id: stateIconText
+            visible: !miniBars.visible
+            text: root.stateGlyph
+            color: root.isPlaying ? Color.accent : root.fg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            verticalAlignment: Text.AlignVCenter
+            height: parent.height
+            anchors.centerIn: parent
+          }
+
+          Visualizer {
+            id: miniBars
+            // Only while it really plays, and only with levels in hand: a frozen
+            // spectrum would claim something that is not true.
+            visible: root.isPlaying && root.vizBars.length > 0
+            count: 5
+            levels: root.vizBars
+            width: Style.space(20)
+            height: Math.min(Style.space(14), root.barSize - Style.space(8))
+            anchors.centerIn: parent
+          }
+
+          MouseArea {
+            id: indicatorHover
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+          }
         }
 
         // The label. Clipped, because the marquee walks out of it. The box is only
@@ -523,7 +570,9 @@ Panel {
           clip: true
           implicitWidth: root.label === "" ? 0 : Math.min(labelText.implicitWidth, root.maxWidth)
           implicitHeight: root.barSize
-          readonly property bool overflowing: labelText.implicitWidth > width
+          // Against the *reserved* width, not the current one: the text's own width
+          // changes with the marquee, and asking it about itself would be a loop.
+          readonly property bool overflowing: labelText.implicitWidth > implicitWidth
 
           Text {
             id: labelText
@@ -534,10 +583,18 @@ Panel {
             color: root.fg
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
-            elide: (root.overflow === "elide" || labelBox.scrolling) ? Text.ElideRight : Text.ElideNone
+            // While the marquee runs the text must keep its natural width (it walks through
+            // the clipped box); as soon as it stands still it is bound to the box, so a long
+            // title ends in an ellipsis instead of being cut mid-word.
+            width: labelBox.scrolling ? implicitWidth : labelBox.width
+            elide: (root.overflow === "elide" || !labelBox.scrolling) ? Text.ElideRight : Text.ElideNone
           }
 
-          readonly property bool scrolling: overflowing && root.overflow === "scroll" && width > 0
+          // Only while something really plays. A title that keeps walking while the
+          // player sits paused reads as a defect, not as a feature -- and the slice
+          // it shows meanwhile is not even recognisable as the title.
+          readonly property bool scrolling: overflowing && root.overflow === "scroll"
+            && width > 0 && root.isPlaying
 
           SequentialAnimation {
             running: labelBox.scrolling
@@ -609,7 +666,7 @@ Panel {
   // the bars for bigger buttons, so it does not need the process -- which is why
   // the gate below also asks for the card, not only for the panel.
   property bool desktopCardVisible: true
-  readonly property bool vizWanted: isPlaying && (panelOpen || desktopCardVisible)
+  readonly property bool vizWanted: isPlaying && (panelOpen || desktopCardVisible || showStateIcon)
 
   function applyViz(line) {
     var parts = String(line).split(";")
@@ -1062,11 +1119,16 @@ Panel {
           boxW: Math.round(labelBox.width),
           textW: Math.round(labelText.implicitWidth),
           contentRight: Math.round(info.x + info.width),
-          // The two distances the eye notices: glyph -> label (was the complaint)
           // and content -> right edge of the reserve.
-          glyphGap: Math.round(labelBox.x - (stateIconText.x + stateIconText.width)),
+          // The two distances the eye notices: indicator -> label, and content ->
+          // the right edge of the reserve. -1 when there is no indicator.
+          glyphGap: root.showStateIcon
+            ? Math.round(labelBox.x - (stateIndicator.x + stateIndicator.width)) : -1,
           rightGap: Math.round(root.stripReserve - (info.x + info.width)),
           textX: Math.round(labelText.x),
+          // Published so the smoke test can hold the rule: no marquee while the
+          // player is not playing.
+          scrolling: labelBox.scrolling,
           trunc: labelText.truncated
         }
       })
