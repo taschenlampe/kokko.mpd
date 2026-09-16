@@ -31,7 +31,17 @@ Item {
   readonly property int cardRadius: Style.cornerRadius > 0 ? Style.cornerRadius : 16
 
   readonly property string coverPath: host ? String(host.artPath || "") : ""
-  readonly property string title: (host && host.song && host.song.title) ? String(host.song.title) : "Nothing playing"
+  readonly property string title: {
+      // Radio streams carry `name` instead of `title`, untagged files carry neither.
+      // Every other surface falls back to the file's basename; this one said
+      // "Nothing playing" while music was on.
+      if (!host || !host.song) return "Nothing playing"
+      var s = host.song
+      var t = String(s.title || "")
+      if (!t) t = String(s.name || "")
+      if (!t && s.file) t = String(host.basename ? host.basename(s.file) : "")
+      return t || "Nothing playing"
+    }
   readonly property string artist: (host && host.song && (host.song.artist || host.song.albumartist)) ? String(host.song.artist || host.song.albumartist) : ""
   readonly property bool playing: host ? !!host.isPlaying : false
 
