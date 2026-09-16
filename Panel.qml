@@ -1595,6 +1595,22 @@ Panel {
           : (nowBand.item ? nowBand.item.implicitHeight : 0)
 
         Loader {
+                    // The band's text needs its own layer. With a cover backdrop the artwork runs
+                    // straight through the title and the meta line; the sharp look is only the loudest
+                    // case, and at native size the quiet ones are just as hard to read. The scrim is
+                    // the panel colour at strength where the text sits and fades out before the
+                    // artwork below it. Declared before the band, so the band's own plate and cover
+                    // stay on top of it.
+                    Rectangle {
+                      anchors { top: parent.top; left: parent.left; right: parent.right }
+                      height: Math.max(parent.height, Style.space(126))
+                      gradient: Gradient {
+                        GradientStop { position: 0.0; color: root.bg }
+                        GradientStop { position: 0.45; color: Util.alpha(root.bg, 0.62) }
+                        GradientStop { position: 1.0; color: Util.alpha(root.bg, 0.0) }
+                      }
+                    }
+          
           id: nowBand
           anchors { top: parent.top; left: parent.left; right: parent.right }
           sourceComponent: root.bandComponent()
@@ -1615,6 +1631,10 @@ Panel {
 
         delegate: Item {
           id: rowItem
+            // Two glyph buttons on every one of ~90 rows is a lot of noise down the right
+            // edge. They stay quiet until the pointer is on the row or the row is selected.
+            readonly property bool glyphsHot: rowHover.hovered || rowItem.selected
+            HoverHandler { id: rowHover }
           required property var modelData
           required property int index
           width: list.width
@@ -1737,6 +1757,7 @@ Panel {
           // U+002B in JetBrainsMono Nerd Font), not guessed.
           Item {
             id: stepPlus
+              opacity: (rowItem.glyphsHot || plusArea.containsMouse) ? 1.0 : 0.32
             visible: root.frameMode === "settings"
               && (rowItem.modelData.kind === "int" || rowItem.modelData.kind === "enum")
             anchors { right: parent.right; rightMargin: Style.space(5)
@@ -1772,6 +1793,7 @@ Panel {
 
           Item {
             id: stepMinus
+              opacity: (rowItem.glyphsHot || minusArea.containsMouse) ? 1.0 : 0.32
             visible: stepPlus.visible
             anchors { right: stepPlus.left; rightMargin: Style.space(5)
                       verticalCenter: parent.verticalCenter }
@@ -1808,6 +1830,7 @@ Panel {
           // artist, the folder. The mouse half of `a`.
           Item {
             id: addButton
+              opacity: (rowItem.glyphsHot || addArea.containsMouse) ? 1.0 : 0.32
             // Not in the settings tab: appending a setting to the queue makes no
             // sense, and the button would only be a stray glyph there.
             visible: !rowItem.isHeader && root.frameMode !== "settings"
@@ -1847,6 +1870,7 @@ Panel {
           // (U+F01B4 in JetBrainsMono Nerd Font), not guessed.
           Item {
             id: trashButton
+              opacity: (rowItem.glyphsHot || trashArea.containsMouse) ? 1.0 : 0.32
             visible: !rowItem.isHeader
               && (root.frameMode === "queue" || root.frameMode === "plist")
             anchors { right: addButton.left; rightMargin: Style.space(6)
@@ -1989,6 +2013,21 @@ Panel {
         }
       }
 
+      // The list is clipped by the footer, so its last row ends mid-height. Instead of
+      // pretending the list stops on a whole row, the bottom fades into the panel: the
+      // cut reads as "there is more", and the small key hints in the footer get a solid
+      // floor instead of sitting on the artwork. It reaches the panel's bottom and is
+      // declared before the footer, so the footer's own text stays on top.
+      Rectangle {
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: Style.space(78)
+        gradient: Gradient {
+          GradientStop { position: 0.0; color: Util.alpha(root.bg, 0.0) }
+          GradientStop { position: 0.55; color: Util.alpha(root.bg, 0.96) }
+          GradientStop { position: 1.0; color: root.bg }
+        }
+      }
+      
       // ------------------------------------------------------------ footer
       Item {
         id: footer
