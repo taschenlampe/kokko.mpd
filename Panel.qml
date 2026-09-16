@@ -77,6 +77,12 @@ Panel {
   // "" | "search" | "save" | "rename"
   property string promptMode: ""
   property string promptText: ""
+  // What a prompt acts on, captured when it opens. The rename prompt is the reason:
+  // it can sit open while the list reloads (a database event, the reload timer, a
+  // reconnect), and every reload puts the selection back on the first row -- so
+  // re-deriving the name when the field is submitted once renamed row 0 while the
+  // footer still showed the name the user had opened.
+  property string promptTarget: ""
   // Free text for the local filter (Dateien, Playlists): MPD has no filter for paths
   // or playlist names, so those two lists narrow themselves.
   property string filterText: ""
@@ -940,6 +946,21 @@ Panel {
     var to = from + delta
     if (isNaN(from) || to < 0 || to >= root.rows.length) return
     host.moveSong(from, to)
+    // Bring the model in step instead of reloading: a reload puts the selection
+    // back on the first row (the loader does that for every list), and the next J/K
+    // would then move whatever row happens to sit under the cursor rather than the
+    // one the user is walking. MPD has taken the command; this is only the picture,
+    // and in the queue a row index is its MPD position.
+    var rows = (root.rows || []).slice()
+    if (rows[from] && rows[to] && from !== to) {
+      var tausch = rows[from]
+      rows[from] = rows[to]
+      rows[to] = tausch
+      rows[from].pos = from
+      rows[to].pos = to
+      root.rows = rows
+      root.allRows = rows
+    }
     root.sel = Math.max(0, Math.min(root.rows.length - 1, root.sel + delta))
   }
 
@@ -977,6 +998,7 @@ Panel {
     promptDebounce.stop()
     root.promptMode = ""
     root.promptText = ""
+    root.promptTarget = ""
     if (root.filterText !== "") { root.filterText = ""; root.refreshFilteredRows() }
   }
 
@@ -1132,8 +1154,10 @@ Panel {
     }
     if (root.promptMode === "rename") {
       var row = root.rows[root.sel]
-      var from = row ? String(row.playlist || "") : ""
-      if (text === "" || from === "" || !root.up) return
+      // The name from the moment the prompt opened -- not from the row that
+      // happens to be selected now (a reload in between would have moved it).
+      var from = root.promptTarget
+      if (text === "" || from === "" || !root.up) { root.promptTarget = ""; return }
       mutateAndReload("renameplaylist", { name: from, to: text })
       root.setInfo("“" + from + "” is now “" + text + "”")
       root.closePrompt()
@@ -1339,13 +1363,22 @@ Panel {
     if (text === "D") { if (root.frameMode === "queue") host.clearQueue(); event.accepted = true; return }
     // Keep only what is playing: MPD's `crop`, the counterpart to clearing.
     if (text === "C") { if (root.frameMode === "queue") host.cropQueue(); event.accepted = true; return }
-    if (text === "x") { if (root.frameMode === "queue") host.shuffleQueue(); event.accepted = true; return }
+    if (root.frameMode === "queue") {
+      // A shuffle reorders everything, so unlike a single move the model cannot be
+      // patched in place. Reload -- and let the selection land on what is playing,
+      // which after a shuffle is where the eye wants to be.
+      root.jumpToCurrent = true
+      mutateAndReload("shuffle", {})
+    }
+    event.accepted = true
+    return
     if (text === "J") { root.moveRow(1); event.accepted = true; return }
     if (text === "K") { root.moveRow(-1); event.accepted = true; return }
     if (text === "s" && root.frameMode !== "search") { root.openPrompt("save", "", true); event.accepted = true; return }
     if (text === "r" && root.frameMode === "playlists") {
       var row = root.rows[root.sel]
-      root.openPrompt("rename", row ? String(row.playlist || "") : "", true)
+      root.promptTarget = row ? String(row.playlist || "") : ""
+      root.openPrompt("rename", root.promptTarget, true)
       event.accepted = true
       return
     }

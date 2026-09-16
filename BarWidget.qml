@@ -665,7 +665,10 @@ Panel {
   // cava feeds the panel band and the desktop card's wave. The hover card trades
   // the bars for bigger buttons, so it does not need the process -- which is why
   // the gate below also asks for the card, not only for the panel.
-  property bool desktopCardVisible: true
+  // Was pinned to `true`: the card counted as a consumer of cava even when the user
+  // had switched it off, so the process ran for a surface that was not there.
+  readonly property bool desktopCardVisible: setting("desktopWidget", true) === true
+    || String(setting("desktopWidget", true)) === "true"
   readonly property bool vizWanted: isPlaying && (panelOpen || desktopCardVisible || showStateIcon)
 
   function applyViz(line) {

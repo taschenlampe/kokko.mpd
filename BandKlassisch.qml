@@ -208,7 +208,10 @@ Item {
               verticalCenter: parent.verticalCenter }
     width: Style.space(150)
     height: Style.space(30)
-    visible: band.showViz && band.host !== null && band.host.queueLength > 0
+    // While it plays, not while a queue exists: with cava stopped the levels are
+    // gone, and every bar would sit at its 2 px floor -- a frozen spectrum that
+    // claims something is happening.
+    visible: band.showViz && band.host !== null && band.host.isPlaying
     levels: band.vizBars
     count: band.vizCount
   }

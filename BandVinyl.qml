@@ -79,7 +79,10 @@ Item {
       rotation: 0
 
       RotationAnimation on rotation {
-        running: band.hasSong && band.host.isPlaying
+        // `paused`, not `running`: with `running` the animation restarts at `from` on
+        // every resume, so the disc jumped back to 0 degrees instead of carrying on from
+        // where it was paused -- which is what the look promises.
+        paused: !(band.hasSong && band.host.isPlaying)
         loops: Animation.Infinite
         from: 0; to: 360
         duration: 9000
@@ -232,7 +235,10 @@ Item {
               verticalCenter: parent.verticalCenter }
     width: Style.space(150)
     height: Style.space(30)
-    visible: band.showViz && band.host !== null && band.host.queueLength > 0
+    // While it plays, not while a queue exists: with cava stopped the levels are
+    // gone, and every bar would sit at its 2 px floor -- a frozen spectrum that
+    // claims something is happening.
+    visible: band.showViz && band.host !== null && band.host.isPlaying
     levels: band.vizBars
     count: band.vizCount
   }
