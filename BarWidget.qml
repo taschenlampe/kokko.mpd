@@ -854,7 +854,8 @@ Panel {
     if (title === "") return
     var parts = []
     if (song.artist) parts.push(String(song.artist))
-    if (song.album) parts.push(String(song.album))
+    var alb2 = String(song.album || "")
+    if (alb2 && alb2 !== String(song.title || "")) parts.push(alb2)
     notifyProc.command = ["notify-send", "-a", "MPD",
       "-i", (artPath !== "" ? artPath : "audio-x-generic"),
       title, parts.join("  ·  ")]
@@ -1000,7 +1001,8 @@ Panel {
               text: {
                 var bits = []
                 if (root.song.artist) bits.push(String(root.song.artist))
-                if (root.song.album) bits.push(String(root.song.album))
+                var alb = String(root.song.album || "")
+                if (alb && alb !== String(root.song.title || "")) bits.push(alb)
                 return bits.join("  ·  ")
               }
               color: Qt.darker(Color.popups.text, 1.35)

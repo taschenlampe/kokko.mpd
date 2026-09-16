@@ -649,7 +649,10 @@ Panel {
     if (row.type === "directory") return "Folder"
     var bits = []
     if (row.artist) bits.push(String(row.artist))
-    if (row.album && root.frameTitle !== String(row.album)) bits.push(String(row.album))
+    // The guard used to compare against the tab's title, so it never fired in the
+      // queue: a single whose album equals its title printed the title twice.
+      if (row.album && String(row.album) !== String(row.title || "")
+          && root.frameTitle !== String(row.album)) bits.push(String(row.album))
     if (row.genre && root.frameMode === "find") bits.push(String(row.genre))
     // No track number here: the list is already in track order and the number
     // usually leads the title anyway -- it was noise on every single row.

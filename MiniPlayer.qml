@@ -200,7 +200,10 @@ PanelWindow {
           if (!mini.service) return ""
           var bits = []
           if (mini.service.song.artist) bits.push(String(mini.service.song.artist))
-          if (mini.service.song.album) bits.push(String(mini.service.song.album))
+          // Album equals title on singles and untagged rips; the second line should always
+          // add information instead of repeating the first one.
+          var alb = String(mini.service.song.album || "")
+          if (alb && alb !== String(mini.service.song.title || "")) bits.push(alb)
           if (mini.service.queueLength > 0)
             bits.push("#" + (mini.service.queuePosition + 1) + "/" + mini.service.queueLength)
           return bits.join("  ·  ")
