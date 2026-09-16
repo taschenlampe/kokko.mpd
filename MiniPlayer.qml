@@ -241,6 +241,10 @@ PanelWindow {
           onPositionChanged: function(mouse) {
             if (mini.dragging) mini.dragFrac = Math.max(0, Math.min(1, mouse.x / width))
           }
+          // A stolen grab (another surface takes the pointer) never delivers onReleased:
+          // without this, `dragging` stays true and the clock above stays gated off, so the
+          // bar freezes until the card is closed.
+          onCanceled: { mini.dragging = false; mini.dragFrac = -1 }
           onReleased: function(mouse) {
             if (!mini.dragging) return
             var target = mini.dragFrac * mini.durNow

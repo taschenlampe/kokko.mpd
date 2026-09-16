@@ -678,7 +678,9 @@ class Bridge:
                 sys.stdout.write(line + "\n")
                 sys.stdout.flush()
             except (BrokenPipeError, ValueError):
-                # The shell went away. Nothing left to talk to.
+                # The shell went away. Nothing left to talk to. A `ValueError` here
+                # means the stream is closed -- the encoding case, the one a stale bar
+                # could hide in, is handled once in main().
                 self.stop.set()
 
     # -------------------------------------------------------- connection
@@ -1527,6 +1529,16 @@ class Bridge:
 
 
 def main() -> int:
+    # The widget reads our stdout as UTF-8 JSON lines. A title outside ASCII would
+    # otherwise raise UnicodeEncodeError -- which *is* a ValueError, so the stdout
+    # writer below could not tell it apart from a closed pipe: it would set the stop
+    # flag and swallow every later event, leaving a stale bar and nothing in the log
+    # to explain it. Make the stream tolerant instead of widening that except.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
     # A cover written to a closed stdout should end the process quietly rather
     # than print a traceback into the shell's log.
     try:
