@@ -666,9 +666,9 @@ Panel {
   // the bars for bigger buttons, so it does not need the process -- which is why
   // the gate below also asks for the card, not only for the panel.
   // Was pinned to `true`: the card counted as a consumer of cava even when the user
-  // had switched it off, so the process ran for a surface that was not there.
-  readonly property bool desktopCardVisible: setting("desktopWidget", true) === true
-    || String(setting("desktopWidget", true)) === "true"
+  // had switched it off, so the process ran for a surface that was not there. The
+  // `desktopWidget` property above already reads exactly this setting.
+  readonly property bool desktopCardVisible: desktopWidget
   readonly property bool vizWanted: isPlaying && (panelOpen || desktopCardVisible || showStateIcon)
 
   function applyViz(line) {

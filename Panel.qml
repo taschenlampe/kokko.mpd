@@ -962,6 +962,10 @@ Panel {
       root.allRows = rows
     }
     root.sel = Math.max(0, Math.min(root.rows.length - 1, root.sel + delta))
+    // The model was just replaced, so the view is rebuilt; without this the
+    // selection can walk off the bottom while the delegates come back. Same call
+    // `step()` makes for the same reason.
+    list.positionViewAtIndex(root.sel, ListView.Contain)
   }
 
   function showDetails() {
@@ -1363,15 +1367,19 @@ Panel {
     if (text === "D") { if (root.frameMode === "queue") host.clearQueue(); event.accepted = true; return }
     // Keep only what is playing: MPD's `crop`, the counterpart to clearing.
     if (text === "C") { if (root.frameMode === "queue") host.cropQueue(); event.accepted = true; return }
-    if (root.frameMode === "queue") {
+    if (text === "x") {
       // A shuffle reorders everything, so unlike a single move the model cannot be
       // patched in place. Reload -- and let the selection land on what is playing,
       // which after a shuffle is where the eye wants to be.
-      root.jumpToCurrent = true
-      mutateAndReload("shuffle", {})
+      if (root.frameMode === "queue") {
+        root.jumpToCurrent = true
+        mutateAndReload("shuffle", {})
+      }
+      // Accepted in every frame, as it always was: `x` is a queue key, and the
+      // other tabs should not fall through to the keys below with it.
+      event.accepted = true
+      return
     }
-    event.accepted = true
-    return
     if (text === "J") { root.moveRow(1); event.accepted = true; return }
     if (text === "K") { root.moveRow(-1); event.accepted = true; return }
     if (text === "s" && root.frameMode !== "search") { root.openPrompt("save", "", true); event.accepted = true; return }
