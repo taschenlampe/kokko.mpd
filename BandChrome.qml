@@ -83,7 +83,7 @@ Item {
     var artist = String(band.host.song.artist || "")
     var album = String(band.host.song.album || "")
     if (artist !== "" && artist.toLowerCase() !== band.title.toLowerCase()) bits.push(artist)
-    if (album && !band.oneLine !== "" && album.toLowerCase() !== band.title.toLowerCase()) bits.push(album)
+    if (album !== "" && !band.oneLine && album.toLowerCase() !== band.title.toLowerCase()) bits.push(album)
     if (band.host.queueLength > 0)
       bits.push("#" + (band.host.queuePosition + 1) + "/" + band.host.queueLength)
     return bits.join("  ·  ")
