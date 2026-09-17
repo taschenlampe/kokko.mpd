@@ -268,27 +268,12 @@ Item {
         }
 
         // Play/pause as a filled circle: the one place the card carries colour,
-        // so the state reads without comparing two icons.
-        Rectangle {
-          id: playButton
-          Layout.preferredWidth: 38
-          Layout.preferredHeight: 38
-          radius: width / 2
-          color: Color.accent
-
-          Text {
-            anchors.centerIn: parent
-            text: card.playing ? "󰏤" : "󰐊"
-            color: Color.background
-            font.family: Style.font.family
-            font.pixelSize: Style.font.icon
-          }
-
-          TapHandler {
-            onTapped: if (card.host) card.host.toggleTrack()
-          }
-
-          HoverHandler { cursorShape: Qt.PointingHandCursor }
+        // so the state reads without comparing two icons. The shape, the glyph
+        // and the click now come from the shared component -- the card only
+        // says how big the circle is.
+        PlayButton {
+          size: 38
+          host: card.host
         }
 
         PanelActionButton {

@@ -280,15 +280,15 @@ PanelWindow {
                     onClicked: if (mini.service) mini.service.previousTrack() }
       }
 
-      Text {
-        text: mini.playing ? "󰏤" : "󰐊"
-        color: Color.accent
-        font.family: mini.fontFamily
-        font.pixelSize: Style.font.displayLarge
-        height: controls.height
-        verticalAlignment: Text.AlignVCenter
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: if (mini.service) mini.service.toggleTrack() }
+      // The same filled disc the band and the desktop card show, at 30 px:
+      // the card is where the transport gets room.
+      PlayButton {
+        anchors.verticalCenter: parent.verticalCenter
+        size: Style.space(30)
+        glyphSize: Style.font.heading
+        host: mini.service
+        accentColor: Color.accent
+        fontFamily: mini.fontFamily
       }
 
       Text {
