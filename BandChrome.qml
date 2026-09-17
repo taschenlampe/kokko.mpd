@@ -395,15 +395,16 @@ Item {
                   onClicked: if (band.host) band.host.previousTrack() }
     }
 
-    Text {
-      text: band.host && band.host.isPlaying ? "󰏤" : "󰐊"
-      color: band.accent
-      font.family: band.fontFamily
-      font.pixelSize: Style.font.title
-      height: parent.height
-      verticalAlignment: Text.AlignVCenter
-      MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                  onClicked: if (band.host) band.host.toggleTrack() }
+    // Play/pause keeps the one filled shape in this row (26 px inside the
+    // 74 px band) while the neighbours stay flat glyphs: a disc carries the
+    // accent and says which of the two the click does, and it is the same
+    // component the hover card and the desktop card use.
+    PlayButton {
+      anchors.verticalCenter: parent.verticalCenter
+      size: Style.space(26)
+      host: band.host
+      accentColor: band.accent
+      fontFamily: band.fontFamily
     }
 
     Text {
