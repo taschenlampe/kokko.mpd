@@ -371,8 +371,23 @@ Panel {
   function play() { bare("play") }
   function pause() { bare("pause") }
   function stopPlayback() { bare("stop") }
-  function nextTrack() { bare("next") }
-  function previousTrack() { bare("prev") }
+  // Every skip passes through the two functions below -- the < and > keys, the band's
+  // icons, both cards, the wheel and the middle click. Two rules live here so they hold
+  // for all of them: a paused player must not start playing just because the track
+  // changed, and the panel wants to hear about a skip so it can keep the queue centred
+  // on the row that plays now.
+  signal skipHappened()
+
+  function nextTrack() {
+    skipHappened()
+    bare("next")
+    if (!isPlaying) bare("pause 1")
+  }
+  function previousTrack() {
+    skipHappened()
+    bare("prev")
+    if (!isPlaying) bare("pause 1")
+  }
   function playId(id) { mutation("playid", { id: Number(id) }) }
   function playPosition(pos) { mutation("playpos", { pos: Number(pos) }) }
   function addUri(uri) { mutation("add", { uri: String(uri) }) }

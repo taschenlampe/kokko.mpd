@@ -167,6 +167,13 @@ Panel {
 
   Connections {
     target: root.host
+    // A skip from any surface ends up here. The rule is the same everywhere: bring
+    // the row playing now into the middle, and take the selection along only when it
+    // was resting on the row that was playing before the skip.
+    function onSkipHappened() {
+      root.skipCarry = root.frameMode === "queue" && root.sel === root.currentIndex()
+      skipTimer.restart()
+    }
     function onConnectedChanged() { if (root.host && root.host.connected) root.loadFrame() }
     function onDatabaseRevisionChanged() {
       root.loadFrame()
@@ -1364,13 +1371,7 @@ Panel {
     // belong to the player, not to the list, so they work in every view.
     if (text === ">" || key === Qt.Key_Greater) {
       if (root.host) {
-        // MPD's next/previous always start playing; a paused player should only
-        // switch. Both commands go over the same connection, so the pause lands
-        // right after the switch -- one event loop, effectively silent.
-        root.skipCarry = root.frameMode === "queue" && root.sel === root.currentIndex()
         root.host.nextTrack()
-        if (!root.host.isPlaying) root.host.bare("pause 1")
-        skipTimer.restart()
       }
       event.accepted = true
       return
@@ -1380,10 +1381,7 @@ Panel {
         // MPD's next/previous always start playing; a paused player should only
         // switch. Both commands go over the same connection, so the pause lands
         // right after the switch -- one event loop, effectively silent.
-        root.skipCarry = root.frameMode === "queue" && root.sel === root.currentIndex()
         root.host.previousTrack()
-        if (!root.host.isPlaying) root.host.bare("pause 1")
-        skipTimer.restart()
       }
       event.accepted = true
       return
