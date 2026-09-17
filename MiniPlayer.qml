@@ -78,8 +78,13 @@ PanelWindow {
   readonly property real frac: dragFrac >= 0 ? dragFrac
     : (durNow > 0 ? Math.min(1, Math.max(0, playPos / durNow)) : 0)
 
+  // The clock format lives in the widget (`formatTime`) -- one format on every
+  // surface was the point. This copy is only for the moment before the service
+  // exists, and it rounds down like the widget: rounding to nearest made this card
+  // show a second more than the band beside it.
   function fmt(sec) {
-    sec = Math.max(0, Math.round(Number(sec) || 0))
+    if (service && service.formatTime) return service.formatTime(sec)
+    sec = Math.max(0, Math.floor(Number(sec) || 0))
     var m = Math.floor(sec / 60)
     var s = sec % 60
     return m + ":" + (s < 10 ? "0" : "") + s

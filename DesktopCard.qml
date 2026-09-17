@@ -184,31 +184,58 @@ Item {
         }
       }
 
-      // 4. Progress: track, fill in the accent, knob.
+      // 4. Progress: elapsed, track with fill and knob, duration. The two numbers
+      // are the pair the other surfaces already print (the band and the hover card
+      // both show them): a bar one can drag without a single number on it is a
+      // weak affordance -- it hides how far in the track is and how much is left,
+      // and the widget hands out both values anyway.
       Item {
         id: progressBox
         Layout.fillWidth: true
         Layout.preferredHeight: 14
 
+        Text {
+          id: elapsedText
+          anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+          text: card.host && card.host.hasSong ? card.host.formatTime(card.host.elapsed) : ""
+          color: card.faintColor
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          // Tabular digits: a proportional font makes the numbers twitch on every
+          // tick and push the bar next to them.
+          font.features: { "tnum": 1 }
+        }
+
+        Text {
+          id: durationText
+          anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+          text: card.host && card.duration > 0 ? card.host.formatTime(card.duration) : ""
+          color: card.faintColor
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          font.features: { "tnum": 1 }
+        }
+
         Rectangle {
-          anchors.verticalCenter: parent.verticalCenter
-          width: parent.width
+          id: track
+          anchors { left: elapsedText.right; leftMargin: Style.space(8)
+                    right: durationText.left; rightMargin: Style.space(8)
+                    verticalCenter: parent.verticalCenter }
           height: 4
           radius: 2
           color: Util.alpha(Color.foreground, 0.16)
+
+          Rectangle {
+            width: Math.round(parent.width * card.displayFrac)
+            height: parent.height
+            radius: parent.radius
+            color: Color.accent
+          }
         }
 
         Rectangle {
           anchors.verticalCenter: parent.verticalCenter
-          width: Math.round(parent.width * card.displayFrac)
-          height: 4
-          radius: 2
-          color: Color.accent
-        }
-
-        Rectangle {
-          anchors.verticalCenter: parent.verticalCenter
-          x: Math.round(parent.width * card.displayFrac) - width / 2
+          x: Math.round(track.x + track.width * card.displayFrac) - width / 2
           width: 11
           height: 11
           radius: 6
@@ -217,12 +244,14 @@ Item {
           border.color: Util.alpha(Color.background, 0.55)
         }
 
-        // Click or drag: a click jumps to that spot, a drag scrubs. Declared last
-        // so it sits above the bar and the knob -- it is the only interactive
-        // element here, so nothing else can lose its clicks to it.
+        // Click or drag: a click jumps to that spot, a drag scrubs. The area spans
+        // the track's width but the full height of the row, so a 4 px line stays
+        // easy to hit -- and it stops where the numbers begin: a click on "6:18"
+        // should not jump to the end of the track.
         MouseArea {
           id: scrubArea
-          anchors.fill: parent
+          anchors { left: track.left; right: track.right
+                    top: parent.top; bottom: parent.bottom }
           cursorShape: Qt.PointingHandCursor
           onPressed: function(mouse) {
             card.dragging = true
