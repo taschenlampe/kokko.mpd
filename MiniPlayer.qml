@@ -109,11 +109,15 @@ PanelWindow {
     id: card
     width: Style.space(346)
     height: Style.space(122)
-    // Under the widget it belongs to: the centre is dictated by the widget (stable
     // while the label changes), here only clamped to stay on screen.
-    x: Math.max(mini.gap,
-         Math.min(mini.cardCenterX - width / 2,
-                  Math.max(mini.gap, mini.width - width - mini.gap)))
+    // Centred on the widget's *centre*, not on its left edge. The widget sits in the
+    // middle section of the bar, so its centre holds still while the label grows and
+    // shrinks -- its left edge does not: a ten-character title change moved it 43 px,
+    // and the card went with it, which read as the whole box jolting. In the widget's
+    // own coordinates its centre is half its width, so the card hangs out of both
+    // sides -- which is what the input mask is sized for. (cardCenterX was NaN, so
+    // the clamp chain below evaluated to NaN and Qt put the card at x = 0.)
+    x: mini.width / 2 - width / 2
     y: mini.barH + mini.gap
     color: Util.alpha(Color.background, 0.98)
     radius: Style.cornerRadius
