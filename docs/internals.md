@@ -82,7 +82,6 @@ track — an artist with 900 tracks costs one query. Every action reports in the
 footer.
 
 **Settings** live in `~/.config/omarchy/shell.json` in the widget entry:
-**host, port, password, format, maxWidth, overflow, showStateIcon, showArt, whenIdle, wheelAction, hoverCard, backdrop, osdOnChange, osdHover, osdDuration, notifyTrack, coverLook, desktopWidget, desktopSize, desktopCorner, desktopLayer, desktopDimOnPause**.
 
 **From the command line:**
 

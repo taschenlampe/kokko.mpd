@@ -400,7 +400,8 @@ Item {
     // accent and says which of the two the click does, and it is the same
     // component the hover card and the desktop card use.
     PlayButton {
-      anchors.verticalCenter: parent.verticalCenter
+            glyphColor: Color.popups.background
+anchors.verticalCenter: parent.verticalCenter
       size: Style.space(26)
       host: band.host
       accentColor: band.accent

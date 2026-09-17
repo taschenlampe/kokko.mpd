@@ -28,7 +28,6 @@
       "overflow": "scroll",
       "showStateIcon": true,
       "showArt": false,
-      "whenIdle": "icon",
       "wheelAction": "volume",
       "hoverCard": true,
       "backdrop": 60,
@@ -100,13 +99,6 @@
         "label": "Cover thumbnail in the bar",
         "defaultValue": false,
         "description": "The cover as a small image in front of the label."
-      },
-      {
-        "key": "whenIdle",
-        "type": "string",
-        "label": "When nothing is playing",
-        "defaultValue": "icon",
-        "description": "icon keeps a glyph, hide removes the widget entirely."
       },
       {
         "key": "wheelAction",

@@ -50,7 +50,6 @@ Panel {
   // card and the panel band.
   readonly property bool showStateIcon: setting("showStateIcon", true) === true
   readonly property bool showArt: setting("showArt", false) === true
-  readonly property string whenIdle: String(setting("whenIdle", "icon")) === "hide" ? "hide" : "icon"
   readonly property string wheelAction: {
     var value = String(setting("wheelAction", "volume"))
     return ["volume", "seek", "track", "none"].indexOf(value) !== -1 ? value : "volume"
@@ -127,7 +126,6 @@ Panel {
   readonly property bool isPaused: connected && playbackState === "pause"
   readonly property string songFile: String(song.file || "")
   readonly property bool hasSong: connected && songFile !== ""
-  readonly property bool idle: !hasSong
 
   // MPD reports elapsed only when something changes, so the clock is carried
   // forward locally and reset by every update -- otherwise a progress bar
@@ -485,10 +483,11 @@ Panel {
     Item {
       id: nowPlaying
       visible: true
-      // As wide as what it shows: the label grows and shrinks with the title, and a
-      // reserved width would leave that space as a visible hole next to the cover or
-      // the label. What the hover card needs is not a wide widget but a stable
-      // reference -- it gets `stripReserve` passed as its anchor width.
+      // One width at all times, taken from `stripReserve` -- the number the code already
+      // computed from the configured label maximum, not from the title. A box that grew and
+      // shrank with the title moved the widget's left edge and dragged the hover card with
+      // it (measured: 43 px for a ten-character change), which read as the whole thing
+      // jolting. The free space the reserve leaves is the price of a box that holds still.
       implicitWidth: root.vertical ? root.barSize : root.stripReserve
       implicitHeight: root.vertical ? info.implicitHeight + Style.space(8) : root.barSize
 

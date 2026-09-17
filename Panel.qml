@@ -97,13 +97,7 @@ Panel {
   // Set while the panel is opening: the next queue load lands on the playing track
   // instead of on row one.
   property bool jumpToCurrent: false
-  
-  // Whether the selection should travel with the skip -- only when it was resting on
-  // the row that was playing. If the cursor is somewhere else in the list, skipping
-  // must not pull it away.
-  // Whether the selection travels with a skip. Decided in the key handler, because it has
-  // to be made before MPD answers: only a selection resting on the playing row comes
-  // along, otherwise a skip would pull the cursor out of the list someone is working in.
+
   property bool skipCarry: false
   // A skip with < or > leaves the row playing now in the middle of the list -- and only a
   // skip does that: a track change on its own never scrolls the list away from under
