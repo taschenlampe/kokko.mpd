@@ -426,7 +426,7 @@ Panel {
   onBarChanged: injectPanel()
 
   // ---------------------------------------------------------------- strip
-  visible: !(idle && whenIdle === "hide") || panelOpen
+  visible: true
   implicitWidth: visible ? (vertical ? barSize : strip.implicitWidth) : 0
   implicitHeight: visible ? (vertical ? strip.implicitHeight : barSize) : 0
 
@@ -460,7 +460,7 @@ Panel {
 
   Grid {
     id: strip
-    anchors.centerIn: parent
+    anchors { left: parent.left; verticalCenter: parent.verticalCenter }
     rows: root.vertical ? 99 : 1
     spacing: 0
 
@@ -469,12 +469,12 @@ Panel {
     // target, so a click anywhere on what is playing opens the panel.
     Item {
       id: nowPlaying
-      visible: info.implicitWidth > 0
+      visible: true
       // As wide as what it shows: the label grows and shrinks with the title, and a
       // reserved width would leave that space as a visible hole next to the cover or
       // the label. What the hover card needs is not a wide widget but a stable
       // reference -- it gets `stripReserve` passed as its anchor width.
-      implicitWidth: root.vertical ? root.barSize : info.implicitWidth + Style.space(10)
+      implicitWidth: root.vertical ? root.barSize : root.stripReserve
       implicitHeight: root.vertical ? info.implicitHeight + Style.space(8) : root.barSize
 
       Row {
