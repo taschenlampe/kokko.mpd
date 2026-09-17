@@ -97,6 +97,29 @@ Panel {
   // Set while the panel is opening: the next queue load lands on the playing track
   // instead of on row one.
   property bool jumpToCurrent: false
+  
+  // Whether the selection should travel with the skip -- only when it was resting on
+  // the row that was playing. If the cursor is somewhere else in the list, skipping
+  // must not pull it away.
+  // Whether the selection travels with a skip. Decided in the key handler, because it has
+  // to be made before MPD answers: only a selection resting on the playing row comes
+  // along, otherwise a skip would pull the cursor out of the list someone is working in.
+  property bool skipCarry: false
+  // A skip with < or > leaves the row playing now in the middle of the list -- and only a
+  // skip does that: a track change on its own never scrolls the list away from under
+  // someone reading it. The new song arrives from MPD over the bridge, and waiting on the
+  // host's own change signal did not take effect, so this waits the panel's usual settle
+  // window instead (the reload timer uses the same 350 ms).
+  Timer {
+    id: skipTimer
+    interval: 350
+    onTriggered: {
+      var at = root.currentIndex()
+      if (at < 0) return
+      if (root.skipCarry) root.sel = at
+      root.centerOn(at)
+    }
+  }
   // Index the list should put in the middle. A plain positionViewAtIndex right
   // after a model change does nothing (the rows are not measured yet), so it is
   // done a moment later -- the list is ~20 rows, 120 ms is plenty.
@@ -1340,12 +1363,28 @@ Panel {
     // CLI spells them `next` and `prev`; the angle brackets are ncmpcpp's.) They
     // belong to the player, not to the list, so they work in every view.
     if (text === ">" || key === Qt.Key_Greater) {
-      if (root.host) root.host.nextTrack()
+      if (root.host) {
+        // MPD's next/previous always start playing; a paused player should only
+        // switch. Both commands go over the same connection, so the pause lands
+        // right after the switch -- one event loop, effectively silent.
+        root.skipCarry = root.frameMode === "queue" && root.sel === root.currentIndex()
+        root.host.nextTrack()
+        if (!root.host.isPlaying) root.host.bare("pause 1")
+        skipTimer.restart()
+      }
       event.accepted = true
       return
     }
     if (text === "<" || key === Qt.Key_Less) {
-      if (root.host) root.host.previousTrack()
+      if (root.host) {
+        // MPD's next/previous always start playing; a paused player should only
+        // switch. Both commands go over the same connection, so the pause lands
+        // right after the switch -- one event loop, effectively silent.
+        root.skipCarry = root.frameMode === "queue" && root.sel === root.currentIndex()
+        root.host.previousTrack()
+        if (!root.host.isPlaying) root.host.bare("pause 1")
+        skipTimer.restart()
+      }
       event.accepted = true
       return
     }
