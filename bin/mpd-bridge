@@ -196,6 +196,19 @@ class MPDConn:
         self.sock = None
         self.fh = None
         self.version = ""
+        # True from the moment a command is on the wire until its reply is
+        # complete. It is the one thing that tells a retry apart from a
+        # duplicate: an error before the write proves nothing was executed,
+        # an error after it proves nothing at all.
+        self.in_flight = False
+        # Set once the connection is retired or closed. Whoever reads or writes
+        # asks this first, so a socket taken away by another thread is a
+        # connection error to them and not a crash on a handle that just
+        # became None.
+        self.closed = threading.Event()
+        # How many reads are in progress. A drop uses it to decide whether the
+        # handles may be closed now or belong to the thread reading them.
+        self.readers = 0
 
     def connect(self, timeout: float = CONNECT_TIMEOUT) -> str:
         if self.target[0] == "unix":
@@ -225,6 +238,7 @@ class MPDConn:
         return self.version
 
     def close(self) -> None:
+        self.closed.set()
         for handle in (self.fh, self.sock):
             try:
                 if handle is not None:
@@ -234,6 +248,20 @@ class MPDConn:
         self.fh = None
         self.sock = None
 
+    def retire(self) -> None:
+        """Mark the connection dead and wake a read another thread is in.
+
+        A settings change drops sockets its readers may be sitting in: the
+        query worker between two requests, or in the middle of one. Closing the
+        handles from here would pull them out from under that read -- the
+        worker used to wake up on a `None` and die with the browse tabs. So
+        this only marks the connection dead and breaks the blocked read; the
+        flag turns whatever comes next into a connection error, and the thread
+        that owns the socket closes what is left of it.
+        """
+        self.closed.set()
+        self.shutdown()
+
     def shutdown(self) -> None:
         """Break a blocking read from another thread."""
         try:
@@ -242,17 +270,66 @@ class MPDConn:
         except OSError:
             pass
 
+    def read_stream(self):
+        """The buffered reader, or a connection error. Never returns None.
+
+        A connection that was closed while another thread held it has to read
+        as "the connection is gone" rather than as an `AttributeError` on
+        `None` in whichever thread reads next.
+        """
+        fh = self.fh
+        if fh is None or self.closed.is_set():
+            raise MPDError("connection closed")
+        return fh
+
     def readline(self) -> str:
-        line = self.fh.readline()
+        fh = self.read_stream()
+        self.readers += 1
+        try:
+            # A retire that ran between the check above and this read: there is
+            # nothing left to read, so do not start.
+            if self.closed.is_set():
+                raise MPDError("connection closed")
+            try:
+                line = fh.readline()
+            except ValueError as exc:
+                # The descriptor went away under the read. Whatever the file
+                # object calls it, the connection is gone.
+                raise MPDError("connection closed") from exc
+        finally:
+            self.readers -= 1
+        # A retire that happened while this read was waiting for its line: the
+        # answer belongs to a connection the bridge no longer believes in, and
+        # what is left of the reply would desync the next command.
+        if self.closed.is_set():
+            raise MPDError("connection closed")
         if not line:
             raise MPDError("connection closed by server")
         return line.decode("utf-8", "replace").rstrip("\r\n")
 
-    def send(self, text: str) -> None:
+    def read_bytes(self, count: int) -> bytes:
+        """Exactly `count` bytes, with the same care as readline."""
         try:
-            self.sock.sendall((text + "\n").encode("utf-8"))
+            data = self.read_stream().read(count)
+        except ValueError as exc:
+            raise MPDError("connection closed") from exc
+        if data is None or len(data) != count:
+            raise MPDError("short binary read")
+        return data
+
+    def send(self, text: str) -> None:
+        sock = self.sock
+        if sock is None or self.closed.is_set():
+            # The same guard as on the read side: `sendall` on a None is an
+            # AttributeError nobody catches, and a closed connection is an
+            # ordinary connection error.
+            raise MPDError("connection closed")
+        try:
+            sock.sendall((text + "\n").encode("utf-8"))
         except OSError as exc:
             raise MPDError(str(exc)) from exc
+        # Past this line a lost reply no longer means the command did not run.
+        self.in_flight = True
 
     def command(self, name: str, *args) -> tuple:
         """Run one command. Returns (pairs, binary-or-None)."""
@@ -262,32 +339,41 @@ class MPDConn:
     def read_response(self) -> tuple:
         pairs = []
         binary = None
-        while True:
-            try:
-                line = self.readline()
-            except socket.timeout as exc:
-                raise MPDError("timed out waiting for a reply") from exc
-            except OSError as exc:
-                raise MPDError(str(exc)) from exc
-            if line == "OK":
-                return pairs, binary
-            if line.startswith("ACK "):
-                raise MPDCommandError(ack_message(line[4:]))
-            if ": " not in line:
-                continue
-            key, value = line.split(": ", 1)
-            if key == "binary":
-                count = int(value)
-                if count < 0 or count > ART_LIMIT:
-                    raise MPDError("refusing a %d byte binary chunk" % count)
-                chunk = self.fh.read(count)
-                if chunk is None or len(chunk) != count:
-                    raise MPDError("short binary read")
-                # MPD terminates the chunk with a newline that is not part of
-                # the payload; leaving it would desync every later reply.
-                self.fh.read(1)
-                binary = chunk
-            pairs.append((key, value))
+        # One response is one read, from whichever thread owns the socket, so
+        # a drop elsewhere can see that this handle is in use.
+        self.readers += 1
+        try:
+            while True:
+                try:
+                    line = self.readline()
+                except socket.timeout as exc:
+                    raise MPDError("timed out waiting for a reply") from exc
+                except OSError as exc:
+                    raise MPDError(str(exc)) from exc
+                if line == "OK":
+                    # The exchange is over: the socket is at a command boundary
+                    # again, so the next failure is judged on its own.
+                    self.in_flight = False
+                    return pairs, binary
+                if line.startswith("ACK "):
+                    # The server answered -- it understood the command and refused
+                    # it. Nothing to repeat, and nothing left half-read.
+                    self.in_flight = False
+                    raise MPDCommandError(ack_message(line[4:]))
+                if ": " not in line:
+                    continue
+                key, value = line.split(": ", 1)
+                if key == "binary":
+                    count = int(value)
+                    if count < 0 or count > ART_LIMIT:
+                        raise MPDError("refusing a %d byte binary chunk" % count)
+                    binary = self.read_bytes(count)
+                    # MPD terminates the chunk with a newline that is not part of
+                    # the payload; leaving it would desync every later reply.
+                    self.read_bytes(1)
+                pairs.append((key, value))
+        finally:
+            self.readers -= 1
 
 
 def to_dict(pairs) -> dict:
@@ -660,6 +746,7 @@ class Bridge:
         self.query_conn = None
         self.query_cv = threading.Condition()
         self.query_pending = []
+        self.query_thread = None   # the worker; see ensure_query_worker()
 
         self.refresh_lock = threading.Lock()
         self.refreshing = False
@@ -730,14 +817,20 @@ class Bridge:
             idle.close()
         # The query socket is reopened by the next query rather than by the
         # manager: a shell showing the bar and nothing else should not hold a
-        # third connection open for a browser nobody opened.
+        # third connection open for a browser nobody opened. Retire it instead
+        # of closing it, because the query worker owns that socket and may be
+        # blocked in a read on it right now -- closing the handles from this
+        # thread is what used to kill that worker mid-read. The reader sees the
+        # flag at its next read and reports a connection error; whoever holds
+        # the socket (this call, if nobody is reading) closes what is left.
         with self.query_cv:
             query = self.query_conn
             self.query_conn = None
             self.query_pending = []
         if query is not None:
-            query.shutdown()
-            query.close()
+            query.retire()
+            if not query.readers:
+                query.close()
         # Both are "what the shell already knows" caches, and after a
         # reconnection it knows nothing -- it has been showing a disconnected
         # widget. Clearing them makes the first refresh speak up.
@@ -752,12 +845,21 @@ class Bridge:
         backoff = 1.0
         while not self.stop.is_set():
             generation = self.generation
+            # One snapshot per round, taken together so the check further down
+            # can tell whether this round is still the current one. `apply_config`
+            # can move the target while the connect below is in flight -- a
+            # settings change is read within the second, a connect to a dead
+            # host takes CONNECT_TIMEOUT -- and a connection to the address the
+            # user just left must never be published, or announced, as the new
+            # server: `next` would go to the old one while the bar names the
+            # new one.
+            target, password = self.target, self.password
             self.wake.clear()
             try:
-                cmd = MPDConn(self.target, self.password)
+                cmd = MPDConn(target, password)
                 cmd.connect()
                 cmd.sock.settimeout(CMD_TIMEOUT)
-                idle = MPDConn(self.target, self.password)
+                idle = MPDConn(target, password)
                 idle.connect()
                 # No timeout on the idle connection: it is meant to sit there
                 # for hours. A dead peer surfaces as a closed socket, which
@@ -768,7 +870,7 @@ class Bridge:
                     self.emit({
                         "event": "disconnected",
                         "error": error_text(exc),
-                        "target": describe(self.target),
+                        "target": describe(target),
                         "retryIn": backoff,
                     })
                 self.wake.wait(backoff)
@@ -778,6 +880,15 @@ class Bridge:
                 continue
 
             backoff = 1.0
+            # The settings changed while this round was connecting, so what came
+            # up belongs to the old address. Drop it unannounced and let the next
+            # round build the connection that was actually asked for; the finally
+            # below would not close these either, since it checks the generation
+            # too -- which used to leave the socket behind for good.
+            if generation != self.generation:
+                cmd.close()
+                idle.close()
+                continue
             with self.cmd_lock:
                 self.cmd = cmd
             self.idle = idle
@@ -785,7 +896,7 @@ class Bridge:
             self.emit({
                 "event": "connected",
                 "version": cmd.version,
-                "target": describe(self.target),
+                "target": describe(target),
             })
             self.refresh()
 
@@ -819,7 +930,7 @@ class Bridge:
 
     # ----------------------------------------------------------- commands
 
-    def with_cmd(self, fn):
+    def with_cmd(self, fn, repeatable: bool = False):
         """Run fn against the command connection, or return None if it fails.
 
         A protocol ACK is the command's problem and leaves the connection
@@ -827,9 +938,23 @@ class Bridge:
         connection after connection_timeout, 60 seconds by default, and a
         minute with no button pressed and nothing changing server-side is the
         ordinary state of a paused player rather than a fault. So a broken
-        connection is reconnected and the command run once more; only if that
+        connection is reconnected and the callback run once more; only if that
         also fails is the connection given up on, which drops both sockets and
         lets the manager start again.
+
+        Running the callback a second time is only free when it changes
+        nothing, so the two kinds are told apart. `repeatable` marks the ones
+        that only read: a second `status` costs a round trip and nothing else.
+        A callback that writes is repeated only while `in_flight` says its
+        command never reached the wire -- an error at the write itself. Once
+        the command is on the wire, a lost reply says nothing about whether it
+        ran, and repeating it is the expensive guess: `next` skips a song,
+        `add` appends the file twice, and a toggle that reads the state, flips
+        it and is asked to flip it again lands exactly where it started, so
+        the button looks dead. A connection error is reported instead. The
+        connection is given up either way -- a reply that stopped halfway
+        leaves the stream out of step with every command after it, and this
+        lock is also held by whichever thread is waiting on that reply.
         """
         with self.cmd_lock:
             conn = self.cmd
@@ -841,10 +966,18 @@ class Bridge:
                 self.emit({"event": "ack", "error": str(exc)})
                 return None
             except (MPDError, OSError) as exc:
+                # Read the flag before close(); closing says nothing about it.
+                delivered = conn.in_flight
                 conn.close()
                 self.cmd = None
 
-                replacement = self.reconnect_cmd()
+                # A repeat needs either a callback that cannot change anything
+                # or a failure that provably predates the write. Reconnecting
+                # for a command that must not be repeated would only test the
+                # server for an answer nobody is going to be allowed to use.
+                replacement = None
+                if repeatable or not delivered:
+                    replacement = self.reconnect_cmd()
                 if replacement is not None:
                     try:
                         return fn(replacement)
@@ -857,6 +990,11 @@ class Bridge:
                         exc = retry_exc
 
                 error = error_text(exc) or "connection lost"
+                if delivered and not repeatable:
+                    # The command may well have run. Saying only "connection
+                    # lost" invites the user to press again, which is exactly
+                    # the duplicate this guard exists to prevent.
+                    error = "%s (sent, reply lost -- not repeated)" % error
                 # Unblocks the manager's idle read so it reconnects at once
                 # rather than at the next server-side event.
                 idle = self.idle
@@ -910,7 +1048,10 @@ class Bridge:
             song = to_dict(conn.command("currentsong")[0])
             return status, song
 
-        result = self.with_cmd(run)
+        # The one read-only caller: repeating `status` and `currentsong` costs
+        # a round trip and can change nothing, so it keeps the retry that the
+        # buttons must not have.
+        result = self.with_cmd(run, repeatable=True)
         if result is None:
             return
         status, song = result
@@ -1118,6 +1259,28 @@ class Bridge:
         with self.query_cv:
             self.query_pending.append(request)
             self.query_cv.notify()
+        # A request nobody is waiting for is the one failure the pane cannot
+        # see: the spinner turns and no answer ever comes.
+        self.ensure_query_worker()
+
+    def ensure_query_worker(self) -> None:
+        """Run the query worker, starting one if it is not there.
+
+        The worker is meant to live as long as the bridge, and a connection
+        taken away by a settings change now reaches it as a connection error
+        instead of killing it. Anything else that ends it -- an error no code
+        path expected -- would leave every queue, album, artist and file tab
+        waiting for an answer nobody will ever produce, so the request that
+        arrives afterwards starts a fresh worker rather than queueing behind a
+        dead thread. Checked under the same condition the queue uses, so two
+        requests arriving at once cannot start two workers.
+        """
+        with self.query_cv:
+            if self.query_thread is not None and self.query_thread.is_alive():
+                return
+            self.query_thread = threading.Thread(target=self.query_worker,
+                                                 name="query_worker", daemon=True)
+            self.query_thread.start()
 
     def query_worker(self) -> None:
         while not self.stop.is_set():
@@ -1511,7 +1674,7 @@ class Bridge:
 
     def run(self) -> int:
         threading.Thread(target=self.manager, daemon=True).start()
-        threading.Thread(target=self.query_worker, daemon=True).start()
+        self.ensure_query_worker()
         try:
             while not self.stop.is_set():
                 line = sys.stdin.readline()
