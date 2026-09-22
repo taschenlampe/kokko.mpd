@@ -83,6 +83,11 @@ Panel {
   // re-deriving the name when the field is submitted once renamed row 0 while the
   // footer still showed the name the user had opened.
   property string promptTarget: ""
+  // Which search the running debounce belongs to, captured when it is armed. A
+  // delayed search has to be judged against the mode it was started in: Enter
+  // closes the category field well inside the 250 ms, and a timer that then read
+  // `promptMode` would run the global search instead of the scoped one.
+  property string promptDebounceMode: ""
   // Free text for the local filter (Dateien, Playlists): MPD has no filter for paths
   // or playlist names, so those two lists narrow themselves.
   property string filterText: ""
@@ -1041,7 +1046,9 @@ Panel {
     promptDebounce.stop()
     if (root.promptMode === "search" && root.promptText.trim() !== "")
       root.applySearch(root.promptText)
-    if (root.promptMode === "category")
+    // An empty scoped field has nothing to scope: applying it again would only
+    // rebuild the frame that is already there.
+    if (root.promptMode === "category" && root.promptText.trim() !== "")
       root.applyCategorySearch(root.promptText)
     root.promptMode = ""
   }
@@ -1052,6 +1059,8 @@ Panel {
   function searchWhileTyping() {
     if (root.promptMode === "filter") { root.applyLocalFilter(root.promptText); return }
     if (root.promptMode !== "search" && root.promptMode !== "category") return
+    // What this search is, not what the mode may be by the time it runs.
+    root.promptDebounceMode = root.promptMode
     promptDebounce.restart()
   }
 
@@ -1064,8 +1073,16 @@ Panel {
     id: promptDebounce
     interval: 250
     repeat: false
-    onTriggered: root.promptMode === "category"
-      ? root.applyCategorySearch(root.promptText) : root.applySearch(root.promptText)
+    onTriggered: {
+      // Only while the field still is the field this search was started in. A
+      // pending search is either run for its own mode or dropped -- never
+      // re-judged against a mode that changed in the meantime (submitPrompt,
+      // closePrompt and leavePrompt all stop this timer as well).
+      var mode = String(root.promptDebounceMode || "")
+      if (mode === "" || mode !== root.promptMode) return
+      if (mode === "category") { root.applyCategorySearch(root.promptText); return }
+      root.applySearch(root.promptText)
+    }
   }
 
   // If no list arrives (the term did not change, nothing was re-queried), the
@@ -1115,6 +1132,9 @@ Panel {
       root.stack = root.stack.slice(0, root.stack.length - 1).concat([nextFrame])
       return
     }
+    // Nothing typed and nothing to re-scope: Enter (or arrow-down) on an empty
+    // scoped field must not push a second, identical-looking frame.
+    if (trimmed === "") return
     root.pushFrame(nextFrame)
   }
 
@@ -1167,7 +1187,11 @@ Panel {
     // filtering, and in both cases the field goes away. Enter in the *list* then
     // opens the row, exactly as in every other view.
     if (root.promptMode === "category" || root.promptMode === "filter") {
-      root.promptMode = ""
+      // leavePrompt, not a bare reset: it stops the pending delayed search and
+      // runs it for the mode it was started in. Clearing the mode alone left the
+      // timer to fire against an empty mode, and the scoped search became a
+      // global one.
+      root.leavePrompt()
       return
     }
     if (root.promptMode === "search") {
