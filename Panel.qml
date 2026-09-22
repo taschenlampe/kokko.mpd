@@ -418,12 +418,20 @@ Panel {
       rows.push({ type: "header", title: "Albums" })
       for (var b = 0; b < albums.order.length && b < 30; b++) {
         var album = albums.order[b]
+        // An album is its name -- the track's artist is not the album's identity.
+        // Only a record whose tracks all credit the same artist has an artist that
+        // can serve as a filter; a compilation (soundtrack, split, "Various
+        // Artists") does not, and going in through one contributor would drop the
+        // tracks of the others. `""` sends activate() down the album-only path --
+        // the same filter the `+` on the row appends with (addOne).
         var artist = ""
+        var seen = 0
         for (var s = 0; s < songs.length; s++) {
-          if (String(songs[s].album || "") === album && songs[s].artist) {
-            artist = String(songs[s].artist)
-            break
-          }
+          if (String(songs[s].album || "") !== album) continue
+          var credit = String(songs[s].artist || "")
+          if (seen === 0) artist = credit
+          else if (credit !== artist) { artist = ""; break }
+          seen++
         }
         rows.push({ type: "group", kind: "album", value: album, artist: artist,
                     count: albums.counts[album] })

@@ -588,6 +588,94 @@ group("case 6: a scoped search keeps the narrowing it was started in");
           && R.root.frame.search === "work", JSON.stringify(R.root.frame.filter));
 }
 
+group("case 7: a compilation album opens with all of its tracks");
+{
+  // MODELLED: how a filter selects songs. The bridge builds `(tag == 'value')`
+  // clauses from these pairs (bin/mpd-bridge:1236) or passes `tag value` on MPD
+  // < 0.21 (1240-1242); the matcher below is the reading of that, not its run.
+  function matches(filter, song) {
+    var out = true;
+    (filter || []).forEach(function (pair) {
+      if (String(song[pair[0]] || "") !== String(pair[1])) out = false;
+    });
+    return out;
+  }
+  function setOf(filter, songs) {
+    return songs.filter(function (s) { return matches(filter, s); })
+      .map(function (s) { return s.file; }).join(", ");
+  }
+
+  const SONGS = [
+    { type: "file", file: "c/01.mp3", artist: "Alice", album: "Best Of", title: "One" },
+    { type: "file", file: "c/02.mp3", artist: "Bob", album: "Best Of", title: "Two" },
+    { type: "file", file: "c/03.mp3", artist: "Carol", album: "Best Of", title: "Three" },
+    { type: "file", file: "s/01.mp3", artist: "Alice", album: "Solo", title: "Only" }
+  ];
+
+  function grouped(P) {
+    P.root.tab = "search";
+    P.root.stack = [{ mode: "search", term: "bo", title: "Search: bo" }];
+    P.root.rows = P.root.groupHits(SONGS);
+    return P.root.rows;
+  }
+
+  const P = makePanel();
+  const ROWS = grouped(P);
+  const bestOf = ROWS.filter(function (r) { return r.kind === "album" && r.value === "Best Of"; })[0];
+  const solo = ROWS.filter(function (r) { return r.kind === "album" && r.value === "Solo"; })[0];
+  check("the compilation row names no single artist", bestOf.artist === "",
+        JSON.stringify(bestOf));
+  check("the single-artist row keeps its artist", solo.artist === "Alice", JSON.stringify(solo));
+
+  P.root.sel = ROWS.indexOf(bestOf);
+  P.root.activate();
+  const opened = P.root.frame;
+  check("opening the compilation reaches every track of the album",
+        setOf(opened.filter, SONGS) === "c/01.mp3, c/02.mp3, c/03.mp3",
+        JSON.stringify(opened.filter) + " -> " + setOf(opened.filter, SONGS));
+
+  P.mutations.length = 0;
+  P.root.addOne(bestOf);
+  const appended = P.mutations[0].args.filter;
+  check("opening and appending the same row agree",
+        setOf(appended, SONGS) === setOf(opened.filter, SONGS),
+        JSON.stringify(appended) + " -> " + setOf(appended, SONGS));
+
+  // The single-artist album has to behave exactly as before: in through the
+  // artist (that is where the other albums of that artist sit), and on to the
+  // album's tracks.
+  const Q = makePanel();
+  const ROWS2 = grouped(Q);
+  const soloRow = ROWS2.filter(function (r) { return r.kind === "album" && r.value === "Solo"; })[0];
+  Q.root.sel = ROWS2.indexOf(soloRow);
+  Q.root.activate();
+  check("a single-artist album still opens through its artist",
+        Q.frames().slice(1).join(" | ")
+          === "list/album filter=[[\"artist\",\"Alice\"]] | find filter=[[\"artist\",\"Alice\"],[\"album\",\"Solo\"]]",
+        Q.frames().slice(1).join(" | "));
+  check("and reaches exactly that album's tracks",
+        setOf(Q.root.frame.filter, SONGS) === "s/01.mp3", setOf(Q.root.frame.filter, SONGS));
+  Q.mutations.length = 0;
+  Q.root.addOne(soloRow);
+  check("appending it reaches the same tracks",
+        setOf(Q.mutations[0].args.filter, SONGS) === "s/01.mp3",
+        setOf(Q.mutations[0].args.filter, SONGS));
+
+  // Control: an album whose tracks carry no artist tag at all keeps working.
+  const N = makePanel();
+  const untagged = [{ type: "file", file: "u/01.mp3", album: "Untagged" },
+                    { type: "file", file: "u/02.mp3", album: "Untagged" }];
+  const row = N.root.groupHits(untagged).filter(function (r) { return r.kind === "album"; })[0];
+  N.root.tab = "search";
+  N.root.stack = [{ mode: "search", term: "untag", title: "Search: untag" }];
+  N.root.rows = [row];
+  N.root.sel = 0;
+  N.root.activate();
+  check("control: an album without any artist tag is unchanged",
+        JSON.stringify(N.root.frame.filter) === "[[\"album\",\"Untagged\"]]",
+        JSON.stringify(N.root.frame.filter));
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {
