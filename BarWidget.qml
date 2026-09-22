@@ -824,8 +824,15 @@ Panel {
     if (root.artCache[key] !== undefined) { if (cb) cb(String(root.artCache[key] || "")); return }
     root.query("art", { uri: key, album: String(album || ""), albumartist: String(albumartist || "") },
       "art:" + key, function(rows, error) {
+        // A fetch that did not come through is not an answer. Caching the empty
+        // path here would record that this title has no cover for a query that
+        // never arrived, and the cache hit above would keep repeating it for the
+        // rest of the session -- the bridge is asked again only after 64 other
+        // titles pushed the entry out. Only a reply is cached: a path, or the
+        // bridge saying it has no cover for this title.
+        if (error !== "") { if (cb) cb(""); return }
         var path = ""
-        if (error === "" && rows && rows.length > 0) path = String(rows[0].path || "")
+        if (rows && rows.length > 0) path = String(rows[0].path || "")
         var next = ({})
         for (var k in root.artCache) next[k] = root.artCache[k]
         // Bounded: a browsing session would otherwise keep every cover it ever saw.
