@@ -20,6 +20,27 @@ if python3 -m py_compile bin/mpd-bridge; then note "ok"; else bad "the bridge do
 step "unit tests (without MPD)"
 if python3 tests/test_bridge.py; then note "ok"; else bad "unit tests failed"; fi
 
+step "panel and bar state tests (node, no QML engine)"
+if command -v node >/dev/null 2>&1; then
+  # The panel's and the widget's state machines are plain functions over the QML
+  # source: these tests pull them out verbatim and drive them in node. They catch
+  # the class of bug neither qmllint nor the Python suite can see -- a delayed
+  # handler re-deciding against a mode that changed meanwhile, a local filter
+  # surviving a view switch, a failed fetch cached as "nothing there", a stale
+  # fade timer hiding a card that was just shown again.
+  STATE_OK=1
+  for T in tests/test_panel_state.js tests/test_barwidget_state.js; do
+    if [ -f "$T" ]; then
+      if ! node "$T" >/dev/null; then bad "$T failed"; node "$T" 2>&1 | tail -8 | sed 's/^/   /'; STATE_OK=0; fi
+    else
+      note "missing: $T (skipped)"
+    fi
+  done
+  [ "$STATE_OK" -eq 1 ] && note "ok"
+else
+  note "skipped: node is not present here"
+fi
+
 step "qmllint (QML syntax)"
 # Vanilla qmllint only finds Omarchy's modules through a directory trick:
 # qs.Ui/qs.Commons as Ui/Commons under one include path.
