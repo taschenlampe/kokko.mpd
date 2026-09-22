@@ -191,7 +191,7 @@ for every key. No restart needed.
 
 - **[docs/internals.md](docs/internals.md)** — how it works under the hood: the bridge, cover picking, MPD quirks, CLI, Hyprland bindings.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — tests, the pre-commit hook, what not to change.
-- Bugs, wishes and the roadmap live at **<https://git.m2control.de/bm/kokko.mpd>** — not in this file.
+- Bugs, wishes and the roadmap live at **<https://git.m2control.de/bm/kokko.mpd>**.
 
 ## Origin
 
