@@ -844,7 +844,7 @@ Panel {
         what = "all tracks by " + String(row.value || "")
       } else {
         host.mutation("findadd", { filter: [["album", String(row.value || "")]] })
-        what = "Album „" + String(row.value || "") + "”"
+        what = "Album “" + String(row.value || "") + "”"
       }
     } else if (type === "value") {
       var tag = String(root.frame.tag || "")
@@ -856,7 +856,7 @@ Panel {
       what = "Folder " + String(row.directory || "")
     } else if (type === "playlist") {
       host.mutation("loadplaylist", { name: String(row.playlist || "") })
-      what = "Playlist " + String(row.playlist || "") + " (ersetzt die Queue)"
+      what = "Playlist " + String(row.playlist || "") + " (replaces the queue)"
     } else if (row.file) {
       host.addUri(String(row.file))
       what = root.rowTitle(row)
@@ -1617,7 +1617,7 @@ Panel {
             Text {
               visible: !root.up
               text: root.host && root.host.lastError !== ""
-                ? root.host.lastError : "verbinde …"
+                ? root.host.lastError : "connecting …"
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

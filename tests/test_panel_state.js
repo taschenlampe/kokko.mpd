@@ -676,6 +676,44 @@ group("case 7: a compilation album opens with all of its tracks");
         JSON.stringify(N.root.frame.filter));
 }
 
+group("language: the panel's strings are English");
+{
+  // A source scan, not an extraction: the panel's string literals with the
+  // comments removed -- the same scope the review's language sweep used. German is
+  // romanised in this project (there is not a single umlaut in the whole file), so
+  // the search is for word stems and for the German opening quote U+201E.
+  const code = SRC.split("\n").map(function (ln) {
+    const at = ln.indexOf("//");
+    return at < 0 ? ln : ln.slice(0, at);
+  }).join("\n");
+  const literals = [];
+  const re = /"((?:[^"\\]|\\.)*)"/g;
+  let m;
+  while ((m = re.exec(code)) !== null) literals.push(m[1]);
+
+  const stems = ["ersetz", "verbind", "warte", "beendet", "loesch", "waehl", "oeffn",
+                 "abbrech", "schliess", "umbenenn", "hinzufueg", "kuenstler",
+                 "sammlung", "einstellung", "wiedergabe", "lautstaerke", "zufall"];
+  const german = [];
+  literals.forEach(function (l) {
+    const low = l.toLowerCase();
+    stems.forEach(function (s) {
+      if (low.indexOf(s) >= 0) german.push(s + " in " + JSON.stringify(l));
+    });
+  });
+  check("no German word stem in a string literal", german.length === 0, german.join("; "));
+  check("the German opening quote U+201E is gone from the file",
+        SRC.indexOf("\u201e") < 0,
+        String(SRC.split("\u201e").length - 1) + " occurrence(s)");
+  check("no umlaut or sharp s anywhere in the file",
+        !/[\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df]/.test(SRC));
+  check("the three spots read English now",
+        literals.indexOf(" (replaces the queue)") >= 0
+          && literals.indexOf("connecting \u2026") >= 0
+          && literals.indexOf("Album \u201c") >= 0,
+        "album flash quote, playlist flash, connection line");
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {
