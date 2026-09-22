@@ -876,15 +876,24 @@ Panel {
       return
     }
     if (mode === "list") {
+      var base = root.frame.filter || []
       // A scoped search frame: its rows *are* the matches, so "A" appends those --
-      // one command in the same category, not a walk through every artist.
+      // inside the category the user narrowed to. With a context filter (an artist
+      // or a genre opened before) the frame stands for that narrowing: the bare
+      // term would append library-wide hits while the list shows this artist's.
+      // Without one -- the root Albums/Artists/Genres tab -- the term alone is the
+      // whole scope, and that is what a tagged searchadd is for.
       var only = String(root.frame.search || "")
       if (only !== "") {
+        if (base.length > 0) {
+          host.mutation("findadd", { filter: base })
+          root.flash("everything under this selection appended")
+          return
+        }
         host.mutation("searchadd", { term: only, tag: String(root.frame.tag || "album") })
         root.flash("all hits for “" + only + "” appended")
         return
       }
-      var base = root.frame.filter || []
       if (base.length === 0) { root.flash("open an artist or album first, then A"); return }
       host.mutation("findadd", { filter: base })
       root.flash("everything under this selection appended")
@@ -1148,7 +1157,12 @@ Panel {
     var tag = (top && String(top.mode) === "list") ? String(top.tag || "album") : "album"
     var trimmed = String(term || "").trim()
     var base = root.rootFrameFor(root.tab).title
-    var nextFrame = { mode: "list", tag: tag, filter: [], search: trimmed,
+    // The narrowing the user has walked into (an artist, a genre) belongs to the
+    // search: without it the field answered with the whole library while the frame
+    // underneath still stood on that artist. A search frame carries the filter it
+    // was built with, so typing on keeps it as well.
+    var context = (top && top.filter) ? top.filter.slice() : []
+    var nextFrame = { mode: "list", tag: tag, filter: context, search: trimmed,
                       title: trimmed === "" ? base : base + " · " + trimmed }
     if (top && String(top.mode) === "list" && top.search !== undefined) {
       root.sel = 0

@@ -506,6 +506,88 @@ group("case 5: a local filter must not overwrite the settings list");
         R.rowsTitles().join(", "));
 }
 
+group("case 6: a scoped search keeps the narrowing it was started in");
+{
+  const ALBUMS = [{ type: "value", value: "Kiss & Swallow" },
+                  { type: "value", value: "The Alternative" }];
+  function insideAnArtist() {
+    const P = makePanel();
+    P.key(0, "4");                          // the `4` key: the artists tab
+    P.answer([{ type: "value", value: "IamX" }]);
+    P.root.sel = 0;
+    P.root.activate();                      // open the artist
+    P.answer(ALBUMS);                       // the artist's albums
+    return P;
+  }
+
+  const P = insideAnArtist();
+  check("the artist's albums are the frame at hand",
+        P.frames()[1] === "list/album filter=[[\"artist\",\"IamX\"]]", P.frames().join(" | "));
+  P.press("/");
+  check("`/` opens the scoped field on top of it", P.root.promptMode === "category",
+        P.root.promptMode);
+  P.type("grea");
+  P.fire("promptDebounce");                 // 250 ms: the delayed search runs
+  const top = P.root.frame;
+  check("the search frame keeps the artist",
+        JSON.stringify(top.filter) === "[[\"artist\",\"IamX\"]]", JSON.stringify(top.filter));
+  check("it is still a scoped search in the album category",
+        top.mode === "list" && top.tag === "album" && top.search === "grea",
+        JSON.stringify({ mode: top.mode, tag: top.tag, search: top.search }));
+
+  P.queries.length = 0;
+  P.root.loadFrame();
+  const asked = P.queries[0];
+  check("the query carries the narrowing and the term together",
+        asked.kind === "list" && JSON.stringify(asked.args.filter) === "[[\"artist\",\"IamX\"]]"
+          && asked.args.search === "grea", JSON.stringify(asked.args));
+
+  // One more keystroke replaces the frame in place; the narrowing has to survive
+  // that as well.
+  P.type("t");
+  P.fire("promptDebounce");
+  check("typing on keeps it",
+        JSON.stringify(P.root.frame.filter) === "[[\"artist\",\"IamX\"]]"
+          && P.root.frame.search === "great", JSON.stringify(P.root.frame.filter));
+
+  P.mutations.length = 0;
+  P.root.addAll();
+  check("appending the rows stays inside the artist",
+        P.mutations.length === 1 && P.mutations[0].op === "findadd"
+          && JSON.stringify(P.mutations[0].args.filter) === "[[\"artist\",\"IamX\"]]",
+        JSON.stringify(P.mutations[0]));
+
+  // Control: from the root Albums tab there is no narrowing, and the term alone is
+  // the whole scope -- that is what searchadd with a tag is for.
+  const Q = makePanel();
+  Q.key(0, "3");
+  Q.press("/");
+  Q.type("grea");
+  Q.fire("promptDebounce");
+  check("control: the root category has no filter to carry",
+        JSON.stringify(Q.root.frame.filter) === "[]", JSON.stringify(Q.root.frame.filter));
+  Q.mutations.length = 0;
+  Q.root.addAll();
+  check("control: appending there is still a scoped search",
+        Q.mutations[0] && Q.mutations[0].op === "searchadd"
+          && Q.mutations[0].args.term === "grea" && Q.mutations[0].args.tag === "album",
+        JSON.stringify(Q.mutations[0]));
+
+  // Control: a genre opened from the Genres tab is the same mechanism.
+  const R = makePanel();
+  R.key(0, "5");
+  R.answer([{ type: "value", value: "Ambient" }]);
+  R.root.sel = 0;
+  R.root.activate();
+  R.answer([{ type: "value", value: "Selected Works" }]);
+  R.press("/");
+  R.type("work");
+  R.fire("promptDebounce");
+  check("control: a genre is carried the same way",
+        JSON.stringify(R.root.frame.filter) === "[[\"genre\",\"Ambient\"]]"
+          && R.root.frame.search === "work", JSON.stringify(R.root.frame.filter));
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {
