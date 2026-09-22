@@ -358,6 +358,72 @@ check("a read-only callback is still retried",
       [(e.get("event"), (e.get("status") or {}).get("state")) for e in events],
       [("state", "play")])
 
+print("=== a dropped connection and the query worker ===")
+# A settings change drops the query socket. That used to close the handles from
+# the settings thread while the worker was blocked in a read in its own thread:
+# the next read reached for a `None`, raised AttributeError -- which is not an
+# MPDError, so nothing in run_query caught it -- and the worker was gone for
+# good. Queue, albums, artists, files: every tab stayed unanswered from then on.
+gate = threading.Event()
+factory, saved = planted([
+    {"script": [b"file: a.mp3\n", b"OK\n"], "gate": gate},   # the query connection
+    {"script": [RESET]},                                     # its retry fails too
+    {"script": [b"file: b.mp3\n", b"OK\n"]},                 # and then a fresh one
+])
+bridge = B.Bridge()
+answers = []
+bridge.emit = answers.append
+first = factory(bridge.target, bridge.password)
+first.connect()
+with bridge.query_cv:
+    bridge.query_conn = first
+try:
+    bridge.submit_query({"id": 1, "kind": "queue", "channel": "queue"})
+    check("the worker is reading when the settings change arrives",
+          wait_for(first.fh.entered.is_set), True)
+    bridge.drop("settings changed")
+    gate.set()                              # the blocked read comes back
+    check("the worker is still there after the drop",
+          bool(getattr(bridge, "query_thread", None))
+          and wait_for(bridge.query_thread.is_alive), True)
+    bridge.submit_query({"id": 2, "kind": "queue", "channel": "queue"})
+    check("the query after the drop is answered",
+          wait_for(lambda: any(a.get("id") == 2 for a in answers)), True)
+    check("... and the one that lost its connection reports an error",
+          [(a.get("id"), a.get("rows"), bool(a.get("error")))
+           for a in answers if a.get("event") == "result"],
+          [(1, [], True), (2, [], False)])
+finally:
+    gate.set()
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+# The same hazard without any threads: the handle a drop takes away is the one
+# the reader reaches for next, and that has to come back as a connection error.
+nostream = REAL_MPDConn(("tcp", "127.0.0.1", 6600))
+nostream.fh = None
+nostream.sock = FakeSock([])
+check("a read on a connection without a stream is a connection error",
+      raised_by(lambda: nostream.readline()), "MPDError")
+nosock = REAL_MPDConn(("tcp", "127.0.0.1", 6600))
+check("a write on a connection without a socket is a connection error",
+      raised_by(lambda: nosock.send("status")), "MPDError")
+
+# And a bridge whose worker is gone -- the state the drop above used to leave it
+# in for good. The next request has to start one rather than queue behind a
+# thread that will never look at the queue again.
+factory, saved = planted([{}])
+bridge = B.Bridge()
+answers = []
+bridge.emit = answers.append
+try:
+    bridge.submit_query({"id": 7, "kind": "queue", "channel": "queue"})
+    check("a request starts a worker when none is running",
+          wait_for(lambda: any(a.get("id") == 7 for a in answers)), True)
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
 print()
 if FAILS:
     print("   %d of %d checks failed: %s" % (
