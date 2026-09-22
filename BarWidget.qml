@@ -891,6 +891,13 @@ Panel {
   property bool osdOn: false
 
   function showOsd(persist) {
+    // Showing again undoes a hide that was just requested: the card that is
+    // being shown must not be taken down by the fade that is still running from
+    // the previous hide (pointer off the label and back on it within 220 ms is
+    // enough, and nothing shows it again afterwards -- showOsd only runs on
+    // hoveringChanged, which already happened). The two timers exclude each
+    // other, so a newly shown card is never hidden by a stale timer.
+    osdFade.stop()
     osdVisible = true
     osdOn = true
     if (persist) osdHide.stop()
@@ -901,6 +908,9 @@ Panel {
   }
 
   function hideOsd() {
+    // Mirror image: a pending hide-by-timeout means nothing once the card is on
+    // its way out.
+    osdHide.stop()
     osdOn = false
     osdFade.restart()
   }
