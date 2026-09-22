@@ -454,7 +454,13 @@ Panel {
   // shows up at the left, where nothing of ours follows it.
   readonly property real stripReserve: {
     var w = Style.space(10)
-    if (showArt && artPath !== "")
+    // Reserved from the setting, not from the fetch result: with showArt on, the
+    // cover slot is part of the strip whether or not an image has arrived yet
+    // (the bridge answers the art query a moment later). Keyed to artPath the
+    // strip grew by barSize + space(6) when the image landed -- 32 px with the
+    // live configuration -- and dragged the widget and its hover card with it,
+    // which is exactly the jitter this reserve exists to prevent.
+    if (showArt)
       w += barSize + Style.space(6)
     if (showStateIcon)
       w += stateIndicator.implicitWidth + Style.space(6)
@@ -631,7 +637,7 @@ Panel {
         // there empty. Only when the label has nothing to say.
         Text {
           visible: !root.hasSong
-          text: root.connected ? "" : (root.lastError !== "" ? root.lastError : "warte auf MPD …")
+          text: root.connected ? "" : (root.lastError !== "" ? root.lastError : "waiting for MPD …")
           color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.6)
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -824,8 +830,15 @@ Panel {
     if (root.artCache[key] !== undefined) { if (cb) cb(String(root.artCache[key] || "")); return }
     root.query("art", { uri: key, album: String(album || ""), albumartist: String(albumartist || "") },
       "art:" + key, function(rows, error) {
+        // A fetch that did not come through is not an answer. Caching the empty
+        // path here would record that this title has no cover for a query that
+        // never arrived, and the cache hit above would keep repeating it for the
+        // rest of the session -- the bridge is asked again only after 64 other
+        // titles pushed the entry out. Only a reply is cached: a path, or the
+        // bridge saying it has no cover for this title.
+        if (error !== "") { if (cb) cb(""); return }
         var path = ""
-        if (error === "" && rows && rows.length > 0) path = String(rows[0].path || "")
+        if (rows && rows.length > 0) path = String(rows[0].path || "")
         var next = ({})
         for (var k in root.artCache) next[k] = root.artCache[k]
         // Bounded: a browsing session would otherwise keep every cover it ever saw.
@@ -884,6 +897,13 @@ Panel {
   property bool osdOn: false
 
   function showOsd(persist) {
+    // Showing again undoes a hide that was just requested: the card that is
+    // being shown must not be taken down by the fade that is still running from
+    // the previous hide (pointer off the label and back on it within 220 ms is
+    // enough, and nothing shows it again afterwards -- showOsd only runs on
+    // hoveringChanged, which already happened). The two timers exclude each
+    // other, so a newly shown card is never hidden by a stale timer.
+    osdFade.stop()
     osdVisible = true
     osdOn = true
     if (persist) osdHide.stop()
@@ -894,6 +914,9 @@ Panel {
   }
 
   function hideOsd() {
+    // Mirror image: a pending hide-by-timeout means nothing once the card is on
+    // its way out.
+    osdHide.stop()
     osdOn = false
     osdFade.restart()
   }
@@ -1123,18 +1146,10 @@ Panel {
           // The widget's own x on screen: does a shorter title move the widget (bar
           // centres its section) or not? Needed to place the card stably.
           stripX: Math.round(strip.mapToItem(null, 0, 0).x),
-          // The widget's own edges in scene coordinates: the right one must not move
-          // when the label changes, the left one may.
-          widgetX: Math.round(root.mapToItem(null, 0, 0).x),
-          widgetRight: Math.round(root.mapToItem(null, root.width, 0).x),
-          // Where the hover card actually sits -- the number that proves it does not
-          // hop when the label changes.
-          cardX: miniLoader.item ? Math.round(miniLoader.item.cardX) : -1,
           // Where the content sits in the reserved width -- so "is the play glyph
           // right next to the text, and does the content end flush right?" is a
-          // number, not a screenshot. `reserve` is the reserved width, `boxW` the
-          // label box, `textW` the text, `contentRight` the right edge of the row.
-          reserve: Math.round(root.stripReserve),
+          // number, not a screenshot. `boxW` is the label box, `textW` the text,
+          // `contentRight` the right edge of the row.
           boxW: Math.round(labelBox.width),
           textW: Math.round(labelText.implicitWidth),
           contentRight: Math.round(info.x + info.width),
@@ -1311,9 +1326,9 @@ Panel {
       root.connected = false
       root.status = ({})
       root.song = ({})
-      root.lastError = "Bridge beendet (Code " + code + ")"
-      console.warn("kokko.mpd: Bridge beendet (Code " + code + ") — restarting in 2.5s")
-      root.failPending("Bridge beendet")
+      root.lastError = "bridge exited (code " + code + ")"
+      console.warn("kokko.mpd: bridge exited (code " + code + ") — restarting in 2.5s")
+      root.failPending("bridge exited")
       restartTimer.restart()
     }
 
