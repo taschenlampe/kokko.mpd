@@ -109,21 +109,34 @@ const FUNCTIONS = [
   "rootFrameFor", "setTab", "pushFrame", "popFrame", "topFrame", "loadFrame",
   "infoFor", "groupHits", "isSelectable", "firstSelectable", "lastSelectable",
   "rowIsSong", "activate", "addRow", "addOne", "addAll", "openPrompt",
-  "closePrompt", "leavePrompt", "searchWhileTyping", "searchNow", "applySearch",
+  "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
+  "searchWhileTyping", "searchNow", "applySearch",
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "mutateAndReload",
   "handleKey"
 ];
 
-const EXTRACTED = FUNCTIONS.map(grabFunction);
+const MISSING = [];
+const EXTRACTED = FUNCTIONS.map(function (name) {
+  try {
+    return grabFunction(name);
+  } catch (e) {
+    // A function a given revision does not have (a fix may add one). The model
+    // then simply has no such call -- fine as long as nothing that is present
+    // calls it.
+    MISSING.push(name);
+    return { text: "", from: 0, to: 0 };
+  }
+});
 const STACK_HANDLER = grabRootHandler("onStackChanged");
 const DEBOUNCE_HANDLER = grabTimerHandler("promptDebounce");
 
 const BUILD = new Function(
   "root", "host", "Qt", "settingRows", "timers", "promptDebounce",
   "promptFocusTimer", "pendingSelectGuard", "reloadTimer",
-  EXTRACTED.map(function (f) { return f.text; }).join("\n\n")
-    + "\nreturn { " + FUNCTIONS.map(function (n) { return n + ": " + n; }).join(", ") + " };"
+  EXTRACTED.map(function (f) { return f.text; }).filter(Boolean).join("\n\n")
+    + "\nreturn { " + FUNCTIONS.filter(function (n) { return MISSING.indexOf(n) < 0; })
+        .map(function (n) { return n + ": " + n; }).join(", ") + " };"
 );
 
 function sha(text) {
@@ -257,6 +270,10 @@ function makePanel(opts) {
   Object.defineProperty(root, "frameTitle", {
     get: function () { return root.frame ? String(root.frame.title || "") : ""; }
   });
+  // Panel.qml: readonly property bool up: !!host && host.connected === true
+  Object.defineProperty(root, "up", {
+    get: function () { return host.connected === true; }
+  });
 
   const host = {
     connected: true,
@@ -365,7 +382,7 @@ function makePanel(opts) {
     },
     callsReset: function () { calls.length = 0; },
     rowsTitles: function () {
-      return root.rows.map(function (r) { return String(r.title || r.value || ""); });
+      return root.rows.map(function (r) { return root.rowTitle(r); });
     },
     frames: function () {
       return root.stack.map(function (f) {
@@ -378,7 +395,6 @@ function makePanel(opts) {
 }
 
 // --------------------------------------------------------------- the cases
-
 group("case 4: Enter before the 250 ms make the category search global");
 {
   const P = makePanel();
@@ -434,12 +450,71 @@ group("case 4: Enter before the 250 ms make the category search global");
         S.frames().length === 1 && S.calls.length === 0, S.frames().join(" | "));
 }
 
+group("case 5: a local filter must not overwrite the settings list");
+{
+  const LISTING = [
+    { type: "directory", directory: "Rock" },
+    { type: "file", file: "Rock/01.flac", artist: "Alice", album: "Rock" },
+    { type: "file", file: "Jazz/02.mp3", artist: "Bob", album: "Jazz" }
+  ];
+  function onFilesTab() {
+    const P = makePanel();
+    P.key(0, "6");                       // the `6` key: the files tab
+    P.answer(LISTING);                   // the bridge answers the lsinfo query
+    return P;
+  }
+
+  const P = onFilesTab();
+  check("the files tab is loaded with its list", P.root.rows.length === 3
+        && P.root.frameMode === "files", P.rowsTitles().join(", "));
+  P.press("/");
+  check("`/` opens the local filter", P.root.promptMode === "filter", P.root.promptMode);
+  P.type("flac");
+  check("typing narrows the loaded list",
+        P.root.filterText === "flac" && P.root.rows.length === 1,
+        P.rowsTitles().join(", "));
+  P.enter();
+  check("Enter closes the field and keeps the filter",
+        P.root.promptMode === "" && P.root.filterText === "flac", P.root.filterText);
+
+  P.key(0, "8");                         // the `8` key: the settings tab
+  check("the settings tab is loaded", P.root.frameMode === "settings", P.root.frameMode);
+  check("its rows are the settings rows",
+        P.rowsTitles().join(", ") === "In the bar, Show the card, In the player, Backdrop",
+        P.rowsTitles().join(", "));
+  check("rows are bound to settingRows, not replaced by the old list",
+        P.root.rowsBoundToSettingRows === true, String(P.root.rowsBoundToSettingRows));
+  check("the filter of the old view is gone",
+        P.root.filterText === "", JSON.stringify(P.root.filterText));
+
+  // The two halves of the fix, apart from each other: cleaning up a prompt may
+  // not hand the view that is showing now the rows of the view before.
+  const Q = makePanel();
+  Q.key(0, "8");
+  const before = Q.rowsTitles().join(", ");
+  Q.root.filterText = "flac";            // MODELLED: a filter left over from files
+  Q.root.closePrompt();
+  check("a cleanup does not rebind the rows of the current view",
+        Q.rowsTitles().join(", ") === before && Q.root.rowsBoundToSettingRows === true,
+        Q.rowsTitles().join(", "));
+
+  // Control: without a filter the settings tab always worked.
+  const R = onFilesTab();
+  R.key(0, "8");
+  check("control: no filter, same result",
+        R.root.frameMode === "settings" && R.root.rowsBoundToSettingRows === true,
+        R.rowsTitles().join(", "));
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {
+  if (f.text === "") return;
   console.log("  extracted " + f.from + "-" + f.to + "  sha256:" + sha(f.text)
     + "  " + f.text.split("(")[0].replace("function ", ""));
 });
+if (MISSING.length > 0)
+  console.log("  not in this revision: " + MISSING.join(", "));
 console.log("  onStackChanged handler: " + JSON.stringify(STACK_HANDLER));
 console.log("  promptDebounce onTriggered: " + DEBOUNCE_HANDLER.text);
 console.log("\n" + (checks - failures) + "/" + checks + " checks passed");

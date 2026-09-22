@@ -205,15 +205,22 @@ Panel {
 
   function setTab(name, explicit) {
     root.note("setTab " + name + " (was " + root.tab + ", stack " + root.stack.length + ")")
+    // What the field holds before the view changes: the search tab carries the
+    // term along, every other tab is done with it.
+    var carried = root.tab === "search" ? root.promptText : ""
+    // The prompt and the local filter belong to the view being left, so they are
+    // torn down *before* the stack moves. The stack change loads the new frame in
+    // the same breath (onStackChanged), and a cleanup that ran afterwards replaced
+    // the rows the new view had just bound -- in the settings tab that put the
+    // file list where the settings belong, and the settings became unreachable.
+    root.closePrompt()
     root.tab = String(name)
     root.detailRow = null
     root.sel = 0
     root.stack = [root.rootFrameFor(root.tab)]
     if (root.tab === "search") {
-      root.openPrompt("search", root.promptText, false, explicit)
-      if (root.promptText.trim() !== "") root.applySearch(root.promptText)
-    } else {
-      root.closePrompt()
+      root.openPrompt("search", carried, false, explicit)
+      if (carried.trim() !== "") root.applySearch(carried)
     }
   }
 
@@ -1035,7 +1042,24 @@ Panel {
     root.promptMode = ""
     root.promptText = ""
     root.promptTarget = ""
-    if (root.filterText !== "") { root.filterText = ""; root.refreshFilteredRows() }
+    root.clearLocalFilter()
+  }
+
+  // Which frames carry a list the local filter can narrow at all: the two views
+  // MPD has no filter for (paths and playlist names, see openPromptForFrame).
+  function filterableFrame() {
+    var mode = root.frameMode
+    return mode === "files" || mode === "playlists"
+  }
+
+  // Dropping the filter is one thing, showing the unfiltered list is another.
+  // Only the view the filter belongs to gets its rows back: a frame without a
+  // local filter (the settings list) has nothing to rebuild, and rebuilding it
+  // from `allRows` is what handed the settings tab the file list.
+  function clearLocalFilter() {
+    if (root.filterText === "") return
+    root.filterText = ""
+    if (root.filterableFrame()) root.refreshFilteredRows()
   }
 
   // Leave the field but keep the term: the results stay on screen, the keys go to
