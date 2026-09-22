@@ -454,7 +454,13 @@ Panel {
   // shows up at the left, where nothing of ours follows it.
   readonly property real stripReserve: {
     var w = Style.space(10)
-    if (showArt && artPath !== "")
+    // Reserved from the setting, not from the fetch result: with showArt on, the
+    // cover slot is part of the strip whether or not an image has arrived yet
+    // (the bridge answers the art query a moment later). Keyed to artPath the
+    // strip grew by barSize + space(6) when the image landed -- 32 px with the
+    // live configuration -- and dragged the widget and its hover card with it,
+    // which is exactly the jitter this reserve exists to prevent.
+    if (showArt)
       w += barSize + Style.space(6)
     if (showStateIcon)
       w += stateIndicator.implicitWidth + Style.space(6)
