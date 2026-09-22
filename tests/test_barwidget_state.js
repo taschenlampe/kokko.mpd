@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // State regression for BarWidget.qml: cover cache after a failed fetch, the
-// hover card's fade timer, and the width reserved for the cover thumbnails.
+// hover card's fade timer, the width reserved for the cover thumbnails, and the
+// width the strip keeps when nothing plays.
 //
 // Method (same as the independent verification): every function under test is
 // extracted from BarWidget.qml verbatim with brace matching and then run under
@@ -23,6 +24,10 @@
 //     showArt or artPath changes; this test reads it again at exactly those
 //     points, which is the whole question (does the cover arriving change the
 //     reserved width?).
+//   * for case 11, `info.implicitWidth` is the content row (20 px when only the
+//     state glyph is left) and `stripReserve` carries the value the reserve
+//     block above produced -- the two numbers the width rule picks between. The
+//     live configuration measured 196 px of reserve against 20 px of content.
 //
 // Usage:
 //   node tests/test_barwidget_state.js                       # the repo's file
@@ -89,12 +94,30 @@ const pieces = {
   stripReserve: grab(/^  readonly property real stripReserve:/m, "stripReserve", true)
 }
 
+// The width rule for the no-title case is case 11's own subject, so it is grabbed
+// on its own: against a source without it -- the unfixed one -- the case has to
+// *report* that absence instead of dying before the first check runs, which is
+// what makes this suite the proof that the fix is what makes it pass.
+let stripActual = null
+try {
+  stripActual = grab(/^  readonly property real stripActual:/m, "stripActual", true)
+} catch (e) {
+  // Reported by case 11 as a note; the case itself reads the source's own width
+  // expression, so it fails on the number even on a source without this property.
+}
+
 console.log("BarWidget.qml under test: " + target)
 console.log("extracted verbatim:")
 for (const key of Object.keys(pieces)) {
   const p = pieces[key]
   console.log("   " + p.what.padEnd(13) + " " + (p.first + "-" + p.last).padEnd(11)
     + " sha256:" + p.hash)
+}
+if (stripActual) {
+  console.log("   " + stripActual.what.padEnd(13) + " " + (stripActual.first + "-" + stripActual.last).padEnd(11)
+    + " sha256:" + stripActual.hash)
+} else {
+  console.log("   " + "stripActual".padEnd(13) + " absent -- no width rule for the no-title case")
 }
 console.log()
 
@@ -275,11 +298,108 @@ function caseStripReserve() {
     ])
 }
 
+// --- 11: with no title the strip drops the label reserve ---------------------
+// Reported symptom: stopped, the widget showed only the glyph but kept the
+// reserve -- stripWidth 196, contentRight 108, rightGap 88, i.e. 88 px of nothing
+// on *both* sides of the glyph, because the content row is centred in the box.
+//
+// Read from the shipped source, not from a property name: the width expression of
+// the `nowPlaying` item and the offset the hover card is anchored on are lifted
+// out as expressions, so the case runs against a source with or without a width
+// property of its own -- and against the unfixed one it fails on the number, not
+// on a missing name.
+function caseIdleWidth() {
+  // The configuration the report measured: label max 160, state glyph 20, no
+  // cover slot -- so the reserve comes out at 196 px.
+  global.Style = { space: function (n) { return n } }
+  global.barSize = 26
+  global.maxWidth = 160
+  global.showStateIcon = true
+  global.showArt = false
+  global.artPath = ""
+  global.stateIndicator = { implicitWidth: 20 }
+
+  // The whole width expression of the `nowPlaying` item, ternary included, so the
+  // vertical branch is the source's own and not the test's model of it.
+  const widthM = /^      implicitWidth: (root\.vertical \? root\.barSize : .+?)\s*$/m.exec(src)
+  const anchorM = /return root\.mapToItem\(null, root\.width, 0\)\.x - (.+?)\s*\/\s*2\s*$/m.exec(src)
+  if (!widthM || !anchorM) {
+    report("11", "with no title the strip is only as wide as its content", false, [
+      "not found in " + target + ": " + (widthM ? "the card's anchor offset" : "the strip's width expression"),
+      "expected: the `nowPlaying` item's implicitWidth and the hover card's",
+      "cardCenterX offset, which this case reads out of the source"
+    ])
+    return
+  }
+  const evalWidth = new Function("root", "return (" + widthM[1] + ")")
+  const evalAnchor = new Function("root", "return (" + anchorM[1] + ")")
+
+  const reserve = makeReserve()
+  // What the source under test answers for the actual width: the model is
+  // `stripActual` where it exists, an unbound name (undefined) where it does not.
+  const actualRule = stripActual
+    ? (new Function("return (function () " + stripActual.body + ")"))()
+    : null
+
+  const content = 20        // measured: the state glyph is all that is left
+
+  // One snapshot of the widget in a given state, the way QML would resolve it.
+  function state(hasSongValue, verticalValue, contentWidth) {
+    global.vertical = verticalValue
+    global.hasSong = hasSongValue
+    global.info = { implicitWidth: contentWidth }
+    const reserved = reserve()      // the settings as set right now
+    global.stripReserve = reserved  // in QML this is the root property
+    const root = {
+      vertical: verticalValue, barSize: global.barSize, stripReserve: reserved,
+      stripActual: actualRule ? actualRule() : undefined
+    }
+    return { width: evalWidth(root), anchor: evalAnchor(root), reserve: reserved }
+  }
+
+  const idle = state(false, false, content)          // stopped / disconnected
+  const playing = state(true, false, content)        // playing
+  const otherTitle = state(true, false, 148)         // same player, other title
+  global.maxWidth = 200
+  const roomier = state(true, false, content)        // settings changed
+  const roomierIdle = state(false, false, content)
+  global.maxWidth = 160
+  const upright = state(true, true, content)         // vertical bar
+  const uprightIdle = state(false, true, content)
+
+  const emptyPerSide = (idle.reserve - content) / 2
+
+  report("11", "with no title the strip is only as wide as its content",
+    idle.reserve === 196
+      && playing.width === idle.reserve && otherTitle.width === playing.width
+      && roomier.width === roomier.reserve && roomier.reserve === 236
+      && idle.width === content && roomierIdle.width === content
+      && upright.width === global.barSize && uprightIdle.width === global.barSize
+      // The hover card is anchored on the same number the strip is wide: half of
+      // the actual width, never half of the reserve.
+      && playing.anchor === playing.width && idle.anchor === idle.width,
+    [
+      "stripReserve from the settings           : " + idle.reserve + " px",
+      "with a title (content 20 / 148 px)       : " + playing.width + " / " + otherTitle.width + " px",
+      "settings changed (label max 200 -> 236)  : " + roomier.width + " px",
+      "no title (stopped, content 20 px)        : " + idle.width + " px",
+      "  the reserve would be " + idle.reserve + " px -- " + emptyPerSide + " px of nothing",
+      "  on each side, the measured 88 px",
+      "vertical bar, with / without a title     : " + upright.width + " / " + uprightIdle.width + " px",
+      "card anchor offset, with / without title : " + playing.anchor + " / " + idle.anchor + " px",
+      "expected: 196 px while a title is there, exactly the content width without"
+    ].concat(actualRule ? [] : [
+      "note: this source has no `stripActual` -- the width expression is read",
+      "directly, and it answers " + idle.width + " px with no title"
+    ]))
+}
+
 caseArtCache()
 caseOsdTimers()
 caseStripReserve()
+caseIdleWidth()
 
 console.log(failures === 0
   ? "all state checks passed"
-  : failures + " of 3 state checks failed")
+  : failures + " of 4 state checks failed")
 process.exit(failures === 0 ? 0 : 1)

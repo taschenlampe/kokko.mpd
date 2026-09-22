@@ -467,6 +467,20 @@ Panel {
     return w + maxWidth
   }
 
+  // The width the strip actually takes. With a title -- playing or paused -- it is
+  // the reserve above, unchanged, so a title change still cannot move the edge.
+  // With nothing playing (stopped, disconnected, before the first connect) the
+  // reserve is the wrong answer: it is sized for a label that is not there, and
+  // because the content is centred it leaves the same empty band on either side of
+  // the glyph -- measured 196 px reserved against 108 px of content, i.e. 88 px of
+  // nothing on the left *and* on the right. There the strip is as wide as the
+  // content row needs, taken from `info` itself rather than from a new constant.
+  readonly property real stripActual: {
+    if (vertical) return barSize
+    if (hasSong) return stripReserve
+    return info.implicitWidth
+  }
+
   // %elapsed% and %remaining% move once a second; MPD only reports elapsed
   // when something changes, so the clock is what keeps it honest.
   Timer {
@@ -489,12 +503,14 @@ Panel {
     Item {
       id: nowPlaying
       visible: true
-      // One width at all times, taken from `stripReserve` -- the number the code already
-      // computed from the configured label maximum, not from the title. A box that grew and
-      // shrank with the title moved the widget's left edge and dragged the hover card with
-      // it (measured: 43 px for a ten-character change), which read as the whole thing
-      // jolting. The free space the reserve leaves is the price of a box that holds still.
-      implicitWidth: root.vertical ? root.barSize : root.stripReserve
+      // One width at all times while a title is there, taken from `stripReserve` -- the
+      // number the code already computed from the configured label maximum, not from the
+      // title. A box that grew and shrank with the title moved the widget's left edge and
+      // dragged the hover card with it (measured: 43 px for a ten-character change), which
+      // read as the whole thing jolting. The free space the reserve leaves is the price of
+      // a box that holds still -- and it is only paid while a title is there to hold still:
+      // with nothing playing the box is as wide as its content (`stripActual`).
+      implicitWidth: root.vertical ? root.barSize : root.stripActual
       implicitHeight: root.vertical ? info.implicitHeight + Style.space(8) : root.barSize
 
       Row {
@@ -779,10 +795,13 @@ Panel {
       item.anchorItem = strip
       // The widget's right edge is the point that does not move (the bar makes the
       // widget grow to the left), so the card is centred on a fixed offset back from
-      // it. Mapped *here*, in the widget's own window: mapping from inside the card's
+      // it. The offset is half the width the strip *actually* has -- not half the
+      // reserve: with no title the strip is only as wide as its content, and an
+      // anchor on the reserve would hang the card ~88 px off to the right.
+      // Mapped *here*, in the widget's own window: mapping from inside the card's
       // surface (a different layer window) returned nonsense.
       item.cardCenterX = Qt.binding(function() {
-        return root.mapToItem(null, root.width, 0).x - root.stripReserve / 2
+        return root.mapToItem(null, root.width, 0).x - root.stripActual / 2
       })
       item.open = Qt.binding(function() { return root.miniOpen })
       item.hoveredChanged.connect(function() { root.syncMini() })
