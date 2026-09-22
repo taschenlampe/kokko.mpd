@@ -1,22 +1,31 @@
 #!/usr/bin/env python3
-"""Unit tests for the pure parts of bin/mpd-bridge -- no MPD, no shell, no deps.
+"""Unit tests for bin/mpd-bridge -- no MPD, no shell, no deps.
 
     python3 tests/test_bridge.py      (or: tests/run.sh)
 
 Stdlib only on purpose: the plugin must be checkable on a machine that has
 nothing installed. The bridge is imported by path because it carries no `.py`
 suffix (it is a copy of the upstream script, see NOTICE.md).
+
+The last three sections drive the real Bridge methods -- `with_cmd`, `drop`,
+`query_worker`, `submit_query`, `manager` -- against a fake transport:
+`MPDConn` is subclassed and its `connect()` hands out a recording socket and
+file, while `readline`/`send`/`read_response`/`command` stay the production
+code. No socket is opened, no MPD is needed, and nothing is installed.
 """
 import importlib.machinery
 import importlib.util
 import os
 import shutil
 import tempfile
+import threading
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BRIDGE = os.path.join(ROOT, "bin", "mpd-bridge")
 
 FAILS = []
+CHECKS = 0      # counted so the summary can say "3 of 36" and not "3 of 3"
 
 
 def load_bridge():
@@ -29,8 +38,172 @@ def load_bridge():
 
 B = load_bridge()
 
+# Held so that swapping B.MPDConn for a fake cannot rebind the real class.
+REAL_MPDConn = B.MPDConn
+
+
+# ---------------------------------------------------------------- fake wire
+#
+# What a lost reply looks like. `readline` raises it after the command was
+# already written, which is the case the retry rules are about.
+RESET = OSError(104, "Connection reset by peer")
+
+
+class FakeSock:
+    """Records what the bridge writes instead of sending it anywhere."""
+
+    def __init__(self, wire, host=""):
+        self.wire = wire
+        self.host = host
+        self.closed = False
+        self.shut = False
+
+    def sendall(self, data):
+        if self.closed:
+            raise OSError(9, "Bad file descriptor")
+        self.wire.append(data.decode("utf-8", "replace").rstrip("\n"))
+
+    def shutdown(self, how):
+        self.shut = True
+
+    def close(self):
+        self.closed = True
+
+    def settimeout(self, value):
+        pass
+
+    def setsockopt(self, *args):
+        pass
+
+
+class FakeFile:
+    """The read side: scripted lines, and a server that then just sits there.
+
+    A script entry that is an exception is raised rather than returned, which
+    is how a reply that dies on the way back is written down.
+    """
+
+    def __init__(self, script=None, gate=None, block=False):
+        self.script = list(script or [])
+        self.gate = gate
+        self.block = block
+        self.reads = 0
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def readline(self):
+        self.reads += 1
+        if self.gate is not None and self.reads == 1:
+            self.entered.set()
+            self.gate.wait(3.0)          # hold this read open, like an idle read
+        if self.script:
+            item = self.script.pop(0)
+            if isinstance(item, BaseException):
+                raise item
+            return item
+        if self.block:
+            self.release.wait(3.0)       # an `idle` reply that has not come yet
+            return b""                   # ... and then the peer is gone
+        return b"OK\n"
+
+    def read(self, count=-1):
+        return b""
+
+    def close(self):
+        pass
+
+
+class FakeConn(B.MPDConn):
+    """The real MPDConn on a fake transport: `connect()` dials nothing."""
+
+    def __init__(self, target, password="", script=None, gate=None,
+                 connect_gate=None, block=False, wire=None):
+        # The captured class, not B.MPDConn: that name is the factory by now.
+        REAL_MPDConn.__init__(self, target, password)
+        self.script = script
+        self.gate = gate
+        self.connect_gate = connect_gate
+        self.block = block
+        self.wire = wire if wire is not None else []
+        self.connecting = False
+
+    def connect(self, timeout=None):
+        self.connecting = True
+        if self.connect_gate is not None:
+            self.connect_gate.wait(3.0)  # a connect that is still in flight
+        self.sock = FakeSock(self.wire, self.target[1])
+        self.fh = FakeFile(self.script, self.gate, self.block)
+        self.version = "0.23.5"
+        return self.version
+
+
+class Wire:
+    """Stands in for MPDConn: one FakeConn per call, one shared wire."""
+
+    def __init__(self, plans):
+        self.plans = list(plans)
+        self.made = []
+        self.wire = []
+
+    def __call__(self, target, password=""):
+        plan = self.plans.pop(0) if self.plans else {}
+        conn = FakeConn(target, password, wire=self.wire, **plan)
+        self.made.append(conn)
+        return conn
+
+
+def planted(plans):
+    """Swap the bridge's MPDConn for a recording factory: (wire, saved class)."""
+    factory = Wire(plans)
+    saved = B.MPDConn
+    B.MPDConn = factory
+    return factory, saved
+
+
+def stop_bridge(bridge):
+    """Let go of the threads a section started, so the next one starts clean."""
+    bridge.stop.set()
+    bridge.wake.set()
+    with bridge.query_cv:
+        bridge.query_cv.notify_all()
+
+
+def wait_for(predicate, seconds=2.0):
+    """Poll instead of sleeping a fixed time: a pass should cost no stopwatch."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return bool(predicate())
+
+
+def connected_cmd(plans, events=None):
+    """A bridge holding an already connected fake command connection."""
+    factory, saved = planted(plans)
+    bridge = B.Bridge()
+    sink = events if events is not None else []
+    bridge.emit = sink.append
+    bridge.refresh_soon = lambda: None      # no background refresh thread
+    bridge.request_art = lambda song: None  # no art thread either
+    bridge.cmd = factory(bridge.target, bridge.password)
+    bridge.cmd.connect()
+    bridge.connected = True
+    return factory, saved, bridge, sink
+
+
+def raised_by(fn):
+    """The class name of what fn raises, or "" if it returns normally."""
+    try:
+        fn()
+    except BaseException as exc:            # classifying, not handling
+        return type(exc).__name__
+    return ""
+
 
 def check(name, got, want):
+    global CHECKS
+    CHECKS += 1
     if got == want:
         print("   ok    %s" % name)
     else:
@@ -134,9 +307,60 @@ try:
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
+print("=== command retry (with_cmd) ===")
+# A reply that never comes back is no proof that the command did not run. The
+# old retry ran the whole callback again, so `next` was written twice and
+# skipped a song, `add` appended the same file again, and a toggle that reads
+# the state, flips it and is asked to flip it again ended where it started --
+# the button looked dead.
+factory, saved, bridge, events = connected_cmd([{"script": [RESET]},
+                                                {"script": [b"OK\n"]}])
+try:
+    bridge.handle("next")
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+check("a lost reply does not put `next` on the wire twice", factory.wire, ["next"])
+check("... and does not build a connection it may not use", len(factory.made), 1)
+check("... the caller hears a connection error instead",
+      [e.get("event") for e in events], ["disconnected"])
+
+# The other half of the rule: a failure at the write itself proves nothing ran,
+# so the retry the docstring promises still happens. MPD closes an idle
+# connection after a minute, and the first press after that used to be
+# swallowed -- that is what the retry was written for.
+factory, saved, bridge, events = connected_cmd([{"script": [b"OK\n"]},
+                                                {"script": [b"OK\n"]}])
+bridge.cmd.sock.closed = True              # the write goes nowhere
+try:
+    bridge.handle("next")
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+check("a command that never left is retried", factory.wire, ["next"])
+check("... on a fresh connection", len(factory.made), 2)
+
+# And a read-only callback keeps the retry unconditionally: a second `status`
+# costs a round trip and can change nothing.
+factory, saved, bridge, events = connected_cmd([
+    {"script": [b"state: pause\n", RESET]},   # status answers, the reply dies
+    {"script": [b"state: play\n", b"OK\n", b"file: a.mp3\n", b"OK\n"]},
+])
+try:
+    bridge.refresh_once()
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+check("a read-only callback is still retried",
+      [(e.get("event"), (e.get("status") or {}).get("state")) for e in events],
+      [("state", "play")])
+
 print()
 if FAILS:
     print("   %d of %d checks failed: %s" % (
-        len(FAILS), len(FAILS), ", ".join(FAILS)))
+        len(FAILS), CHECKS, ", ".join(FAILS)))
     raise SystemExit(1)
 print("   all checks passed")

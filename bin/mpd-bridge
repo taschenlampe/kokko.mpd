@@ -196,6 +196,11 @@ class MPDConn:
         self.sock = None
         self.fh = None
         self.version = ""
+        # True from the moment a command is on the wire until its reply is
+        # complete. It is the one thing that tells a retry apart from a
+        # duplicate: an error before the write proves nothing was executed,
+        # an error after it proves nothing at all.
+        self.in_flight = False
 
     def connect(self, timeout: float = CONNECT_TIMEOUT) -> str:
         if self.target[0] == "unix":
@@ -253,6 +258,8 @@ class MPDConn:
             self.sock.sendall((text + "\n").encode("utf-8"))
         except OSError as exc:
             raise MPDError(str(exc)) from exc
+        # Past this line a lost reply no longer means the command did not run.
+        self.in_flight = True
 
     def command(self, name: str, *args) -> tuple:
         """Run one command. Returns (pairs, binary-or-None)."""
@@ -270,8 +277,14 @@ class MPDConn:
             except OSError as exc:
                 raise MPDError(str(exc)) from exc
             if line == "OK":
+                # The exchange is over: the socket is at a command boundary
+                # again, so the next failure is judged on its own.
+                self.in_flight = False
                 return pairs, binary
             if line.startswith("ACK "):
+                # The server answered -- it understood the command and refused
+                # it. Nothing to repeat, and nothing left half-read.
+                self.in_flight = False
                 raise MPDCommandError(ack_message(line[4:]))
             if ": " not in line:
                 continue
@@ -819,7 +832,7 @@ class Bridge:
 
     # ----------------------------------------------------------- commands
 
-    def with_cmd(self, fn):
+    def with_cmd(self, fn, repeatable: bool = False):
         """Run fn against the command connection, or return None if it fails.
 
         A protocol ACK is the command's problem and leaves the connection
@@ -827,9 +840,23 @@ class Bridge:
         connection after connection_timeout, 60 seconds by default, and a
         minute with no button pressed and nothing changing server-side is the
         ordinary state of a paused player rather than a fault. So a broken
-        connection is reconnected and the command run once more; only if that
+        connection is reconnected and the callback run once more; only if that
         also fails is the connection given up on, which drops both sockets and
         lets the manager start again.
+
+        Running the callback a second time is only free when it changes
+        nothing, so the two kinds are told apart. `repeatable` marks the ones
+        that only read: a second `status` costs a round trip and nothing else.
+        A callback that writes is repeated only while `in_flight` says its
+        command never reached the wire -- an error at the write itself. Once
+        the command is on the wire, a lost reply says nothing about whether it
+        ran, and repeating it is the expensive guess: `next` skips a song,
+        `add` appends the file twice, and a toggle that reads the state, flips
+        it and is asked to flip it again lands exactly where it started, so
+        the button looks dead. A connection error is reported instead. The
+        connection is given up either way -- a reply that stopped halfway
+        leaves the stream out of step with every command after it, and this
+        lock is also held by whichever thread is waiting on that reply.
         """
         with self.cmd_lock:
             conn = self.cmd
@@ -841,10 +868,18 @@ class Bridge:
                 self.emit({"event": "ack", "error": str(exc)})
                 return None
             except (MPDError, OSError) as exc:
+                # Read the flag before close(); closing says nothing about it.
+                delivered = conn.in_flight
                 conn.close()
                 self.cmd = None
 
-                replacement = self.reconnect_cmd()
+                # A repeat needs either a callback that cannot change anything
+                # or a failure that provably predates the write. Reconnecting
+                # for a command that must not be repeated would only test the
+                # server for an answer nobody is going to be allowed to use.
+                replacement = None
+                if repeatable or not delivered:
+                    replacement = self.reconnect_cmd()
                 if replacement is not None:
                     try:
                         return fn(replacement)
@@ -857,6 +892,11 @@ class Bridge:
                         exc = retry_exc
 
                 error = error_text(exc) or "connection lost"
+                if delivered and not repeatable:
+                    # The command may well have run. Saying only "connection
+                    # lost" invites the user to press again, which is exactly
+                    # the duplicate this guard exists to prevent.
+                    error = "%s (sent, reply lost -- not repeated)" % error
                 # Unblocks the manager's idle read so it reconnects at once
                 # rather than at the next server-side event.
                 idle = self.idle
@@ -910,7 +950,10 @@ class Bridge:
             song = to_dict(conn.command("currentsong")[0])
             return status, song
 
-        result = self.with_cmd(run)
+        # The one read-only caller: repeating `status` and `currentsong` costs
+        # a round trip and can change nothing, so it keeps the retry that the
+        # buttons must not have.
+        result = self.with_cmd(run, repeatable=True)
         if result is None:
             return
         status, song = result
