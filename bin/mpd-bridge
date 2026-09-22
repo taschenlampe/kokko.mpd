@@ -845,12 +845,21 @@ class Bridge:
         backoff = 1.0
         while not self.stop.is_set():
             generation = self.generation
+            # One snapshot per round, taken together so the check further down
+            # can tell whether this round is still the current one. `apply_config`
+            # can move the target while the connect below is in flight -- a
+            # settings change is read within the second, a connect to a dead
+            # host takes CONNECT_TIMEOUT -- and a connection to the address the
+            # user just left must never be published, or announced, as the new
+            # server: `next` would go to the old one while the bar names the
+            # new one.
+            target, password = self.target, self.password
             self.wake.clear()
             try:
-                cmd = MPDConn(self.target, self.password)
+                cmd = MPDConn(target, password)
                 cmd.connect()
                 cmd.sock.settimeout(CMD_TIMEOUT)
-                idle = MPDConn(self.target, self.password)
+                idle = MPDConn(target, password)
                 idle.connect()
                 # No timeout on the idle connection: it is meant to sit there
                 # for hours. A dead peer surfaces as a closed socket, which
@@ -861,7 +870,7 @@ class Bridge:
                     self.emit({
                         "event": "disconnected",
                         "error": error_text(exc),
-                        "target": describe(self.target),
+                        "target": describe(target),
                         "retryIn": backoff,
                     })
                 self.wake.wait(backoff)
@@ -871,6 +880,15 @@ class Bridge:
                 continue
 
             backoff = 1.0
+            # The settings changed while this round was connecting, so what came
+            # up belongs to the old address. Drop it unannounced and let the next
+            # round build the connection that was actually asked for; the finally
+            # below would not close these either, since it checks the generation
+            # too -- which used to leave the socket behind for good.
+            if generation != self.generation:
+                cmd.close()
+                idle.close()
+                continue
             with self.cmd_lock:
                 self.cmd = cmd
             self.idle = idle
@@ -878,7 +896,7 @@ class Bridge:
             self.emit({
                 "event": "connected",
                 "version": cmd.version,
-                "target": describe(self.target),
+                "target": describe(target),
             })
             self.refresh()
 

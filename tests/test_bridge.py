@@ -424,6 +424,61 @@ finally:
     B.MPDConn = saved
     stop_bridge(bridge)
 
+print("=== a connection is announced as the server it is ===")
+# Changing host or port while the manager is inside connect() used to publish
+# the connection that then came up -- the one to the old server -- under the new
+# server's name, so a `next` pressed in that window went to the server the user
+# had just left. The window is a whole connect(), which is seconds when the new
+# host is the dead one.
+gate = threading.Event()
+factory, saved = planted([
+    {"connect_gate": gate},       # the old host: a command connection in flight
+    {"script": []},               # the old host: its idle connection
+    {"script": [b"state: play\n", b"OK\n", b"file: B-only.mp3\n", b"OK\n"]},
+    {"block": True},              # the new host: an idle connection that waits
+])
+bridge = B.Bridge()
+bridge.target = ("tcp", "10.0.0.1", 6600)
+bridge.request_art = lambda song: None
+records = []
+
+
+def measure(payload):
+    with bridge.cmd_lock:
+        live = bridge.cmd
+    records.append({
+        "event": payload.get("event"),
+        "announced": payload.get("target"),
+        "live": B.describe(live.target) if live is not None else None,
+    })
+
+
+bridge.emit = measure
+manager = threading.Thread(target=bridge.manager, daemon=True)
+manager.start()
+try:
+    check("the manager was still connecting when the settings changed",
+          wait_for(lambda: bool(factory.made) and factory.made[0].connecting), True)
+    bridge.apply_config({"host": "10.0.0.2", "port": 6700, "password": ""})
+    gate.set()                              # the old connect comes up too late
+    wait_for(lambda: any(r["event"] == "connected" for r in records), 3.0)
+    time.sleep(0.05)
+    announced = [r for r in records if r["event"] == "connected"]
+    check("no connection is announced as a server it is not",
+          [r for r in announced if r["announced"] != r["live"]], [])
+    check("the server the settings name is the one announced",
+          [r["announced"] for r in announced], ["10.0.0.2:6700"])
+    check("the connection to the host that was left is closed",
+          [c.sock is None and c.fh is None for c in factory.made[:2]], [True, True])
+finally:
+    gate.set()
+    for conn in factory.made:
+        if conn.fh is not None:
+            conn.fh.release.set()
+    stop_bridge(bridge)
+    manager.join(2.0)
+    B.MPDConn = saved
+
 print()
 if FAILS:
     print("   %d of %d checks failed: %s" % (
