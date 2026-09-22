@@ -25,6 +25,10 @@
  *      code + text); the routing inside handleKey is the production one.
  *   6. settingRows is a list the test owns; in QML it is a readonly property and
  *      re-evaluated on read.
+ *   7. The row delegate: `rowType`, `isHeader` and `selected` are taken verbatim
+ *      from Panel.qml and evaluated once per row with the ListView's modelData and
+ *      index -- the same three properties the mark is drawn from. Nothing about
+ *      the selection is re-written here.
  */
 "use strict";
 
@@ -105,6 +109,25 @@ function grabRootHandler(name) {
   return m[1].trim();
 }
 
+// One `readonly property <type> <name>: <expression>` binding out of the row
+// delegate, verbatim. The expression may wrap onto the following line (Panel.qml
+// breaks it where it would get long), so it is run on while the line so far ends
+// with an operator or the next line opens with one.
+function grabRowBinding(name) {
+  const m = new RegExp("^[ \\t]+readonly property (?:bool|string) " + name + ": (.+)$", "m").exec(SRC);
+  if (!m) throw new Error("Panel.qml has no row binding " + name);
+  let text = m[1].trim();
+  const rest = SRC.slice(m.index + m[0].length).split("\n");
+  for (let i = 1; i < rest.length; i++) {
+    const line = rest[i].trim();
+    if (line === "") break;
+    const continues = /^(&&|\|\||\?|:|\.|\+)/.test(line) || /(&&|\|\||\?|\+|\()$/.test(text);
+    if (!continues) break;
+    text += " " + line;
+  }
+  return text;
+}
+
 const FUNCTIONS = [
   "rootFrameFor", "setTab", "pushFrame", "popFrame", "topFrame", "loadFrame",
   "infoFor", "groupHits", "isSelectable", "firstSelectable", "lastSelectable",
@@ -130,6 +153,11 @@ const EXTRACTED = FUNCTIONS.map(function (name) {
 });
 const STACK_HANDLER = grabRootHandler("onStackChanged");
 const DEBOUNCE_HANDLER = grabTimerHandler("promptDebounce");
+// The row delegate's own bindings, verbatim (see grabRowBinding). The mark the
+// list draws is `selected`; `rowType`/`isHeader` are the two it reads.
+const ROW_TYPE = grabRowBinding("rowType");
+const ROW_IS_HEADER = grabRowBinding("isHeader");
+const ROW_SELECTED = grabRowBinding("selected");
 
 const BUILD = new Function(
   "root", "host", "Qt", "settingRows", "timers", "promptDebounce",
@@ -347,6 +375,28 @@ function makePanel(opts) {
     };
   }
 
+  // MODELLED (header note 7): the row delegate is asked the way the ListView asks
+  // it -- one delegate per row, with `modelData` and `index`, its three bindings
+  // taken verbatim from Panel.qml and re-evaluated on read like QML bindings are.
+  const rowTypeExpr = new Function("root", "rowItem", "return (" + ROW_TYPE + ");");
+  const isHeaderExpr = new Function("root", "rowItem", "return (" + ROW_IS_HEADER + ");");
+  const selectedExpr = new Function("root", "rowItem", "index",
+                                    "return (" + ROW_SELECTED + ");");
+
+  function rowItemAt(modelData, index) {
+    const rowItem = { modelData: modelData, index: index };
+    Object.defineProperty(rowItem, "rowType", {
+      get: function () { return rowTypeExpr(root, rowItem); }
+    });
+    Object.defineProperty(rowItem, "isHeader", {
+      get: function () { return isHeaderExpr(root, rowItem); }
+    });
+    Object.defineProperty(rowItem, "selected", {
+      get: function () { return selectedExpr(root, rowItem, index); }
+    });
+    return rowItem;
+  }
+
   const SHAPE = { "/": "Slash", " ": "Space", "+": "Plus", "-": "Minus", "=": "Equal" };
 
   return {
@@ -381,6 +431,16 @@ function makePanel(opts) {
       cb(list || [], error === undefined ? "" : error);
     },
     callsReset: function () { calls.length = 0; },
+    rowItem: function (index) { return rowItemAt(root.rows[index], index); },
+    marked: function (index) { return rowItemAt(root.rows[index], index).selected === true; },
+    // Every row that wears the mark. In QML one per delegate; here all of them.
+    markedRows: function () {
+      const out = [];
+      root.rows.forEach(function (row, i) {
+        if (rowItemAt(row, i).selected === true) out.push(i);
+      });
+      return out;
+    },
     rowsTitles: function () {
       return root.rows.map(function (r) { return root.rowTitle(r); });
     },
@@ -676,6 +736,139 @@ group("case 7: a compilation album opens with all of its tracks");
         JSON.stringify(N.root.frame.filter));
 }
 
+group("case 8: the mark only shows while the list really has the keys");
+{
+  // The user's report: `/`, then "queen" -- the hits arrive and the first one is
+  // marked although the keys are still in the field, where `+`, `a` and `A` are
+  // letters. The mark may only be drawn for the state the keys actually follow:
+  // while a prompt is up the field owns them (handleKey), so no row is marked --
+  // whatever `sel` happens to be (MODEL: the row delegate's `selected` binding is
+  // Panel.qml's, asked per row through rowItemAt).
+  const HITS = [
+    { type: "file", file: "q/01.mp3", artist: "Queen", album: "A Night at the Opera",
+      title: "Bohemian Rhapsody" },
+    { type: "file", file: "q/02.mp3", artist: "Queen", album: "News of the World",
+      title: "We Will Rock You" }
+  ];
+
+  // `/` is not the only way in: `2` opens the search tab with its field up.
+  function typing() {
+    const P = makePanel();
+    P.key(0, "2");                   // the `2` key: the search tab
+    P.type("queen");
+    P.fire("promptDebounce");        // 250 ms: the hits are queried
+    P.answer(HITS);                  // and they arrive while the field is up
+    return P;
+  }
+
+  const P = typing();
+  check("the field is up with the term in it",
+        P.root.promptMode === "search" && P.root.promptText === "queen",
+        P.root.promptMode + " / " + P.root.promptText);
+  check("the hits are on screen and sel sits on the first of them",
+        P.root.rows.length === 8 && P.root.sel === P.root.firstSelectable(0),
+        P.rowsTitles().join(", ") + "  sel=" + P.root.sel);
+
+  // (a) prompt open, term typed, sel = 0-ish: no row wears the mark.
+  check("(a) no row is marked while the field owns the keys",
+        P.markedRows().length === 0, "marked: " + JSON.stringify(P.markedRows()));
+  check("(a) not even the row sel points at", P.marked(P.root.sel) === false,
+        "sel=" + P.root.sel + " -> marked=" + P.marked(P.root.sel));
+
+  // The keys really are in the field: `+` lands in the term instead of acting.
+  const F = typing();
+  F.mutations.length = 0;
+  F.press("+");
+  check("control: in the field `+` is text, not an action",
+        F.root.promptText === "queen+" && F.mutations.length === 0,
+        F.root.promptText + " / " + JSON.stringify(F.mutations));
+
+  // (b) ↓ hands the keys to the list (Panel.qml's own jump out of the field):
+  // now, and only now, the mark appears -- on the first hit.
+  P.key(P.Qt.Key_Down, "");
+  check("↓ took the keys out of the field", P.root.promptMode === "",
+        JSON.stringify(P.root.promptMode));
+  P.answer(HITS);
+  check("(b) the first hit wears the mark once the list has the keys",
+        P.markedRows().length === 1 && P.marked(P.root.sel) === true
+          && P.root.sel === P.root.firstSelectable(0),
+        "marked: " + JSON.stringify(P.markedRows()) + "  sel=" + P.root.sel + "  ("
+          + P.rowsTitles()[P.root.sel] + ")");
+  // The action on that row is the one it always was -- the fix is the drawing.
+  P.mutations.length = 0;
+  P.press("a");
+  check("control: `a` appends what the marked row stands for",
+        P.mutations.length === 1 && P.mutations[0].op === "findadd"
+          && JSON.stringify(P.mutations[0].args.filter) === "[[\"artist\",\"Queen\"]]",
+        JSON.stringify(P.mutations[0]));
+
+  // (c) the field comes back (`/`, with the term still in it) -> the mark goes
+  // again. The check runs after the query that `/` starts has answered, so it is
+  // the reload landing under an open field that is being judged, not an empty list.
+  P.press("/");
+  check("`/` brings the field back with the term", P.root.promptMode === "search"
+        && P.root.promptText === "queen", P.root.promptMode + " / " + P.root.promptText);
+  P.answer(HITS);
+  check("(c) no row is marked again while the field is back",
+        P.markedRows().length === 0,
+        "marked: " + JSON.stringify(P.markedRows()) + "  sel=" + P.root.sel);
+
+  // The other direction of the same rule: esc in the field closes it, the keys go
+  // to the list, and the mark is drawn again.
+  P.escape();
+  check("control: esc closes the field and the mark is back",
+        P.root.promptMode === "" && P.markedRows().length === 1
+          && P.marked(P.root.sel) === true,
+        "marked: " + JSON.stringify(P.markedRows()));
+
+  // The scoped search (Alben/Kuenstler/Genres) obeys the same rule.
+  const Q = makePanel();
+  Q.key(0, "3");                     // the albums tab
+  Q.answer([{ type: "value", value: "Kiss & Swallow" }, { type: "value", value: "The Alternative" }]);
+  Q.press("/");
+  Q.type("kiss");
+  Q.fire("promptDebounce");
+  Q.answer([{ type: "value", value: "Kiss & Swallow" }]);
+  check("control: the scoped field is open on a narrowed list",
+        Q.root.promptMode === "category" && Q.root.rows.length === 1
+          && Q.root.sel === 0, Q.rowsTitles().join(", "));
+  check("the scoped list is unmarked while the field is up",
+        Q.markedRows().length === 0, "marked: " + JSON.stringify(Q.markedRows()));
+  Q.key(Q.Qt.Key_Down, "");
+  Q.answer([{ type: "value", value: "Kiss & Swallow" }]);
+  check("and marked again after ↓",
+        Q.root.promptMode === "" && Q.markedRows().length === 1,
+        "marked: " + JSON.stringify(Q.markedRows()));
+
+  // The local filter of Dateien/Playlists is the third kind of field.
+  const R = makePanel();
+  R.key(0, "6");                     // the files tab
+  R.answer([{ type: "directory", directory: "Rock" },
+            { type: "file", file: "Rock/01.flac", artist: "Alice", album: "Rock" },
+            { type: "file", file: "Jazz/02.mp3", artist: "Bob", album: "Jazz" }]);
+  R.press("/");
+  R.type("flac");
+  check("control: the local filter narrowed the loaded list",
+        R.root.promptMode === "filter" && R.root.rows.length === 1,
+        R.rowsTitles().join(", "));
+  check("the filtered list is unmarked while the field is up",
+        R.markedRows().length === 0, "marked: " + JSON.stringify(R.markedRows()));
+  R.key(R.Qt.Key_Down, "");
+  check("and marked again after ↓",
+        R.root.promptMode === "" && R.markedRows().length === 1 && R.marked(R.root.sel),
+        "marked: " + JSON.stringify(R.markedRows()));
+
+  // Control: a tab without a prompt is untouched -- there the mark is the
+  // selection, and it is always legitimate.
+  const S = makePanel();
+  S.key(0, "1");                     // the queue tab
+  S.answer([{ type: "file", file: "a/01.mp3", id: 7, title: "One" },
+            { type: "file", file: "a/02.mp3", id: 8, title: "Two" }]);
+  check("control: with no prompt the loaded list keeps its mark",
+        S.root.promptMode === "" && S.root.sel === 0 && S.markedRows().join(",") === "0",
+        "marked: " + JSON.stringify(S.markedRows()));
+}
+
 group("language: the panel's strings are English");
 {
   // A source scan, not an extraction: the panel's string literals with the
@@ -725,5 +918,6 @@ if (MISSING.length > 0)
   console.log("  not in this revision: " + MISSING.join(", "));
 console.log("  onStackChanged handler: " + JSON.stringify(STACK_HANDLER));
 console.log("  promptDebounce onTriggered: " + DEBOUNCE_HANDLER.text);
+console.log("  row selected binding: " + JSON.stringify(ROW_SELECTED));
 console.log("\n" + (checks - failures) + "/" + checks + " checks passed");
 process.exit(failures === 0 ? 0 : 1);

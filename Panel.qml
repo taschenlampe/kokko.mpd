@@ -1751,7 +1751,16 @@ Panel {
           // between result groups -- so it is drawn as a quiet label with a rule
           // above it, while the search tab keeps its accent labels.
           readonly property bool settingsHeader: rowItem.isHeader && root.frameMode === "settings"
+          // The mark belongs to the list, so it only shows while the list really
+          // holds the keyboard. With a prompt up the field owns it (see the head of
+          // handleKey: `+`, `a` and `A` are letters there), and a marked row would
+          // promise the action those keys do only once the list has them -- the
+          // first hit already wore the mark while `+` did nothing. `sel` keeps its
+          // value, every key path (addRow, addAll, d, D, C) is untouched: the one
+          // truth for "who has the keys" is the prompt state itself, and only the
+          // drawing waits for the hand-over (↓/↑ out of the field).
           readonly property bool selected: index === root.sel && !rowItem.isHeader
+            && root.promptMode === ""
 
           Rectangle {
             anchors.fill: parent
