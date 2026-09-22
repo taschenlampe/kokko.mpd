@@ -637,7 +637,7 @@ Panel {
         // there empty. Only when the label has nothing to say.
         Text {
           visible: !root.hasSong
-          text: root.connected ? "" : (root.lastError !== "" ? root.lastError : "warte auf MPD …")
+          text: root.connected ? "" : (root.lastError !== "" ? root.lastError : "waiting for MPD …")
           color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.6)
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -1146,18 +1146,10 @@ Panel {
           // The widget's own x on screen: does a shorter title move the widget (bar
           // centres its section) or not? Needed to place the card stably.
           stripX: Math.round(strip.mapToItem(null, 0, 0).x),
-          // The widget's own edges in scene coordinates: the right one must not move
-          // when the label changes, the left one may.
-          widgetX: Math.round(root.mapToItem(null, 0, 0).x),
-          widgetRight: Math.round(root.mapToItem(null, root.width, 0).x),
-          // Where the hover card actually sits -- the number that proves it does not
-          // hop when the label changes.
-          cardX: miniLoader.item ? Math.round(miniLoader.item.cardX) : -1,
           // Where the content sits in the reserved width -- so "is the play glyph
           // right next to the text, and does the content end flush right?" is a
-          // number, not a screenshot. `reserve` is the reserved width, `boxW` the
-          // label box, `textW` the text, `contentRight` the right edge of the row.
-          reserve: Math.round(root.stripReserve),
+          // number, not a screenshot. `boxW` is the label box, `textW` the text,
+          // `contentRight` the right edge of the row.
           boxW: Math.round(labelBox.width),
           textW: Math.round(labelText.implicitWidth),
           contentRight: Math.round(info.x + info.width),
@@ -1334,9 +1326,9 @@ Panel {
       root.connected = false
       root.status = ({})
       root.song = ({})
-      root.lastError = "Bridge beendet (Code " + code + ")"
-      console.warn("kokko.mpd: Bridge beendet (Code " + code + ") — restarting in 2.5s")
-      root.failPending("Bridge beendet")
+      root.lastError = "bridge exited (code " + code + ")"
+      console.warn("kokko.mpd: bridge exited (code " + code + ") — restarting in 2.5s")
+      root.failPending("bridge exited")
       restartTimer.restart()
     }
 
