@@ -83,6 +83,11 @@ Panel {
   // re-deriving the name when the field is submitted once renamed row 0 while the
   // footer still showed the name the user had opened.
   property string promptTarget: ""
+  // Which search the running debounce belongs to, captured when it is armed. A
+  // delayed search has to be judged against the mode it was started in: Enter
+  // closes the category field well inside the 250 ms, and a timer that then read
+  // `promptMode` would run the global search instead of the scoped one.
+  property string promptDebounceMode: ""
   // Free text for the local filter (Dateien, Playlists): MPD has no filter for paths
   // or playlist names, so those two lists narrow themselves.
   property string filterText: ""
@@ -200,15 +205,22 @@ Panel {
 
   function setTab(name, explicit) {
     root.note("setTab " + name + " (was " + root.tab + ", stack " + root.stack.length + ")")
+    // What the field holds before the view changes: the search tab carries the
+    // term along, every other tab is done with it.
+    var carried = root.tab === "search" ? root.promptText : ""
+    // The prompt and the local filter belong to the view being left, so they are
+    // torn down *before* the stack moves. The stack change loads the new frame in
+    // the same breath (onStackChanged), and a cleanup that ran afterwards replaced
+    // the rows the new view had just bound -- in the settings tab that put the
+    // file list where the settings belong, and the settings became unreachable.
+    root.closePrompt()
     root.tab = String(name)
     root.detailRow = null
     root.sel = 0
     root.stack = [root.rootFrameFor(root.tab)]
     if (root.tab === "search") {
-      root.openPrompt("search", root.promptText, false, explicit)
-      if (root.promptText.trim() !== "") root.applySearch(root.promptText)
-    } else {
-      root.closePrompt()
+      root.openPrompt("search", carried, false, explicit)
+      if (carried.trim() !== "") root.applySearch(carried)
     }
   }
 
@@ -406,12 +418,20 @@ Panel {
       rows.push({ type: "header", title: "Albums" })
       for (var b = 0; b < albums.order.length && b < 30; b++) {
         var album = albums.order[b]
+        // An album is its name -- the track's artist is not the album's identity.
+        // Only a record whose tracks all credit the same artist has an artist that
+        // can serve as a filter; a compilation (soundtrack, split, "Various
+        // Artists") does not, and going in through one contributor would drop the
+        // tracks of the others. `""` sends activate() down the album-only path --
+        // the same filter the `+` on the row appends with (addOne).
         var artist = ""
+        var seen = 0
         for (var s = 0; s < songs.length; s++) {
-          if (String(songs[s].album || "") === album && songs[s].artist) {
-            artist = String(songs[s].artist)
-            break
-          }
+          if (String(songs[s].album || "") !== album) continue
+          var credit = String(songs[s].artist || "")
+          if (seen === 0) artist = credit
+          else if (credit !== artist) { artist = ""; break }
+          seen++
         }
         rows.push({ type: "group", kind: "album", value: album, artist: artist,
                     count: albums.counts[album] })
@@ -824,7 +844,7 @@ Panel {
         what = "all tracks by " + String(row.value || "")
       } else {
         host.mutation("findadd", { filter: [["album", String(row.value || "")]] })
-        what = "Album „" + String(row.value || "") + "”"
+        what = "Album “" + String(row.value || "") + "”"
       }
     } else if (type === "value") {
       var tag = String(root.frame.tag || "")
@@ -836,7 +856,7 @@ Panel {
       what = "Folder " + String(row.directory || "")
     } else if (type === "playlist") {
       host.mutation("loadplaylist", { name: String(row.playlist || "") })
-      what = "Playlist " + String(row.playlist || "") + " (ersetzt die Queue)"
+      what = "Playlist " + String(row.playlist || "") + " (replaces the queue)"
     } else if (row.file) {
       host.addUri(String(row.file))
       what = root.rowTitle(row)
@@ -864,15 +884,24 @@ Panel {
       return
     }
     if (mode === "list") {
+      var base = root.frame.filter || []
       // A scoped search frame: its rows *are* the matches, so "A" appends those --
-      // one command in the same category, not a walk through every artist.
+      // inside the category the user narrowed to. With a context filter (an artist
+      // or a genre opened before) the frame stands for that narrowing: the bare
+      // term would append library-wide hits while the list shows this artist's.
+      // Without one -- the root Albums/Artists/Genres tab -- the term alone is the
+      // whole scope, and that is what a tagged searchadd is for.
       var only = String(root.frame.search || "")
       if (only !== "") {
+        if (base.length > 0) {
+          host.mutation("findadd", { filter: base })
+          root.flash("everything under this selection appended")
+          return
+        }
         host.mutation("searchadd", { term: only, tag: String(root.frame.tag || "album") })
         root.flash("all hits for “" + only + "” appended")
         return
       }
-      var base = root.frame.filter || []
       if (base.length === 0) { root.flash("open an artist or album first, then A"); return }
       host.mutation("findadd", { filter: base })
       root.flash("everything under this selection appended")
@@ -1030,7 +1059,24 @@ Panel {
     root.promptMode = ""
     root.promptText = ""
     root.promptTarget = ""
-    if (root.filterText !== "") { root.filterText = ""; root.refreshFilteredRows() }
+    root.clearLocalFilter()
+  }
+
+  // Which frames carry a list the local filter can narrow at all: the two views
+  // MPD has no filter for (paths and playlist names, see openPromptForFrame).
+  function filterableFrame() {
+    var mode = root.frameMode
+    return mode === "files" || mode === "playlists"
+  }
+
+  // Dropping the filter is one thing, showing the unfiltered list is another.
+  // Only the view the filter belongs to gets its rows back: a frame without a
+  // local filter (the settings list) has nothing to rebuild, and rebuilding it
+  // from `allRows` is what handed the settings tab the file list.
+  function clearLocalFilter() {
+    if (root.filterText === "") return
+    root.filterText = ""
+    if (root.filterableFrame()) root.refreshFilteredRows()
   }
 
   // Leave the field but keep the term: the results stay on screen, the keys go to
@@ -1041,7 +1087,9 @@ Panel {
     promptDebounce.stop()
     if (root.promptMode === "search" && root.promptText.trim() !== "")
       root.applySearch(root.promptText)
-    if (root.promptMode === "category")
+    // An empty scoped field has nothing to scope: applying it again would only
+    // rebuild the frame that is already there.
+    if (root.promptMode === "category" && root.promptText.trim() !== "")
       root.applyCategorySearch(root.promptText)
     root.promptMode = ""
   }
@@ -1052,6 +1100,8 @@ Panel {
   function searchWhileTyping() {
     if (root.promptMode === "filter") { root.applyLocalFilter(root.promptText); return }
     if (root.promptMode !== "search" && root.promptMode !== "category") return
+    // What this search is, not what the mode may be by the time it runs.
+    root.promptDebounceMode = root.promptMode
     promptDebounce.restart()
   }
 
@@ -1064,8 +1114,16 @@ Panel {
     id: promptDebounce
     interval: 250
     repeat: false
-    onTriggered: root.promptMode === "category"
-      ? root.applyCategorySearch(root.promptText) : root.applySearch(root.promptText)
+    onTriggered: {
+      // Only while the field still is the field this search was started in. A
+      // pending search is either run for its own mode or dropped -- never
+      // re-judged against a mode that changed in the meantime (submitPrompt,
+      // closePrompt and leavePrompt all stop this timer as well).
+      var mode = String(root.promptDebounceMode || "")
+      if (mode === "" || mode !== root.promptMode) return
+      if (mode === "category") { root.applyCategorySearch(root.promptText); return }
+      root.applySearch(root.promptText)
+    }
   }
 
   // If no list arrives (the term did not change, nothing was re-queried), the
@@ -1107,7 +1165,12 @@ Panel {
     var tag = (top && String(top.mode) === "list") ? String(top.tag || "album") : "album"
     var trimmed = String(term || "").trim()
     var base = root.rootFrameFor(root.tab).title
-    var nextFrame = { mode: "list", tag: tag, filter: [], search: trimmed,
+    // The narrowing the user has walked into (an artist, a genre) belongs to the
+    // search: without it the field answered with the whole library while the frame
+    // underneath still stood on that artist. A search frame carries the filter it
+    // was built with, so typing on keeps it as well.
+    var context = (top && top.filter) ? top.filter.slice() : []
+    var nextFrame = { mode: "list", tag: tag, filter: context, search: trimmed,
                       title: trimmed === "" ? base : base + " · " + trimmed }
     if (top && String(top.mode) === "list" && top.search !== undefined) {
       root.sel = 0
@@ -1115,6 +1178,9 @@ Panel {
       root.stack = root.stack.slice(0, root.stack.length - 1).concat([nextFrame])
       return
     }
+    // Nothing typed and nothing to re-scope: Enter (or arrow-down) on an empty
+    // scoped field must not push a second, identical-looking frame.
+    if (trimmed === "") return
     root.pushFrame(nextFrame)
   }
 
@@ -1167,7 +1233,11 @@ Panel {
     // filtering, and in both cases the field goes away. Enter in the *list* then
     // opens the row, exactly as in every other view.
     if (root.promptMode === "category" || root.promptMode === "filter") {
-      root.promptMode = ""
+      // leavePrompt, not a bare reset: it stops the pending delayed search and
+      // runs it for the mode it was started in. Clearing the mode alone left the
+      // timer to fire against an empty mode, and the scoped search became a
+      // global one.
+      root.leavePrompt()
       return
     }
     if (root.promptMode === "search") {
@@ -1547,7 +1617,7 @@ Panel {
             Text {
               visible: !root.up
               text: root.host && root.host.lastError !== ""
-                ? root.host.lastError : "verbinde …"
+                ? root.host.lastError : "connecting …"
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
