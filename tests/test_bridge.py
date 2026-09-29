@@ -678,6 +678,105 @@ finally:
     else:
         os.environ["XDG_CACHE_HOME"] = saved_cache_home
 
+print("=== art: an album without a cover is not fetched again on every refresh ===")
+# Measured before the fix: ten plain refreshes were ten connections, each with
+# binarylimit/albumart/readpicture -- five volume-wheel steps, ten connections
+# and twenty cover commands. `request_art`'s guard was per uri and was cleared
+# after the attempt, so a refresh that arrived later started from scratch; an
+# album that has no cover on any path (12 of 120 in one sample) did it forever.
+
+ART_STATUS = [b"state: play\n", b"OK\n", b"file: nosuch/01.mp3\n", b"OK\n"]
+
+
+def art_tries(factory):
+    """How often the fake wire was asked for a cover."""
+    return sum(1 for line in factory.wire if line.startswith("albumart"))
+
+
+def art_bridge(plans):
+    """A bridge on a connected fake command connection, with the real art path."""
+    factory, saved = planted(plans)
+    bridge = B.Bridge()
+    events = []
+    bridge.emit = events.append
+    bridge.refresh_soon = lambda: None
+    bridge.cmd = factory(bridge.target, bridge.password)
+    bridge.cmd.connect()
+    bridge.connected = True
+    return factory, saved, bridge, events
+
+
+art_cache_root = tempfile.mkdtemp(prefix="mpd-artrefresh-")
+saved_cache_home = os.environ.get("XDG_CACHE_HOME")
+os.environ["XDG_CACHE_HOME"] = art_cache_root
+try:
+    factory, saved, bridge, events = art_bridge([{"script": ART_STATUS * 6}])
+    try:
+        counts = []
+        for _ in range(5):
+            bridge.refresh_once()
+            # Wait for the cover thread to be done -- that is the state the
+            # doubling was measured in (refreshes seconds apart); with the retry
+            # left in place the next refresh starts a fresh one.
+            wait_for(lambda: bridge.art_uri == "", 2.0)
+            counts.append(art_tries(factory))
+        check("five refreshes ask MPD for the cover once", art_tries(factory), 1)
+        check("... and the first of them did ask", counts[0], 1)
+        check("... every one after it did not", counts[1:], [1, 1, 1, 1])
+    finally:
+        stop_bridge(bridge)
+        B.MPDConn = saved
+finally:
+    shutil.rmtree(art_cache_root, ignore_errors=True)
+    if saved_cache_home is None:
+        os.environ.pop("XDG_CACHE_HOME", None)
+    else:
+        os.environ["XDG_CACHE_HOME"] = saved_cache_home
+
+print("=== art: a database change is when a missing cover is looked for again ===")
+# The negative answer may not be forever: a rescan can give the album the cover it
+# lacked. MPD says so as `changed: database` on the idle connection, and that is
+# the one thing that has to clear it. A plain refresh (`changed: player`) must
+# not -- that is exactly the retry the cache is there to stop.
+gate = threading.Event()
+factory, saved = planted([
+    {"script": ART_STATUS * 4},
+    {"script": [b"changed: database\n", b"OK\n",
+                b"changed: player\n", b"OK\n"], "gate": gate, "block": True},
+])
+bridge = B.Bridge()
+seen = []
+bridge.emit = seen.append
+manager = threading.Thread(target=bridge.manager, daemon=True)
+manager.start()
+try:
+    check("the bridge is parked on its idle read",
+          wait_for(lambda: len(factory.made) > 1 and factory.made[1].fh is not None
+                   and factory.made[1].fh.entered.is_set(), 3.0), True)
+    check("... with the cover thread of the first refresh finished",
+          wait_for(lambda: bridge.art_uri == "", 3.0), True)
+    check("the first refresh asked for the cover once", art_tries(factory), 1)
+    gate.set()                               # MPD reports the library changed
+    check("the database change is announced",
+          wait_for(lambda: any(e.get("event") == "database" for e in seen), 3.0), True)
+    check("... and the cover is looked for again",
+          wait_for(lambda: art_tries(factory) == 2, 3.0), True)
+    # The refresh that follows is not a database change, so it may not ask again
+    # -- and a retry that should not happen needs its moment to show up before it
+    # can be counted.
+    settled = wait_for(lambda: factory.wire.count("status") >= 3, 3.0)
+    time.sleep(0.3)
+    check("... once, and not on the plain refresh that follows it",
+          settled and art_tries(factory), 2)
+finally:
+    bridge.stop.set()
+    gate.set()
+    for conn in factory.made:
+        if conn.fh is not None:
+            conn.fh.release.set()
+    manager.join(2.0)
+    B.MPDConn = saved
+
 print()
 if FAILS:
     print("   %d of %d checks failed: %s" % (
