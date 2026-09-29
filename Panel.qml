@@ -4,7 +4,7 @@ import qs.Commons
 import qs.Ui
 
 // The panel: queue, a local search, the library by albums/artists/genres, the
-// music tree, stored playlists, the settings, and the public station directory --
+// music tree, stored playlists, the public station directory, and the settings --
 // plus transport, so nothing has to be done twice.
 //
 // The panel owns no MPD state. The bar widget (hostWidget) holds the
