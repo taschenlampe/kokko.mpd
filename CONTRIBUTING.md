@@ -2,7 +2,7 @@
 
 What goes where: the [README](README.md) is for people using the plugin,
 [docs/internals.md](docs/internals.md) for how it works inside, and the
-[issue tracker](https://git.m2control.de/bm/kokko.mpd/issues) for what is open.
+[issue tracker](https://github.com/taschenlampe/kokko.mpd/issues) for what is open.
 
 ## Tests
 
