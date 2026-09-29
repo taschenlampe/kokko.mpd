@@ -85,6 +85,8 @@ import time
 # rather than to a shell holding tens of megabytes of it.
 ART_LIMIT = 12 * 1024 * 1024
 ART_CACHE_KEEP = 96
+ART_PART_SUFFIX = ".part"   # the temp name of a write that has not landed yet
+ART_PART_AGE = 3600         # a `.part` this old belongs to a writer that died
 ART_CHUNK = 256 * 1024
 
 CMD_TIMEOUT = 10.0
@@ -540,17 +542,56 @@ def cached_art(key: str) -> str:
     directory = cache_dir()
     try:
         for name in os.listdir(directory):
-            if name.startswith(key + "."):
+            # A `.part` is a write still in progress, not an answer. The test
+            # here is only "starts with the key", so it matched those too -- with
+            # a finished cover and a leftover beside it, 300 of 300 lookups
+            # handed out the `.part`.
+            if name.startswith(key + ".") and not name.endswith(ART_PART_SUFFIX):
                 return os.path.join(directory, name)
     except OSError:
         pass
     return ""
 
 
+_art_tmp_seq = 0
+_art_tmp_lock = threading.Lock()
+
+
+def art_tmp_path(path: str) -> str:
+    """A temp name for one write -- one no other writer can be using.
+
+    Both writers used `path + ".part"`: the art thread of a refresh and the
+    browse query for a cover. Two of them on the same album then took the file
+    from each other, the slower one's `os.replace` found its source gone, and the
+    OSError was read as "no cover" although the finished cover sat on disk. The
+    token counts writes, not threads, so nothing has to be unique about the
+    writer -- only about the write.
+    """
+    global _art_tmp_seq
+    with _art_tmp_lock:
+        _art_tmp_seq += 1
+        seq = _art_tmp_seq
+    return "%s.%d.%d%s" % (path, os.getpid(), seq, ART_PART_SUFFIX)
+
+
 def prune_cache() -> None:
     directory = cache_dir()
     try:
-        entries = [os.path.join(directory, n) for n in os.listdir(directory)]
+        names = os.listdir(directory)
+        # Files, not cache entries. A `.part` counted as an entry, so a directory
+        # with covers and temp files in it kept the temp files and deleted the
+        # covers -- the prune threw away exactly what the cache is for. A temp
+        # file of a write that is running right now must survive it, so one that
+        # is not is collected by age instead; nothing writes an hour-old file.
+        now = time.time()
+        for name in names:
+            if not name.endswith(ART_PART_SUFFIX):
+                continue
+            stale = os.path.join(directory, name)
+            if now - os.path.getmtime(stale) > ART_PART_AGE:
+                os.unlink(stale)
+        entries = [os.path.join(directory, n) for n in names
+                   if not n.endswith(ART_PART_SUFFIX)]
         if len(entries) <= ART_CACHE_KEEP:
             return
         entries.sort(key=lambda p: os.path.getmtime(p))
@@ -741,6 +782,7 @@ class Bridge:
 
         self.art_uri = ""       # what the art thread is fetching or last fetched
         self.art_sent = None    # last (uri, path) announced, to stay quiet on repeats
+        self.art_missing = set()  # art keys MPD had no cover for; see request_art
         self.art_lock = threading.Lock()
 
         self.query_conn = None
@@ -915,6 +957,10 @@ class Bridge:
                     # changes nothing costs no refetching.
                     for key, value in pairs:
                         if key.lower() == "changed" and value == "database":
+                            # The one thing that may clear a remembered "no cover
+                            # here": the album may have got one with the scan.
+                            with self.art_lock:
+                                self.art_missing.clear()
                             self.emit({"event": "database"})
                             break
                     self.refresh()
@@ -1526,7 +1572,7 @@ class Bridge:
                 data, mime = fetch_art(conn, uri)
                 if data:
                     path = os.path.join(cache_dir(), key + extension_for(data, mime))
-                    tmp = path + ".part"
+                    tmp = art_tmp_path(path)
                     with open(tmp, "wb") as handle:
                         handle.write(data)
                     os.replace(tmp, path)
@@ -1569,6 +1615,16 @@ class Bridge:
             self.announce_art(uri, cached)
             return
         with self.art_lock:
+            # Every refresh asks, and most of them are about the same song. An
+            # album MPD has no cover for used to be fetched again each time --
+            # measured: ten plain refreshes, ten connections, each with
+            # binarylimit/albumart/readpicture. The guard below is per uri and
+            # was cleared after the attempt, which is exactly the state a later
+            # refresh starts from. A remembered "nothing there" is kept until the
+            # library changes (the `database` idle event), which is the only
+            # thing that can make a cover appear.
+            if key in self.art_missing:
+                return
             if self.art_uri == uri:
                 return
             self.art_uri = uri
@@ -1581,6 +1637,11 @@ class Bridge:
         conn = MPDConn(self.target, self.password)
         path = ""
         mime = ""
+        # "MPD was asked and had nothing" is an answer worth remembering; a
+        # connection that broke on the way is not. Remembering that one would
+        # hide the cover until a rescan, when the next refresh may well get
+        # through.
+        no_cover = False
         try:
             conn.connect()
             conn.sock.settimeout(CMD_TIMEOUT)
@@ -1592,9 +1653,10 @@ class Bridge:
             except MPDCommandError:
                 pass
             data, mime = fetch_art(conn, uri)
+            no_cover = not data
             if data:
                 path = os.path.join(cache_dir(), key + extension_for(data, mime))
-                tmp = path + ".part"
+                tmp = art_tmp_path(path)
                 with open(tmp, "wb") as handle:
                     handle.write(data)
                 os.replace(tmp, path)
@@ -1604,6 +1666,10 @@ class Bridge:
         finally:
             conn.close()
             with self.art_lock:
+                # Before the uri guard is let go: a caller that sees the guard
+                # free -- the next refresh -- has to see the answer too.
+                if no_cover and generation == self.generation:
+                    self.art_missing.add(key)
                 if self.art_uri == uri:
                     self.art_uri = ""
         if generation == self.generation and not self.stop.is_set():

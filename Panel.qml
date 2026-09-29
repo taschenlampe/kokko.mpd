@@ -1333,9 +1333,11 @@ Panel {
       // Numbers stay tab switches while the field is empty and was not asked for
       // with `/`: pressing 2 to peek at the search and then 3 to move on used to
       // end up as the search term "23". A term that begins with a digit goes
-      // through `/` -- the explicit "I want to type" gesture.
+      // through `/` -- the explicit "I want to type" gesture. The range is the
+      // one tabForNumber knows and the hint promises: `8` is the settings tab,
+      // and it was typed into the field here instead of opening it.
       if (!root.promptExplicit && root.promptText === "" && text.length === 1
-          && text >= "1" && text <= "7") {
+          && text >= "1" && text <= "8") {
         root.closePrompt()
         root.setTab(root.tabForNumber(text))
         event.accepted = true

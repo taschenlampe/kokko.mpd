@@ -544,6 +544,239 @@ finally:
     manager.join(2.0)
     B.MPDConn = saved
 
+print("=== art cache: finished covers only, and one temp name per writer ===")
+# Two defects in the same few lines. (1) `cached_art` matched every name that
+# starts with the key, `.part` files included -- with a finished cover and a
+# leftover temp file in the directory, 300 of 300 lookups handed out the `.part`.
+# (2) Both write paths used `path + ".part"` as their temp name, so two writers
+# on one album took the file from each other: the slower one got
+# FileNotFoundError, the `except (MPDError, OSError)` turned that into "no
+# cover", and the finished cover sat on disk unannounced.
+
+
+class ArtConn(FakeConn):
+    """The fake transport with MPD's binary answer scripted in.
+
+    `albumart` answers the way `fetch_binary` reads it: the size and type lines
+    first, then the bytes. Any later call ends the response.
+    """
+
+    def __init__(self, blob=b"", target=("tcp", "127.0.0.1", 6600)):
+        FakeConn.__init__(self, target)
+        self.blob = blob
+        self.calls = []
+
+    def command(self, name, *args):
+        self.calls.append((name, list(args)))
+        if name == "albumart" and self.blob:
+            return [("size", str(len(self.blob))), ("type", "image/jpeg")], self.blob
+        return [], None
+
+
+art_cache_root = tempfile.mkdtemp(prefix="mpd-artcache-")
+saved_cache_home = os.environ.get("XDG_CACHE_HOME")
+os.environ["XDG_CACHE_HOME"] = art_cache_root
+cache = B.cache_dir()
+try:
+    key = B.art_key({"file": "Album/01.mp3", "album": "Album", "albumartist": ""})
+    part = os.path.join(cache, key + ".jpg.part")
+    with open(part, "wb") as handle:
+        handle.write(jpeg(64))
+    check("a leftover .part is not a cache hit", B.cached_art(key), "")
+    cover = os.path.join(cache, key + ".jpg")
+    with open(cover, "wb") as handle:
+        handle.write(jpeg(2048))
+    check("with both files the finished cover wins", B.cached_art(key), cover)
+    check("... however often it is asked",
+          [B.cached_art(key) for _ in range(50)], [cover] * 50)
+
+    # The other half: two writers, one album. Each has to write its own temp file
+    # -- the one that comes second used to find the file already moved away.
+    fresh = B.art_key({"file": "Album/07.mp3", "album": "Seven", "albumartist": ""})
+    target = os.path.join(cache, fresh + ".jpg")
+    written = []
+    real_replace = os.replace
+
+    def record_replace(src, dst):
+        written.append((src, dst))
+        return real_replace(src, dst)
+
+    saved_conn = B.MPDConn
+    os.replace = record_replace
+    try:
+        # (a) the browsing query: its own connection, on the query worker
+        B.Bridge().execute_query(ArtConn(jpeg(4096)), "art",
+                                 {"uri": "Album/07.mp3", "album": "Seven"})
+        # (b) the art thread of a refresh, writing the same album
+        writer = B.Bridge()
+        writer.emit = lambda payload: None
+        B.MPDConn = lambda target, password="": ArtConn(jpeg(4096))
+        writer.art_worker("Album/07.mp3", fresh, writer.generation)
+    finally:
+        os.replace = real_replace
+        B.MPDConn = saved_conn
+
+    check("both writers land on the same finished file",
+          [dst for _src, dst in written], [target, target])
+    check("... with a temp name of their own",
+          len(set(src for src, _dst in written)), 2)
+    check("... each a .part beside its target",
+          [src.startswith(target + ".") and src.endswith(".part")
+           for src, _dst in written], [True, True])
+    check("... and no temp file left behind",
+          [n for n in os.listdir(cache) if n.endswith(".part")],
+          [os.path.basename(part)])
+finally:
+    shutil.rmtree(art_cache_root, ignore_errors=True)
+    if saved_cache_home is None:
+        os.environ.pop("XDG_CACHE_HOME", None)
+    else:
+        os.environ["XDG_CACHE_HOME"] = saved_cache_home
+
+print("=== pruning counts finished covers, not temp files ===")
+# A `.part` counted as a cache entry like any other. With two covers and two temp
+# files in the directory and ART_CACHE_KEEP at 2, the newest two entries -- the
+# temp files -- were kept and both covers were deleted: the prune threw away
+# exactly the files the cache exists for.
+prune_root = tempfile.mkdtemp(prefix="mpd-prune-")
+saved_cache_home = os.environ.get("XDG_CACHE_HOME")
+os.environ["XDG_CACHE_HOME"] = prune_root
+prune_dir = B.cache_dir()
+saved_keep = B.ART_CACHE_KEEP
+B.ART_CACHE_KEEP = 2
+try:
+    covers = [os.path.join(prune_dir, "cover-%d.jpg" % n) for n in range(2)]
+    parts = [os.path.join(prune_dir, "cover-%d.jpg.part" % n) for n in range(2)]
+    for path in covers + parts:
+        with open(path, "wb") as handle:
+            handle.write(jpeg(32))
+    stamp = time.time()
+    for n, path in enumerate(covers):        # the finished covers are the older ones
+        os.utime(path, (stamp - 600 - n, stamp - 600 - n))
+    for n, path in enumerate(parts):         # the temp files look newer
+        os.utime(path, (stamp - n, stamp - n))
+    B.prune_cache()
+    check("the finished covers survive the prune",
+          [os.path.exists(p) for p in covers], [True, True])
+    check("... and a temp file of a write in progress too",
+          [os.path.exists(p) for p in parts], [True, True])
+    # The other direction: a temp file nobody is writing any more is garbage, and
+    # since the prune no longer counts `.part` files as entries nothing else would
+    # ever collect it.
+    stale = os.path.join(prune_dir, "stale.jpg.part")
+    with open(stale, "wb") as handle:
+        handle.write(jpeg(32))
+    os.utime(stale, (stamp - 7200, stamp - 7200))
+    B.prune_cache()
+    check("a temp file left behind by a dead writer is collected",
+          os.path.exists(stale), False)
+finally:
+    B.ART_CACHE_KEEP = saved_keep
+    shutil.rmtree(prune_root, ignore_errors=True)
+    if saved_cache_home is None:
+        os.environ.pop("XDG_CACHE_HOME", None)
+    else:
+        os.environ["XDG_CACHE_HOME"] = saved_cache_home
+
+print("=== art: an album without a cover is not fetched again on every refresh ===")
+# Measured before the fix: ten plain refreshes were ten connections, each with
+# binarylimit/albumart/readpicture -- five volume-wheel steps, ten connections
+# and twenty cover commands. `request_art`'s guard was per uri and was cleared
+# after the attempt, so a refresh that arrived later started from scratch; an
+# album that has no cover on any path (12 of 120 in one sample) did it forever.
+
+ART_STATUS = [b"state: play\n", b"OK\n", b"file: nosuch/01.mp3\n", b"OK\n"]
+
+
+def art_tries(factory):
+    """How often the fake wire was asked for a cover."""
+    return sum(1 for line in factory.wire if line.startswith("albumart"))
+
+
+def art_bridge(plans):
+    """A bridge on a connected fake command connection, with the real art path."""
+    factory, saved = planted(plans)
+    bridge = B.Bridge()
+    events = []
+    bridge.emit = events.append
+    bridge.refresh_soon = lambda: None
+    bridge.cmd = factory(bridge.target, bridge.password)
+    bridge.cmd.connect()
+    bridge.connected = True
+    return factory, saved, bridge, events
+
+
+art_cache_root = tempfile.mkdtemp(prefix="mpd-artrefresh-")
+saved_cache_home = os.environ.get("XDG_CACHE_HOME")
+os.environ["XDG_CACHE_HOME"] = art_cache_root
+try:
+    factory, saved, bridge, events = art_bridge([{"script": ART_STATUS * 6}])
+    try:
+        counts = []
+        for _ in range(5):
+            bridge.refresh_once()
+            # Wait for the cover thread to be done -- that is the state the
+            # doubling was measured in (refreshes seconds apart); with the retry
+            # left in place the next refresh starts a fresh one.
+            wait_for(lambda: bridge.art_uri == "", 2.0)
+            counts.append(art_tries(factory))
+        check("five refreshes ask MPD for the cover once", art_tries(factory), 1)
+        check("... and the first of them did ask", counts[0], 1)
+        check("... every one after it did not", counts[1:], [1, 1, 1, 1])
+    finally:
+        stop_bridge(bridge)
+        B.MPDConn = saved
+finally:
+    shutil.rmtree(art_cache_root, ignore_errors=True)
+    if saved_cache_home is None:
+        os.environ.pop("XDG_CACHE_HOME", None)
+    else:
+        os.environ["XDG_CACHE_HOME"] = saved_cache_home
+
+print("=== art: a database change is when a missing cover is looked for again ===")
+# The negative answer may not be forever: a rescan can give the album the cover it
+# lacked. MPD says so as `changed: database` on the idle connection, and that is
+# the one thing that has to clear it. A plain refresh (`changed: player`) must
+# not -- that is exactly the retry the cache is there to stop.
+gate = threading.Event()
+factory, saved = planted([
+    {"script": ART_STATUS * 4},
+    {"script": [b"changed: database\n", b"OK\n",
+                b"changed: player\n", b"OK\n"], "gate": gate, "block": True},
+])
+bridge = B.Bridge()
+seen = []
+bridge.emit = seen.append
+manager = threading.Thread(target=bridge.manager, daemon=True)
+manager.start()
+try:
+    check("the bridge is parked on its idle read",
+          wait_for(lambda: len(factory.made) > 1 and factory.made[1].fh is not None
+                   and factory.made[1].fh.entered.is_set(), 3.0), True)
+    check("... with the cover thread of the first refresh finished",
+          wait_for(lambda: bridge.art_uri == "", 3.0), True)
+    check("the first refresh asked for the cover once", art_tries(factory), 1)
+    gate.set()                               # MPD reports the library changed
+    check("the database change is announced",
+          wait_for(lambda: any(e.get("event") == "database" for e in seen), 3.0), True)
+    check("... and the cover is looked for again",
+          wait_for(lambda: art_tries(factory) == 2, 3.0), True)
+    # The refresh that follows is not a database change, so it may not ask again
+    # -- and a retry that should not happen needs its moment to show up before it
+    # can be counted.
+    settled = wait_for(lambda: factory.wire.count("status") >= 3, 3.0)
+    time.sleep(0.3)
+    check("... once, and not on the plain refresh that follows it",
+          settled and art_tries(factory), 2)
+finally:
+    bridge.stop.set()
+    gate.set()
+    for conn in factory.made:
+        if conn.fh is not None:
+            conn.fh.release.set()
+    manager.join(2.0)
+    B.MPDConn = saved
+
 print()
 if FAILS:
     print("   %d of %d checks failed: %s" % (

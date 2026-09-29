@@ -129,7 +129,7 @@ function grabRowBinding(name) {
 }
 
 const FUNCTIONS = [
-  "rootFrameFor", "setTab", "pushFrame", "popFrame", "topFrame", "loadFrame",
+  "rootFrameFor", "tabForNumber", "setTab", "pushFrame", "popFrame", "topFrame", "loadFrame",
   "infoFor", "groupHits", "isSelectable", "firstSelectable", "lastSelectable",
   "rowIsSong", "activate", "addRow", "addOne", "addAll", "openPrompt",
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
@@ -867,6 +867,60 @@ group("case 8: the mark only shows while the list really has the keys");
   check("control: with no prompt the loaded list keeps its mark",
         S.root.promptMode === "" && S.root.sel === 0 && S.markedRows().join(",") === "0",
         "marked: " + JSON.stringify(S.markedRows()));
+}
+
+group("case 9: the eighth tab is reachable from an open, empty search field");
+{
+  // The hint promises "1-8 switch tabs" and the settings hint says "8 picks the
+  // tab" (both read from Panel.qml), and tabForNumber maps the eight numbers --
+  // but the number shortcut itself stopped at 7. With a field open and empty,
+  // `8` was typed into it: the settings tab could not be reached from the search
+  // tab at all, and the field showed a term nobody typed.
+  const P = makePanel();
+  P.key(0, "2");                       // the `2` key: the search tab, field up
+  check("the search field is open and empty",
+        P.root.promptMode === "search" && P.root.promptText === ""
+          && P.root.promptExplicit === false,
+        P.root.promptMode + " / " + JSON.stringify(P.root.promptText)
+          + " explicit=" + String(P.root.promptExplicit));
+  P.key(0, "8");
+  check("`8` switches to the settings tab",
+        P.root.tab === "settings" && P.root.frameMode === "settings",
+        "tab=" + P.root.tab + " frame=" + P.root.frameMode);
+  check("... and the field did not take the digit", P.root.promptText === "",
+        JSON.stringify(P.root.promptText));
+
+  // tabForNumber and the shortcut have to agree on the range -- one of them
+  // knowing eight tabs while the other stops at seven is exactly the bug.
+  check("every number tabForNumber knows is a tab the key opens",
+        [1, 2, 3, 4, 5, 6, 7, 8].every(function (n) {
+          const Q = makePanel();
+          Q.key(0, String(n));
+          return Q.root.tab === Q.root.tabForNumber(String(n));
+        }), [1, 2, 3, 4, 5, 6, 7, 8].map(function (n) {
+          const Q = makePanel();
+          Q.key(0, String(n));
+          return n + ":" + Q.root.tab;
+        }).join(", "));
+
+  // The other half of the rule is untouched: `/` says "I really do want to type",
+  // and in that field a digit stays a digit -- the 8 included.
+  const Q = makePanel();
+  Q.key(0, "2");
+  Q.press("/");                        // the explicit gesture
+  check("`/` marks the field explicit",
+        Q.root.promptExplicit === true && Q.root.promptText === "",
+        String(Q.root.promptExplicit));
+  Q.key(0, "8");
+  check("with an explicit field `8` is text, not a tab switch",
+        Q.root.promptText === "8" && Q.root.tab === "search",
+        JSON.stringify(Q.root.promptText) + " tab=" + Q.root.tab);
+
+  // Control: with no field open the `8` always worked, and still does.
+  const R = makePanel();
+  R.key(0, "8");
+  check("control: `8` with no field open picks the settings tab",
+        R.root.tab === "settings" && R.root.frameMode === "settings", R.root.tab);
 }
 
 group("language: the panel's strings are English");
