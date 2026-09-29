@@ -141,7 +141,7 @@ const FUNCTIONS = [
   // stream display hangs on.
   "isStream", "radioFrame", "radioRowsFor", "radioCountries", "radioGenres",
   "dedupeStations", "stationTitle", "stationSub", "applyRadioSearch",
-  "stationDetail", "streamPlaying", "showDetails", "detailPairs", "labelFor"
+  "stationDetail", "streamPlaying", "openRadioLevel", "showDetails", "detailPairs", "labelFor"
 ];
 
 const MISSING = [];
@@ -936,7 +936,8 @@ group("case 9: the eighth tab is reachable from an open, empty search field");
 // cases test the change, not the harness.
 const RADIO_FNS = ["isStream", "radioFrame", "radioRowsFor", "radioCountries",
                    "radioGenres", "dedupeStations", "stationTitle", "stationSub",
-                   "applyRadioSearch", "stationDetail", "streamPlaying"];
+                   "applyRadioSearch", "stationDetail", "streamPlaying",
+                   "openRadioLevel"];
 const RADIO_MISSING = (function () {
   const probe = makePanel();
   return RADIO_FNS.filter(function (n) { return typeof probe.root[n] !== "function" });
@@ -1145,6 +1146,17 @@ function case12BrowseDirectory() {
   check("a station search asks no MPD question",
         R.queries.every(function (q) { return q.kind === "radio_search"; }),
         JSON.stringify(R.queries.map(function (q) { return q.kind; })));
+
+  // `+` on a browse row means what `+` means everywhere -- take this row -- and
+  // on a country or a genre that is the level behind it, not a queue full of live
+  // streams. The button is not a dead glyph there.
+  const T = makePanel();
+  T.key(0, "9");
+  T.root.sel = T.rowsTitles().indexOf("By genre");
+  T.root.addRow();
+  check("`+` on a browse row opens the level instead of filling the queue",
+        T.root.frameMode === "radioGenres" && T.mutations.length === 0,
+        T.root.frameMode + " mutations=" + JSON.stringify(T.mutations));
 
   // Browsing and searching never touch the queue -- nothing plays by itself.
   check("no station was appended or played while browsing",

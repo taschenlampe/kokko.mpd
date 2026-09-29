@@ -983,6 +983,27 @@ Panel {
   }
 
   // --------------------------------------------------------------- actions
+  // A browse row -- a country list, a genre list, the search entry, one country,
+  // one genre -- is a level, not something to append. `enter` and a row click go
+  // into it, and `+` does the same rather than standing there dead: the mouse half
+  // of `a` has nothing to put in the queue from a row that only opens a list.
+  function openRadioLevel(row) {
+    if (!row) return
+    if (row.nav === "countries") { root.pushFrame({ mode: "radioCountries", title: "Countries" }); return }
+    if (row.nav === "genres") { root.pushFrame({ mode: "radioGenres", title: "Genres" }); return }
+    if (row.nav === "search") { root.openPrompt("radio", "", true, true); return }
+    if (row.nav === "country") {
+      root.pushFrame({ mode: "radioStations", country: String(row.code || ""),
+                       title: String(row.title || "") })
+      return
+    }
+    if (row.nav === "genre") {
+      root.pushFrame({ mode: "radioStations", tag: String(row.value || ""),
+                       title: String(row.value || "") })
+      return
+    }
+  }
+
   function activate() {
     var row = root.rows[root.sel]
     if (!row) return
@@ -1020,25 +1041,7 @@ Panel {
     // The radio browse is not the player's business: these rows only open other
     // frames (a country list, a genre list, the search field), and every one of
     // them works with MPD down.
-    if (row.type === "radio") {
-      if (row.nav === "countries") {
-        root.pushFrame({ mode: "radioCountries", title: "Countries" })
-        return
-      }
-      if (row.nav === "genres") { root.pushFrame({ mode: "radioGenres", title: "Genres" }); return }
-      if (row.nav === "search") { root.openPrompt("radio", "", true, true); return }
-      if (row.nav === "country") {
-        root.pushFrame({ mode: "radioStations", country: String(row.code || ""),
-                         title: String(row.title || "") })
-        return
-      }
-      if (row.nav === "genre") {
-        root.pushFrame({ mode: "radioStations", tag: String(row.value || ""),
-                         title: String(row.value || "") })
-        return
-      }
-      return
-    }
+    if (row.type === "radio") { root.openRadioLevel(row); return }
     if (!root.up) return
 
     if (mode === "queue") { if (row.id !== undefined) host.playId(row.id); return }
@@ -1150,6 +1153,11 @@ Panel {
       // its turn -- the same thing `a` does on a library row.
       host.addUri(String(row.url_resolved || row.url || ""))
       what = root.stationTitle(row)
+    } else if (type === "radio") {
+      // A browse row carries nothing to append: it opens the level it stands for
+      // (see openRadioLevel), which is what the row does on a click as well.
+      root.openRadioLevel(row)
+      return
     } else if (row.file) {
       host.addUri(String(row.file))
       what = root.rowTitle(row)
