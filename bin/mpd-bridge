@@ -1445,12 +1445,26 @@ class Bridge:
                 if not version_at_least(conn.version, 0, 21):
                     args = [tag, tag, term]
                 else:
+                    # The pane narrows a nested list (one artist, one genre) and
+                    # searches inside it in the same request, so both conditions
+                    # belong in the one filter a list command carries, joined with
+                    # AND like filter_args() joins its own clauses. Answered with
+                    # the term alone, the narrowing was silently lost: artist
+                    # "Little Dragon" plus "New" came back as every "New" album in
+                    # the library (measured: 12 rows instead of the one album,
+                    # other artists among them).
+                    scope = self.filter_args(conn, request.get("filter") or [])
                     try:
-                        args = [tag, contains_expression(tag, term)]
+                        clauses = scope + [contains_expression(tag, term)]
+                        args = [tag, "(" + " AND ".join(clauses) + ")"
+                                if len(clauses) > 1 else clauses[0]]
                         rows = tag_values(conn.command("list", *args)[0], tag, limit=limit)
                     except MPDCommandError:
                         # An MPD built without regex support: a case-sensitive hit
-                        # still beats no hit at all.
+                        # still beats no hit at all. This retry is about finding a
+                        # spelling the server accepts, so it stays the term alone --
+                        # the same narrowing the old code answered with, kept here
+                        # rather than risking a second refusal on the scope.
                         args = [tag, "(%s contains '%s')" % (tag, quote_filter_value(term))]
                         rows = tag_values(conn.command("list", *args)[0], tag, limit=limit)
                     rows.sort(key=lambda r: r["value"].lower())
