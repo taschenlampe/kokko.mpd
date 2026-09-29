@@ -13,13 +13,17 @@ The last three sections drive the real Bridge methods -- `with_cmd`, `drop`,
 file, while `readline`/`send`/`read_response`/`command` stay the production
 code. No socket is opened, no MPD is needed, and nothing is installed.
 """
+import http.server
 import importlib.machinery
 import importlib.util
+import json
 import os
 import shutil
+import socketserver
 import tempfile
 import threading
 import time
+import urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BRIDGE = os.path.join(ROOT, "bin", "mpd-bridge")
@@ -865,6 +869,284 @@ finally:
             conn.fh.release.set()
     manager.join(2.0)
     B.MPDConn = saved
+
+print("=== radio search: the request that is sent to radio-browser ===")
+# A real HTTP server on localhost -- stdlib, in a thread, no network -- that
+# writes down what it was asked. The URL is the contract with a public API, so
+# it is checked field by field rather than trusted: a term stitched into the
+# query string by hand is exactly the bug this catches (a space or an `&` in a
+# station name would arrive as two parameters and a truncated search).
+
+
+def station(name="S", url="http://stream/x", codec="MP3", bitrate=128,
+            country="Germany", countrycode="DE", lastcheckok=1, votes=10,
+            tags="jazz", homepage=""):
+    """One entry shaped like radio-browser's: the fields the search returns."""
+    return {"stationuuid": "u-1", "name": name, "url": url, "url_resolved": url,
+            "codec": codec, "bitrate": bitrate, "country": country,
+            "countrycode": countrycode, "lastcheckok": lastcheckok,
+            "votes": votes, "tags": tags, "homepage": homepage, "favicon": ""}
+
+
+class QuietServer(socketserver.ThreadingTCPServer):
+    """A server whose clients may hang up mid-answer, as one of these does."""
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        pass
+
+
+class FakeRadio:
+    """One endpoint on 127.0.0.1 that answers whatever a test tells it to.
+
+    Real sockets and real HTTP, so the fetch runs its real code: urlopen, the
+    timeout, the header. `requests` keeps every (path, headers) it was hit
+    with, which is how the query string is inspected afterwards.
+    """
+
+    def __init__(self, responder):
+        self.responder = responder
+        self.requests = []
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                owner.requests.append((self.path, dict(self.headers)))
+                owner.responder(self)
+
+            def log_message(self, format, *args):
+                pass
+
+        self.server = QuietServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       daemon=True)
+        self.thread.start()
+        self.base = "http://127.0.0.1:%d" % self.server.server_address[1]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def radio_reply(payload, status=200):
+    """A responder that writes one JSON body."""
+    body = json.dumps(payload).encode("utf-8")
+
+    def responder(handler):
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+    return responder
+
+
+def radio_raw(body, status=200):
+    """A responder that writes bytes nobody guaranteed are JSON."""
+    if not isinstance(body, bytes):
+        body = body.encode("utf-8")
+
+    def responder(handler):
+        handler.send_response(status)
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+    return responder
+
+
+def radio_hang(_handler):
+    """Take the request and never answer it. The timeout case."""
+    time.sleep(6.0)
+
+
+class RadioPatched:
+    """Point the bridge's radio search at a local server for one check."""
+
+    def __init__(self, base, timeout=None, grace=None):
+        self.base, self.timeout, self.grace = base, timeout, grace
+
+    def __enter__(self):
+        self.saved = (B.RADIO_API, B.RADIO_TIMEOUT, B.RADIO_GRACE)
+        B.RADIO_API = self.base
+        if self.timeout is not None:
+            B.RADIO_TIMEOUT = self.timeout
+        if self.grace is not None:
+            B.RADIO_GRACE = self.grace
+        return self
+
+    def __exit__(self, *exc):
+        B.RADIO_API, B.RADIO_TIMEOUT, B.RADIO_GRACE = self.saved
+
+
+# The endpoint is the one the task names, and it is https without a key.
+check("the real endpoint",
+      (B.RADIO_API + B.RADIO_PATH), "https://all.api.radio-browser.info/json/stations/search")
+# No country and no tag means neither parameter is sent -- an empty filter is
+# not the same as one that matches nothing.
+plain = urllib.parse.parse_qs(urllib.parse.urlsplit(B.radio_url("laut.fm")).query)
+check("country and tag are left out when they are empty",
+      ("countrycode" in plain, "tag" in plain), (False, False))
+
+with FakeRadio(radio_reply([station(name="Swiss Groove")])) as srv:
+    with RadioPatched(srv.base, timeout=2.0):
+        rows = B.Bridge().radio_search({"search": "swiss groove & more", "limit": 7,
+                                        "country": "CH", "tag": "jazz"})
+    path, headers = srv.requests[0]
+    query = urllib.parse.urlsplit(path).query
+    sent = urllib.parse.parse_qs(query)
+    check("the search term arrives whole, ampersand and all",
+          sent.get("name"), ["swiss groove & more"])
+    check("the term is escaped in the query string, not stitched in",
+          ("swiss groove & more" in path, "%26" in query), (False, True))
+    check("hidebroken, the order and the limit are asked for",
+          (sent.get("hidebroken"), sent.get("order"), sent.get("reverse"),
+           sent.get("limit")),
+          (["true"], ["votes"], ["true"], ["7"]))
+    check("country and tag narrow it",
+          (sent.get("countrycode"), sent.get("tag")), (["CH"], ["jazz"]))
+    check("the search path is the API's",
+          urllib.parse.urlsplit(path).path, "/json/stations/search")
+    # radio-browser asks callers to identify themselves rather than arrive as a
+    # nameless client, and a default urllib agent gets refused outright.
+    check("a User-Agent names the plugin",
+          headers.get("User-Agent"), B.RADIO_UA)
+    check("... with a contact in it",
+          "github.com/taschenlampe/kokko.mpd" in (headers.get("User-Agent") or ""), True)
+    check("the answer comes back as a row", [r["name"] for r in rows], ["Swiss Groove"])
+
+with FakeRadio(radio_reply([station()])) as srv:
+    with RadioPatched(srv.base, timeout=2.0):
+        B.Bridge().radio_search({"search": "   "})
+    check("an empty search asks the directory nothing", srv.requests, [])
+
+print("=== radio search: only stations that can play ===")
+# What the directory sends and what a row is allowed to be. `lastcheckok` is
+# radio-browser's own verdict on whether the stream worked the last time it
+# tried it; a station it has marked broken is a row that does not play, and a
+# search result is the wrong place to find that out. An entry whose URL never
+# resolved has nothing to hand a player at all.
+answer = [
+    station(name="Good One", url="http://a/1"),
+    station(name="Broken One", url="http://a/2", lastcheckok=0),
+    station(name="No Stream", url="", lastcheckok=1),
+    station(name="Also Good", url="http://a/3", bitrate="192"),
+    station(name="Checked As String", url="http://a/4", lastcheckok="1"),
+]
+rows = B.radio_stations(json.dumps(answer).encode(), 50)
+check("checked stations with a resolved stream, and nothing else",
+      [r["name"] for r in rows], ["Good One", "Also Good", "Checked As String"])
+check("a row carries what the panel draws",
+      sorted(rows[0]),
+      ["bitrate", "codec", "country", "countrycode", "homepage",
+       "lastcheckok", "name", "tags", "url_resolved", "votes"])
+check("the fields keep their values",
+      (rows[0]["url_resolved"], rows[0]["codec"], rows[0]["country"],
+       rows[0]["lastcheckok"]),
+      ("http://a/1", "MP3", "Germany", 1))
+check("a bitrate the API sent as a string is still a number",
+      rows[1]["bitrate"], 192)
+check("the limit caps the rows", len(B.radio_stations(json.dumps(answer).encode(), 2)), 2)
+
+print("=== radio search: an answer that is not an answer ===")
+# Never a traceback and never a hang: each of these is the error reply the
+# other queries give, and the bridge lives on.
+check("a body that is not JSON is a radio error",
+      raised_by(lambda: B.radio_stations(b"<html>503 Service Unavailable</html>")), "RadioError")
+check("an empty body is a radio error",
+      raised_by(lambda: B.radio_stations(b"")), "RadioError")
+check("an object instead of a list is a radio error",
+      raised_by(lambda: B.radio_stations(b'{"error":"no stations"}')), "RadioError")
+check("an empty list is simply no stations",
+      B.radio_stations(b"[]", 50), [])
+
+for label, responder in (
+        ("a 503", radio_raw(b"nope", 503)),
+        ("HTML where JSON belongs", radio_raw(b"<html>no</html>")),
+):
+    with FakeRadio(responder) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            check("%s comes back as a radio error" % label,
+                  raised_by(lambda: B.Bridge().radio_search({"search": "laut.fm"})),
+                  "RadioError")
+
+print("=== radio search: a directory that never answers ===")
+# The reason this op is written the way it is. MPD once hung a read and took
+# the whole bridge with it; a public HTTP directory is the same hazard with a
+# worse socket, so the fetch is cut off and answered as an error, and the
+# worker is free again for the next question.
+with FakeRadio(radio_hang) as srv:
+    # The MPD connection the queue query afterwards needs: the first reply is
+    # `binarylimit`'s OK, then the playlist's one entry.
+    factory, saved = planted([{"script": [b"OK\n", b"file: a.mp3\n", b"OK\n"]}])
+    bridge = B.Bridge()
+    answers = []
+    bridge.emit = answers.append
+    try:
+        with RadioPatched(srv.base, timeout=0.3, grace=0.2):
+            bridge.submit_query({"id": 1, "kind": "radio_search",
+                                 "channel": "radio", "search": "laut.fm"})
+            check("the hung request is still answered",
+                  wait_for(lambda: any(a.get("id") == 1 for a in answers), 5.0), True)
+        check("... with an error and no rows",
+              [(a.get("rows"), bool(a.get("error")))
+               for a in answers if a.get("id") == 1],
+              [([], True)])
+        # The whole point: the bridge is still there, and an ordinary MPD query
+        # submitted after the hang gets its answer.
+        bridge.submit_query({"id": 2, "kind": "queue", "channel": "queue"})
+        check("... and an MPD query after it is answered too",
+              wait_for(lambda: any(a.get("id") == 2 for a in answers), 5.0), True)
+        check("... with the queue it asked for",
+              [a["rows"][0]["file"] for a in answers if a.get("id") == 2], ["a.mp3"])
+    finally:
+        B.MPDConn = saved
+        stop_bridge(bridge)
+
+# The socket timeout cannot end every hang: urlopen covers the connect and the
+# reads, but name resolution runs in C and ignores it, so a resolver that has
+# gone away parks the call for as long as *its* timeout. The watchdog thread on
+# top is the ceiling that catches that one -- simulated here by a fetch that
+# never returns at all.
+with RadioPatched("http://127.0.0.1:1", timeout=0.2, grace=0.2):
+    saved_open = B.urlopen_body
+    B.urlopen_body = lambda url, timeout: threading.Event().wait()
+    try:
+        started = time.time()
+        kind = raised_by(lambda: B.Bridge().radio_search({"search": "laut.fm"}))
+        took = time.time() - started
+    finally:
+        B.urlopen_body = saved_open
+check("a fetch that ignores its own timeout is cut off", kind, "RadioError")
+check("... at the hard ceiling rather than never", took < 1.5, True)
+
+print("=== radio search: it never touches MPD ===")
+# A radio lookup is a query against somebody else's catalogue. No MPD
+# connection is opened for it and no command is sent: not a play, not an add,
+# nothing that could change the queue.
+with FakeRadio(radio_reply([station()])) as srv:
+    factory, saved = planted([])
+    bridge = B.Bridge()
+    answers = []
+    bridge.emit = answers.append
+    try:
+        with RadioPatched(srv.base, timeout=2.0):
+            bridge.submit_query({"id": 3, "kind": "radio_search",
+                                 "channel": "radio", "search": "laut.fm"})
+            check("the radio answer arrives as a result event",
+                  wait_for(lambda: any(a.get("id") == 3 for a in answers), 3.0), True)
+        check("... carrying the radio kind and its channel",
+              [(a.get("kind"), a.get("channel"), len(a.get("rows") or []))
+               for a in answers if a.get("id") == 3],
+              [("radio_search", "radio", 1)])
+        check("... and MPD was never connected to or asked anything",
+              (factory.made, factory.wire), ([], []))
+    finally:
+        B.MPDConn = saved
+        stop_bridge(bridge)
 
 print()
 if FAILS:
