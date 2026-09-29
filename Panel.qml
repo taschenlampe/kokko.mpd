@@ -4,7 +4,7 @@ import qs.Commons
 import qs.Ui
 
 // The panel: queue, a local search, the library by albums/artists/genres, the
-// music tree, stored playlists, the settings, and the public station directory --
+// music tree, stored playlists, the public station directory, and the settings --
 // plus transport, so nothing has to be done twice.
 //
 // The panel owns no MPD state. The bar widget (hostWidget) holds the
@@ -1308,8 +1308,8 @@ Panel {
     if (mode === "files") return "enter opens/plays · a appends · A whole folder · ← back"
     if (mode === "playlists") return "enter opens · a loads · s saves the queue · r renames · d deletes"
     if (mode === "plist") return "enter plays · a appends · d removes the track · ← back"
-    if (mode === "settings") return "enter/space toggles · -/+ change the value · 8 picks the tab · esc back"
-    if (mode === "radio") return "enter opens/typing · / searches stations · 9 picks the tab"
+    if (mode === "settings") return "enter/space toggles · -/+ change the value · 9 picks the tab · esc back"
+    if (mode === "radio") return "enter opens/typing · / searches stations · 8 picks the tab"
     if (mode === "radioCountries" || mode === "radioGenres") return "enter shows its stations · h/esc back"
     if (mode === "radioStations") return "enter plays · a appends · i station info · / new search · h/esc back"
     return ""
@@ -1398,7 +1398,7 @@ Panel {
   // 1..9 -> tab name, so the number keys can be read in one place.
   function tabForNumber(value) {
     var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists",
-                 "settings", "radio"]
+                 "radio", "settings"]
     var index = Number(value) - 1
     return (index >= 0 && index < order.length) ? order[index] : ""
   }
@@ -1696,7 +1696,7 @@ Panel {
       // with `/`: pressing 2 to peek at the search and then 3 to move on used to
       // end up as the search term "23". A term that begins with a digit goes
       // through `/` -- the explicit "I want to type" gesture. The range is the
-      // one tabForNumber knows and the hint promises: `8` is the settings tab,
+      // one tabForNumber knows and the hint promises: `9` is the settings tab,
       // and it was typed into the field here instead of opening it.
       if (!root.promptExplicit && root.promptText === "" && text.length === 1
           && text >= "1" && text <= "9") {
@@ -1758,8 +1758,8 @@ Panel {
     if (text === "5" || key === Qt.Key_5) { root.setTab("genres"); event.accepted = true; return }
     if (text === "6" || key === Qt.Key_6) { root.setTab("files"); event.accepted = true; return }
     if (text === "7" || key === Qt.Key_7) { root.setTab("playlists"); event.accepted = true; return }
-    if (text === "8" || key === Qt.Key_8) { root.setTab("settings"); event.accepted = true; return }
-    if (text === "9" || key === Qt.Key_9) { root.setTab("radio"); event.accepted = true; return }
+    if (text === "8" || key === Qt.Key_8) { root.setTab("radio"); event.accepted = true; return }
+    if (text === "9" || key === Qt.Key_9) { root.setTab("settings"); event.accepted = true; return }
 
     // Settings tab: -/+ step a number, space flips a switch. Before the global
     // volume/play bindings, which own those keys everywhere else.
@@ -2015,8 +2015,8 @@ Panel {
               { key: "genres", label: "5" },
               { key: "files", label: "6" },
               { key: "playlists", label: "7" },
-              { key: "settings", label: "8" },
-              { key: "radio", label: "9" }
+              { key: "radio", label: "8" },
+              { key: "settings", label: "9" }
             ]
 
             delegate: Item {

@@ -105,7 +105,7 @@ The panel itself opens with **`SUPER + CTRL + M`** — that is the binding this 
 documents; if you want a different key, bind `omarchy-shell kokko.mpd panel` to your
 own.
 
-**Radio (tab `9`)** — the station directory, browsable: `enter` on *By country* or
+**Radio (tab `8`)** — the station directory, browsable: `enter` on *By country* or
 *By genre* opens that list, `/` searches by station name, `enter` starts a station
 and `a` appends it to the queue. Nothing plays by itself while you browse. The
 stations come from [radio-browser.info](https://www.radio-browser.info/); a station
@@ -121,7 +121,7 @@ and nothing to seek.
 
 | Key | Effect |
 |---|---|
-| `1`…`9`, `tab` | queue · search · albums · artists · genres · files · playlists · settings · radio |
+| `1`…`9`, `tab` | queue · search · albums · artists · genres · files · playlists · radio · settings |
 | `t` | jump to the playing track, from any tab |
 | `<` `>` | previous / next track |
 | `/` | search — the current category only in albums/artists/genres, the filter in files/playlists, the station directory in radio, global elsewhere. Case never matters. |
@@ -145,7 +145,7 @@ and nothing to seek.
 </details>
 
 <details>
-<summary><strong>All settings (panel tab 8)</strong></summary>
+<summary><strong>All settings (panel tab 9)</strong></summary>
 
 Click/`enter` toggles, `-`/`+` changes numbers, `enter` on the format row opens a
 text field. No JSON editing needed for any of this.

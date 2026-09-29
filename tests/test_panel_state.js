@@ -544,7 +544,7 @@ group("case 5: a local filter must not overwrite the settings list");
   check("Enter closes the field and keeps the filter",
         P.root.promptMode === "" && P.root.filterText === "flac", P.root.filterText);
 
-  P.key(0, "8");                         // the `8` key: the settings tab
+  P.key(0, "9");                         // the `9` key: the settings tab
   check("the settings tab is loaded", P.root.frameMode === "settings", P.root.frameMode);
   check("its rows are the settings rows",
         P.rowsTitles().join(", ") === "In the bar, Show the card, In the player, Backdrop",
@@ -557,7 +557,7 @@ group("case 5: a local filter must not overwrite the settings list");
   // The two halves of the fix, apart from each other: cleaning up a prompt may
   // not hand the view that is showing now the rows of the view before.
   const Q = makePanel();
-  Q.key(0, "8");
+  Q.key(0, "9");
   const before = Q.rowsTitles().join(", ");
   Q.root.filterText = "flac";            // MODELLED: a filter left over from files
   Q.root.closePrompt();
@@ -567,7 +567,7 @@ group("case 5: a local filter must not overwrite the settings list");
 
   // Control: without a filter the settings tab always worked.
   const R = onFilesTab();
-  R.key(0, "8");
+  R.key(0, "9");
   check("control: no filter, same result",
         R.root.frameMode === "settings" && R.root.rowsBoundToSettingRows === true,
         R.rowsTitles().join(", "));
@@ -876,12 +876,12 @@ group("case 8: the mark only shows while the list really has the keys");
         "marked: " + JSON.stringify(S.markedRows()));
 }
 
-group("case 9: the eighth tab is reachable from an open, empty search field");
+group("case 9: the ninth tab is reachable from an open, empty search field");
 {
-  // The hint promises "1-8 switch tabs" and the settings hint says "8 picks the
-  // tab" (both read from Panel.qml), and tabForNumber maps the eight numbers --
-  // but the number shortcut itself stopped at 7. With a field open and empty,
-  // `8` was typed into it: the settings tab could not be reached from the search
+  // The hint promises "1-9 switch tabs" and the settings hint says "9 picks the
+  // tab" (both read from Panel.qml), and tabForNumber maps the nine numbers --
+  // but the number shortcut once stopped at 7. With a field open and empty,
+  // `9` was typed into it: the settings tab could not be reached from the search
   // tab at all, and the field showed a term nobody typed.
   const P = makePanel();
   P.key(0, "2");                       // the `2` key: the search tab, field up
@@ -890,8 +890,8 @@ group("case 9: the eighth tab is reachable from an open, empty search field");
           && P.root.promptExplicit === false,
         P.root.promptMode + " / " + JSON.stringify(P.root.promptText)
           + " explicit=" + String(P.root.promptExplicit));
-  P.key(0, "8");
-  check("`8` switches to the settings tab",
+  P.key(0, "9");
+  check("`9` switches to the settings tab",
         P.root.tab === "settings" && P.root.frameMode === "settings",
         "tab=" + P.root.tab + " frame=" + P.root.frameMode);
   check("... and the field did not take the digit", P.root.promptText === "",
@@ -900,33 +900,33 @@ group("case 9: the eighth tab is reachable from an open, empty search field");
   // tabForNumber and the shortcut have to agree on the range -- one of them
   // knowing eight tabs while the other stops at seven is exactly the bug.
   check("every number tabForNumber knows is a tab the key opens",
-        [1, 2, 3, 4, 5, 6, 7, 8].every(function (n) {
+        [1, 2, 3, 4, 5, 6, 7, 8, 9].every(function (n) {
           const Q = makePanel();
           Q.key(0, String(n));
           return Q.root.tab === Q.root.tabForNumber(String(n));
-        }), [1, 2, 3, 4, 5, 6, 7, 8].map(function (n) {
+        }), [1, 2, 3, 4, 5, 6, 7, 8, 9].map(function (n) {
           const Q = makePanel();
           Q.key(0, String(n));
           return n + ":" + Q.root.tab;
         }).join(", "));
 
   // The other half of the rule is untouched: `/` says "I really do want to type",
-  // and in that field a digit stays a digit -- the 8 included.
+  // and in that field a digit stays a digit -- the 9 included.
   const Q = makePanel();
   Q.key(0, "2");
   Q.press("/");                        // the explicit gesture
   check("`/` marks the field explicit",
         Q.root.promptExplicit === true && Q.root.promptText === "",
         String(Q.root.promptExplicit));
-  Q.key(0, "8");
-  check("with an explicit field `8` is text, not a tab switch",
-        Q.root.promptText === "8" && Q.root.tab === "search",
+  Q.key(0, "9");
+  check("with an explicit field `9` is text, not a tab switch",
+        Q.root.promptText === "9" && Q.root.tab === "search",
         JSON.stringify(Q.root.promptText) + " tab=" + Q.root.tab);
 
-  // Control: with no field open the `8` always worked, and still does.
+  // Control: with no field open the `9` always worked, and still does.
   const R = makePanel();
-  R.key(0, "8");
-  check("control: `8` with no field open picks the settings tab",
+  R.key(0, "9");
+  check("control: `9` with no field open picks the settings tab",
         R.root.tab === "settings" && R.root.frameMode === "settings", R.root.tab);
 }
 
@@ -977,16 +977,16 @@ function typesOf(rows) {
 }
 
 function case10RadioTab() {
-  // The radio tab is a ninth tab: `9` picks it, tabForNumber knows it, and the
-  // header chips carry it -- the keyboard and the mouse have to agree on the
-  // range, which is what case 9 already had to fix once at eight.
+  // The radio tab is the eighth tab: `8` picks it, tabForNumber knows it, and
+  // the header chips carry it -- the keyboard and the mouse have to agree on the
+  // range, which is what case 9 already had to fix once.
   const P = makePanel();
-  check("tabForNumber knows nine tabs, the eighth still settings",
-        P.root.tabForNumber("8") === "settings" && P.root.tabForNumber("9") === "radio",
+  check("tabForNumber knows nine tabs, the eighth radio and the ninth settings",
+        P.root.tabForNumber("8") === "radio" && P.root.tabForNumber("9") === "settings",
         "8 -> " + P.root.tabForNumber("8") + ", 9 -> " + P.root.tabForNumber("9"));
 
-  P.key(0, "9");
-  check("`9` opens the radio tab", P.root.tab === "radio", P.root.tab);
+  P.key(0, "8");
+  check("`8` opens the radio tab", P.root.tab === "radio", P.root.tab);
   check("the browse root is up", P.root.frameMode === "radio", P.root.frameMode);
   const titles = P.rowsTitles();
   check("it offers a country list, a genre list and a station search",
@@ -1013,20 +1013,64 @@ function case10RadioTab() {
 
   // The chips are the mouse way in; a tab the keyboard has and the header does
   // not is a tab half the users cannot reach.
-  check("the header chips carry the ninth tab (the mouse way in)",
-        /\{ key: "radio", label: "9" \}/.test(SRC), "chip row in Panel.qml");
+  check("the header chips carry the eighth tab (the mouse way in)",
+        /\{ key: "radio", label: "8" \}/.test(SRC), "chip row in Panel.qml");
 
   // Control: with an empty search field the digit switches tabs instead of being
-  // typed into it -- the rule case 9 established, now with a ninth digit.
+  // typed into it -- the rule case 9 established, now with the eighth digit.
   const Q = makePanel();
   Q.key(0, "2");
-  Q.key(0, "9");
-  check("control: `9` from an open, empty search field switches tabs",
+  Q.key(0, "8");
+  check("control: `8` from an open, empty search field switches tabs",
         Q.root.tab === "radio" && Q.root.promptText === "",
         Q.root.tab + " / " + JSON.stringify(Q.root.promptText));
 }
-group("case 10: the ninth tab is the station directory");
-radioCase("the ninth tab is the station directory", case10RadioTab);
+group("case 10: the eighth tab is the station directory");
+radioCase("the eighth tab is the station directory", case10RadioTab);
+
+// The swap, nailed down: the eighth tab is the station directory, the ninth the
+// settings list. Eight and nine are the only two digits that ever moved, so the
+// check names them pair by pair -- an edit that turns the two back, or renumbers
+// one and not the other, fails here instead of quietly in the panel.
+group("the tab digits: 8 is the station directory, 9 the settings");
+{
+  const P = makePanel();
+  check("tabForNumber maps 8 to radio and 9 to settings",
+        P.root.tabForNumber("8") === "radio" && P.root.tabForNumber("9") === "settings",
+        "8 -> " + P.root.tabForNumber("8") + ", 9 -> " + P.root.tabForNumber("9"));
+
+  const EIGHT = makePanel();
+  EIGHT.key(0, "8");
+  check("`8` opens the station directory",
+        EIGHT.root.tab === "radio" && EIGHT.root.frameMode === "radio",
+        "tab=" + EIGHT.root.tab + " frame=" + EIGHT.root.frameMode);
+
+  const NINE = makePanel();
+  NINE.key(0, "9");
+  check("`9` opens the settings",
+        NINE.root.tab === "settings" && NINE.root.frameMode === "settings",
+        "tab=" + NINE.root.tab + " frame=" + NINE.root.frameMode);
+
+  // The key code, not just the text: a numpad or a layout that hands the digit
+  // over as a code has to land on the same tab.
+  const CODE8 = makePanel();
+  CODE8.key(CODE8.Qt.Key_8, "");
+  check("the key code 8 opens the station directory too",
+        CODE8.root.tab === "radio", CODE8.root.tab);
+
+  const CODE9 = makePanel();
+  CODE9.key(CODE9.Qt.Key_9, "");
+  check("the key code 9 opens the settings too",
+        CODE9.root.tab === "settings", CODE9.root.tab);
+
+  // The header chips are the mouse way in. They carry the two digits in the same
+  // order the keys do: 8 (radio) before 9 (settings), right after the library.
+  const chip8 = SRC.indexOf('{ key: "radio", label: "8" }');
+  const chip9 = SRC.indexOf('{ key: "settings", label: "9" }');
+  check("the chips carry radio=8 and settings=9, radio first",
+        chip8 >= 0 && chip9 >= 0 && chip8 < chip9,
+        "radio chip at " + chip8 + ", settings chip at " + chip9 + " (Panel.qml)");
+}
 
 function case11DedupeStations() {
   // The measured case: the directory returns the same station twice, once per
@@ -1112,10 +1156,10 @@ function case12BrowseDirectory() {
       votes: 5100, lastcheckok: 1, tags: "lofi" }
   ];
 
-  // `9` -> "By country" -> Germany -> its stations. The same browser as the
+  // `8` -> "By country" -> Germany -> its stations. The same browser as the
   // library: enter goes in, h comes back out.
   const P = makePanel();
-  P.key(0, "9");
+  P.key(0, "8");
   P.root.sel = P.rowsTitles().indexOf("By country");
   P.root.activate();
   check("`By country` opens a country list", P.root.frameMode === "radioCountries",
@@ -1171,7 +1215,7 @@ function case12BrowseDirectory() {
 
   // The genre path, from the same root.
   const Q = makePanel();
-  Q.key(0, "9");
+  Q.key(0, "8");
   Q.root.sel = Q.rowsTitles().indexOf("By genre");
   Q.root.activate();
   check("`By genre` opens a genre list", Q.root.frameMode === "radioGenres",
@@ -1194,7 +1238,7 @@ function case12BrowseDirectory() {
   // The free text search: `/` in the radio tab is a station search, and it runs
   // while typing like the other two fields.
   const R = makePanel();
-  R.key(0, "9");
+  R.key(0, "8");
   R.press("/");
   check("`/` opens a station search field", R.root.promptMode === "radio",
         R.root.promptMode);
@@ -1224,7 +1268,7 @@ function case12BrowseDirectory() {
   // on a country or a genre that is the level behind it, not a queue full of live
   // streams. The button is not a dead glyph there.
   const T = makePanel();
-  T.key(0, "9");
+  T.key(0, "8");
   T.root.sel = T.rowsTitles().indexOf("By genre");
   T.root.addRow();
   check("`+` on a browse row opens the level instead of filling the queue",
@@ -1240,7 +1284,7 @@ function case12BrowseDirectory() {
   // tab does not claim otherwise.
   const S = makePanel();
   S.host.connected = false;
-  S.key(0, "9");
+  S.key(0, "8");
   S.root.sel = S.rowsTitles().indexOf("By country");
   S.root.activate();
   S.root.sel = S.root.rows.map(function (r) { return r.code }).indexOf("DE");
