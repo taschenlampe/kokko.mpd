@@ -92,6 +92,15 @@ ART_CHUNK = 256 * 1024
 CMD_TIMEOUT = 10.0
 CONNECT_TIMEOUT = 5.0
 
+# MPD closes an idle *command* connection after `connection_timeout`, 60 seconds
+# by default (this plugin's own mpd.conf sets none). A write to a peer that has
+# just gone away still succeeds -- the local socket has not been told yet -- and
+# only the read learns of the close, so the command looks delivered while the
+# press vanishes. Replace the socket before it is used once it has sat idle this
+# long: comfortably under MPD's 60 s, and above the gap between two button
+# presses so the ordinary case never pays for it.
+CMD_IDLE_RENEW = 45.0
+
 # Floor on the gap between two status reads. A database update or a client
 # dragging the seek bar can fire idle events far faster than anything on a bar
 # can be read, and the refreshes coalesce rather than queue up behind it.
@@ -203,6 +212,11 @@ class MPDConn:
         # duplicate: an error before the write proves nothing was executed,
         # an error after it proves nothing at all.
         self.in_flight = False
+        # When a command last completed on this connection, monotonic. The
+        # command socket is renewed once it has been idle past CMD_IDLE_RENEW,
+        # which is the only cheap way to tell a live peer from one MPD has
+        # already hung up on: the write to the latter still succeeds.
+        self.last_used = 0.0
         # Set once the connection is retired or closed. Whoever reads or writes
         # asks this first, so a socket taken away by another thread is a
         # connection error to them and not a crash on a handle that just
@@ -376,6 +390,41 @@ class MPDConn:
                 pairs.append((key, value))
         finally:
             self.readers -= 1
+
+
+class CommandConn:
+    """The command connection as one callback sees it.
+
+    A callback is not one command. `find_add` reads the queue length, adds and
+    reads it again; `add_and_play` does the same and may follow with a `play`.
+    The retry has to belong to the command, because running the callback again
+    runs the commands that already did their work -- measured before this
+    existed: a failure writing the second queue read re-ran `find_add` from the
+    top and `findadd` appended the whole artist twice.
+
+    So the callback talks to this handle, and every `command` is one round trip
+    that can ask the bridge for a fresh socket without replaying anything else.
+    `version` reads through to the live connection, since `search_add` and
+    `filter_args` branch on the server version.
+
+    `repeated` records that a command of this callback has already been sent a
+    second time, so the failure report can say so rather than claiming the
+    command was not repeated when the transport retry above it did repeat it.
+    """
+
+    __slots__ = ("bridge", "conn", "repeated")
+
+    def __init__(self, bridge: "Bridge", conn: MPDConn):
+        self.bridge = bridge
+        self.conn = conn
+        self.repeated = False
+
+    @property
+    def version(self) -> str:
+        return self.conn.version
+
+    def command(self, name: str, *args, repeatable: bool = False) -> tuple:
+        return self.bridge.cmd_call(self, name, args, repeatable)
 
 
 def to_dict(pairs) -> dict:
@@ -976,29 +1025,95 @@ class Bridge:
 
     # ----------------------------------------------------------- commands
 
+    def renew_cmd(self):
+        """A fresh command socket in place of the current one, or None.
+
+        The caller holds cmd_lock. The socket in use is closed only once its
+        replacement is up, so a dial that fails leaves the caller with the
+        connection it already had -- at worst a dead one, whose ordinary
+        failure path is in cmd_call.
+        """
+        old = self.cmd
+        conn = self.reconnect_cmd()
+        if conn is None:
+            return None
+        if old is not None and old is not conn:
+            old.close()
+        return conn
+
+    def cmd_call(self, handle: CommandConn, name: str, args,
+                 repeatable: bool = False) -> tuple:
+        """One command on the command connection, with the retry scoped to it.
+
+        The unit of retry is the command, never the callback around it: a
+        callback like `find_add` sends several commands, and repeating the
+        callback repeats the ones that already ran. What may go out again is
+        therefore decided per command:
+
+        * a write that failed put nothing on the wire (`in_flight` was never
+          set), so the command is repeated on a fresh socket -- provably a copy
+          of nothing;
+        * a reply that was lost after the write leaves the outcome unknown.
+          Only the commands whose argument fully determines the result are
+          repeated (`repeatable`): the transport buttons and the absolute
+          setters. `next` and `previous` are the deliberate exception -- they
+          are relative, and a doubled skip is the smaller evil against a press
+          that does nothing. A mutation is never repeated here; it is reported
+          instead, because appending the same album twice cannot be undone by
+          pressing again.
+
+        The caller (with_cmd) holds cmd_lock, so swapping the socket here cannot
+        race a settings change.
+        """
+        wire = " ".join([name] + [quote(a) for a in args])
+        try:
+            handle.conn.send(wire)
+        except MPDError:
+            # Nothing reached the wire: repeat the command, not the callback.
+            conn = self.renew_cmd()
+            if conn is None:
+                raise
+            handle.conn = conn
+            handle.repeated = True
+            conn.send(wire)
+        try:
+            pairs, binary = handle.conn.read_response()
+        except (MPDError, OSError):
+            if not repeatable:
+                raise
+            # The command reached MPD; its reply did not come back. Repeat it
+            # only when running it again lands in the same place.
+            conn = self.renew_cmd()
+            if conn is None:
+                raise
+            handle.conn = conn
+            handle.repeated = True
+            conn.send(wire)
+            pairs, binary = conn.read_response()
+        handle.conn.last_used = time.monotonic()
+        return pairs, binary
+
     def with_cmd(self, fn, repeatable: bool = False):
         """Run fn against the command connection, or return None if it fails.
 
         A protocol ACK is the command's problem and leaves the connection
         alone. A dead socket is not necessarily a dead server: MPD closes a
-        connection after connection_timeout, 60 seconds by default, and a
-        minute with no button pressed and nothing changing server-side is the
-        ordinary state of a paused player rather than a fault. So a broken
-        connection is reconnected and the callback run once more; only if that
-        also fails is the connection given up on, which drops both sockets and
-        lets the manager start again.
+        command connection after `connection_timeout`, 60 seconds by default,
+        and a minute with no button pressed is the ordinary state of a paused
+        player rather than a fault.
 
-        Running the callback a second time is only free when it changes
-        nothing, so the two kinds are told apart. `repeatable` marks the ones
-        that only read: a second `status` costs a round trip and nothing else.
-        A callback that writes is repeated only while `in_flight` says its
-        command never reached the wire -- an error at the write itself. Once
-        the command is on the wire, a lost reply says nothing about whether it
-        ran, and repeating it is the expensive guess: `next` skips a song,
-        `add` appends the file twice, and a toggle that reads the state, flips
-        it and is asked to flip it again lands exactly where it started, so
-        the button looks dead. A connection error is reported instead. The
-        connection is given up either way -- a reply that stopped halfway
+        Two things keep that from costing a press. The connection is replaced
+        before it is used once it has sat idle past CMD_IDLE_RENEW -- a write to
+        a socket MPD has just closed still succeeds, so waiting for the failure
+        would mean the command looks delivered and no retry would touch it.
+        Then, within a callback, a command is repeated on its own (cmd_call) and
+        not as part of the callback: `repeatable` marks the callbacks that only
+        read and can be run again whole, while a callback that writes has each
+        of its commands judged separately. Only if nothing can be salvaged is
+        the connection given up on, which drops both sockets and lets the
+        manager start again.
+
+        The connection is given up either way -- a reply that stopped halfway
         leaves the stream out of step with every command after it, and this
         lock is also held by whichever thread is waiting on that reply.
         """
@@ -1006,27 +1121,36 @@ class Bridge:
             conn = self.cmd
             if conn is None:
                 return None
+            # MPD hangs up an idle command connection. Replace the socket before
+            # a command is written to it rather than after it has swallowed one.
+            if conn.last_used and not conn.in_flight \
+                    and time.monotonic() - conn.last_used > CMD_IDLE_RENEW:
+                fresh = self.renew_cmd()
+                if fresh is not None:
+                    conn = fresh
+            handle = CommandConn(self, conn)
             try:
-                return fn(conn)
+                return fn(handle)
             except MPDCommandError as exc:
                 self.emit({"event": "ack", "error": str(exc)})
                 return None
             except (MPDError, OSError) as exc:
                 # Read the flag before close(); closing says nothing about it.
-                delivered = conn.in_flight
-                conn.close()
+                delivered = handle.conn.in_flight
+                repeated = handle.repeated
+                handle.conn.close()
                 self.cmd = None
 
-                # A repeat needs either a callback that cannot change anything
-                # or a failure that provably predates the write. Reconnecting
-                # for a command that must not be repeated would only test the
-                # server for an answer nobody is going to be allowed to use.
+                # A repeat of the whole callback needs a callback that cannot
+                # change anything: the read-only ones. A callback that writes
+                # had its retry per command already, and re-running it here is
+                # exactly the duplicate this guard exists to prevent.
                 replacement = None
-                if repeatable or not delivered:
+                if repeatable:
                     replacement = self.reconnect_cmd()
                 if replacement is not None:
                     try:
-                        return fn(replacement)
+                        return fn(CommandConn(self, replacement))
                     except MPDCommandError as retry_exc:
                         self.emit({"event": "ack", "error": str(retry_exc)})
                         return None
@@ -1036,7 +1160,7 @@ class Bridge:
                         exc = retry_exc
 
                 error = error_text(exc) or "connection lost"
-                if delivered and not repeatable:
+                if delivered and not repeatable and not repeated:
                     # The command may well have run. Saying only "connection
                     # lost" invites the user to press again, which is exactly
                     # the duplicate this guard exists to prevent.
@@ -1090,8 +1214,8 @@ class Bridge:
 
     def refresh_once(self) -> None:
         def run(conn):
-            status = to_dict(conn.command("status")[0])
-            song = to_dict(conn.command("currentsong")[0])
+            status = to_dict(conn.command("status", repeatable=True)[0])
+            song = to_dict(conn.command("currentsong", repeatable=True)[0])
             return status, song
 
         # The one read-only caller: repeating `status` and `currentsong` costs
@@ -1107,8 +1231,11 @@ class Bridge:
             self.emit(state)
         self.request_art(song)
 
-    def do(self, *command) -> None:
-        self.with_cmd(lambda conn: conn.command(*command))
+    def do(self, *command, repeatable: bool = False) -> None:
+        # `repeatable` says the command has a defined target and may be sent
+        # again if its reply was lost -- the transport buttons and the absolute
+        # setters. A mutation is never repeated on a lost reply.
+        self.with_cmd(lambda conn: conn.command(*command, repeatable=repeatable))
         # MPD will announce this through idle anyway, but that round trip is
         # visible as a lag on the button. Ask now and let the idle event be a
         # harmless second refresh.
@@ -1119,15 +1246,16 @@ class Bridge:
 
     def toggle(self) -> None:
         def run(conn):
-            state = to_dict(conn.command("status")[0]).get("state", "stop")
+            status = to_dict(conn.command("status", repeatable=True)[0])
+            state = status.get("state", "stop")
             if state == "play":
-                conn.command("pause", 1)
+                conn.command("pause", 1, repeatable=True)
             elif state == "pause":
-                conn.command("pause", 0)
+                conn.command("pause", 0, repeatable=True)
             else:
                 # `play` with no argument resumes at the current queue
                 # position, which is what a play button should do after a stop.
-                conn.command("play")
+                conn.command("play", repeatable=True)
             return True
 
         self.with_cmd(run)
@@ -1145,13 +1273,16 @@ class Bridge:
         uri = str(payload.get("uri", "") or "")
         name = str(payload.get("name", "") or "")
 
-        def one(*command):
-            self.with_cmd(lambda conn: conn.command(*command))
+        def one(*command, repeatable=False):
+            self.with_cmd(lambda conn: conn.command(
+                *command, repeatable=repeatable))
 
+        # A position or an id names the target, so replaying it lands in the
+        # same place; the buttons that move the current song are in do().
         if op == "playid":
-            one("playid", int(payload.get("id", 0)))
+            one("playid", int(payload.get("id", 0)), repeatable=True)
         elif op == "playpos":
-            one("play", int(payload.get("pos", 0)))
+            one("play", int(payload.get("pos", 0)), repeatable=True)
         elif op == "add" and uri:
             one("add", uri)
         elif op == "addplay" and uri:
@@ -1202,14 +1333,14 @@ class Bridge:
             return
         self.refresh_soon()
 
-    def queue_length(self, conn: MPDConn) -> int:
-        status = to_dict(conn.command("status")[0])
+    def queue_length(self, conn: CommandConn) -> int:
+        status = to_dict(conn.command("status", repeatable=True)[0])
         try:
             return int(status.get("playlistlength", 0))
         except ValueError:
             return 0
 
-    def add_and_play(self, conn: MPDConn, uri: str) -> bool:
+    def add_and_play(self, conn: CommandConn, uri: str) -> bool:
         """Append, then start at the first thing appended.
 
         `addid` would hand back an id to play directly, but it takes a file and
@@ -1220,12 +1351,14 @@ class Bridge:
         start = self.queue_length(conn)
         conn.command("add", uri)
         if self.queue_length(conn) > start:
-            conn.command("play", start)
+            # `play <position>` names where to start, so it is idempotent; the
+            # `add` before it is not and stays unrepeated.
+            conn.command("play", start, repeatable=True)
         return True
 
-    def add_after_current(self, conn: MPDConn, uri: str) -> bool:
+    def add_after_current(self, conn: CommandConn, uri: str) -> bool:
         """Append, then move what was appended in behind the playing song."""
-        status = to_dict(conn.command("status")[0])
+        status = to_dict(conn.command("status", repeatable=True)[0])
         start = self.queue_length(conn)
         conn.command("add", uri)
         end = self.queue_length(conn)
@@ -1243,7 +1376,7 @@ class Bridge:
         conn.command("move", "%d:%d" % (start, end), target)
         return True
 
-    def find_add(self, conn: MPDConn, filters, then_play: bool) -> bool:
+    def find_add(self, conn: CommandConn, filters, then_play: bool) -> bool:
         args = self.filter_args(conn, filters)
         if not args:
             return False
@@ -1259,10 +1392,10 @@ class Bridge:
                        "error": "nothing in the library matches that any more"})
             return True
         if then_play:
-            conn.command("play", start)
+            conn.command("play", start, repeatable=True)
         return True
 
-    def search_add(self, conn: MPDConn, term: str, tag: str = "") -> bool:
+    def search_add(self, conn: CommandConn, term: str, tag: str = "") -> bool:
         """Everything a search matches, appended in one command.
 
         `searchadd` takes the same filter expression `search` does, and it
@@ -1283,9 +1416,9 @@ class Bridge:
                        "error": "nothing in the library matches “%s”" % term})
         return True
 
-    def crop_queue(self, conn: MPDConn) -> bool:
+    def crop_queue(self, conn: CommandConn) -> bool:
         """Everything but the playing song. Nothing playing means nothing kept."""
-        status = to_dict(conn.command("status")[0])
+        status = to_dict(conn.command("status", repeatable=True)[0])
         current = status.get("song")
         if current is None:
             conn.command("clear")
@@ -1428,7 +1561,7 @@ class Bridge:
         if generation == self.generation and not self.stop.is_set():
             self.emit(answer)
 
-    def filter_args(self, conn: MPDConn, filters) -> list:
+    def filter_args(self, conn: CommandConn, filters) -> list:
         """The tail of a find/list/search command for a set of tag conditions.
 
         MPD 0.21 introduced the filter expression and has spent every release
@@ -1696,37 +1829,49 @@ class Bridge:
         elif verb == "toggle":
             self.toggle()
         elif verb == "play":
-            self.do("play")
+            self.do("play", repeatable=True)
         elif verb == "pause":
-            self.do("pause", 1)
+            self.do("pause", 1, repeatable=True)
         elif verb == "resume":
-            self.do("pause", 0)
+            self.do("pause", 0, repeatable=True)
         elif verb == "stop":
-            self.do("stop")
+            self.do("stop", repeatable=True)
         elif verb == "next":
-            self.do("next")
+            # `next` is relative: repeating it skips a song. That is accepted
+            # here -- a doubled skip is the smaller evil against a press that
+            # does nothing, which is what the lost reply used to mean.
+            self.do("next", repeatable=True)
         elif verb == "prev":
-            self.do("previous")
+            self.do("previous", repeatable=True)
         elif verb == "seek":
             try:
-                self.do("seekcur", "%.3f" % float(rest))
+                # absolute seconds: the same position either way
+                self.do("seekcur", "%.3f" % float(rest), repeatable=True)
             except ValueError:
                 pass
         elif verb == "volume":
             try:
-                self.do("setvol", max(0, min(100, int(float(rest)))))
+                # absolute volume: the same level either way
+                self.do("setvol", max(0, min(100, int(float(rest)))),
+                        repeatable=True)
             except ValueError:
                 pass
         elif verb == "setopt":
             name, _, value = rest.partition(" ")
             if name in ("repeat", "random", "single", "consume"):
-                self.do(name, value.strip() or "0")
+                # absolute setting, not a toggle: replaying it is a no-op
+                self.do(name, value.strip() or "0", repeatable=True)
         elif verb == "play_id":
             try:
-                self.do("playid", int(rest))
+                # an id names the song, so replaying it lands on the same one
+                self.do("playid", int(rest), repeatable=True)
             except ValueError:
                 pass
         elif verb in ("update", "rescan"):
+            # Deliberately not repeatable on a lost reply: a scan is a side
+            # effect, and two scans where one was asked for is a surprise. The
+            # idle renew above is what keeps the first press after a pause from
+            # being swallowed.
             # An optional path limits the scan to one folder under the music
             # directory -- seconds instead of minutes when the library sits on a
             # network share. `update` reads only new and changed files; `rescan`

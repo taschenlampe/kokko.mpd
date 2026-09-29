@@ -50,16 +50,26 @@ RESET = OSError(104, "Connection reset by peer")
 
 
 class FakeSock:
-    """Records what the bridge writes instead of sending it anywhere."""
+    """Records what the bridge writes instead of sending it anywhere.
 
-    def __init__(self, wire, host=""):
+    `fail_send_at` makes the Nth and every later write raise the way a socket
+    that has just been closed does -- the command never reaches the wire. That
+    is the failure the retry has to tell apart from a reply that was lost after
+    a write that did land.
+    """
+
+    def __init__(self, wire, host="", fail_send_at=None):
         self.wire = wire
         self.host = host
         self.closed = False
         self.shut = False
+        self.fail_send_at = fail_send_at
+        self.sends = 0
 
     def sendall(self, data):
-        if self.closed:
+        self.sends += 1
+        if self.closed or (self.fail_send_at is not None
+                           and self.sends >= self.fail_send_at):
             raise OSError(9, "Bad file descriptor")
         self.wire.append(data.decode("utf-8", "replace").rstrip("\n"))
 
@@ -117,7 +127,7 @@ class FakeConn(B.MPDConn):
     """The real MPDConn on a fake transport: `connect()` dials nothing."""
 
     def __init__(self, target, password="", script=None, gate=None,
-                 connect_gate=None, block=False, wire=None):
+                 connect_gate=None, block=False, wire=None, fail_send_at=None):
         # The captured class, not B.MPDConn: that name is the factory by now.
         REAL_MPDConn.__init__(self, target, password)
         self.script = script
@@ -125,13 +135,14 @@ class FakeConn(B.MPDConn):
         self.connect_gate = connect_gate
         self.block = block
         self.wire = wire if wire is not None else []
+        self.fail_send_at = fail_send_at
         self.connecting = False
 
     def connect(self, timeout=None):
         self.connecting = True
         if self.connect_gate is not None:
             self.connect_gate.wait(3.0)  # a connect that is still in flight
-        self.sock = FakeSock(self.wire, self.target[1])
+        self.sock = FakeSock(self.wire, self.target[1], self.fail_send_at)
         self.fh = FakeFile(self.script, self.gate, self.block)
         self.version = "0.23.5"
         return self.version
@@ -374,10 +385,13 @@ finally:
 
 print("=== command retry (with_cmd) ===")
 # A reply that never comes back is no proof that the command did not run. The
-# old retry ran the whole callback again, so `next` was written twice and
-# skipped a song, `add` appended the same file again, and a toggle that reads
-# the state, flips it and is asked to flip it again ended where it started --
-# the button looked dead.
+# old rule refused to repeat anything that had reached the wire, and against a
+# peer that has just gone away the write *does* reach the wire -- only the read
+# learns of it -- so the first press after MPD's idle timeout was swallowed.
+# The retry is now scoped to the command and told apart by kind.
+#
+# A transport command has a defined target, so it is repeated when its reply is
+# lost: a doubled `next` is the smaller evil against a press that does nothing.
 factory, saved, bridge, events = connected_cmd([{"script": [RESET]},
                                                 {"script": [b"OK\n"]}])
 try:
@@ -386,15 +400,36 @@ finally:
     B.MPDConn = saved
     stop_bridge(bridge)
 
-check("a lost reply does not put `next` on the wire twice", factory.wire, ["next"])
-check("... and does not build a connection it may not use", len(factory.made), 1)
-check("... the caller hears a connection error instead",
-      [e.get("event") for e in events], ["disconnected"])
+check("a lost reply repeats `next` on a fresh connection",
+      factory.wire, ["next", "next"])
+check("... building the connection the repeat needs", len(factory.made), 2)
+check("... and nothing is reported to the user",
+      [e.get("event") for e in events], [])
 
-# The other half of the rule: a failure at the write itself proves nothing ran,
-# so the retry the docstring promises still happens. MPD closes an idle
-# connection after a minute, and the first press after that used to be
-# swallowed -- that is what the retry was written for.
+# Even earlier: an idle command connection is replaced *before* a command is
+# sent on it, so the case above is the second line of defence rather than the
+# first. This is what makes the first press after a pause land at all.
+factory, saved, bridge, events = connected_cmd([{"script": [RESET]},
+                                                {"script": [b"OK\n"]}])
+dead_sock = bridge.cmd.sock
+bridge.cmd.last_used = time.monotonic() - 61   # just past MPD's own 60 s
+try:
+    bridge.handle("next")
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+check("an idle command connection is replaced before it is used",
+      len(factory.made), 2)
+check("... so `next` goes out once, on the fresh one", factory.wire, ["next"])
+check("... and the dead socket is never written to", dead_sock.sends, 0)
+check("... with nothing reported to the user",
+      [e.get("event") for e in events], [])
+
+# A failure at the write itself proves nothing ran, so that command is repeated
+# on a fresh socket. MPD closes an idle connection after a minute, and the
+# first press after that used to be swallowed -- that is what the retry was
+# written for.
 factory, saved, bridge, events = connected_cmd([{"script": [b"OK\n"]},
                                                 {"script": [b"OK\n"]}])
 bridge.cmd.sock.closed = True              # the write goes nowhere
@@ -406,6 +441,60 @@ finally:
 
 check("a command that never left is retried", factory.wire, ["next"])
 check("... on a fresh connection", len(factory.made), 2)
+
+# The other half of the rule, and why the retry may not belong to the callback:
+# a mutation whose reply was lost must not be sent again. An extra `add` cannot
+# be undone by pressing again.
+factory, saved, bridge, events = connected_cmd([{"script": [RESET]}])
+try:
+    bridge.mutate({"op": "add", "uri": "X/song.mp3"})
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+check("an `add` whose reply was lost is not repeated",
+      factory.wire, ["add \"X/song.mp3\""])
+check("... no connection is built for a retry that must not happen",
+      len(factory.made), 1)
+check("... the caller hears a connection error that names the risk",
+      [(e.get("event"), "not repeated" in (e.get("error") or ""))
+       for e in events], [("disconnected", True)])
+
+# A callback is not one command, and it may not be replayed as a whole: the
+# failing write is one command, the ones before it already did their work.
+# Measured on the unfixed bridge (write of the second queue read fails):
+# `findadd` went out twice and appended the whole artist twice.
+factory, saved, bridge, events = connected_cmd([
+    {"script": [b"playlistlength: 5\n", b"OK\n", b"OK\n"], "fail_send_at": 3},
+    {"script": [b"playlistlength: 6\n", b"OK\n",
+                b"OK\n", b"playlistlength: 6\n", b"OK\n"]},
+])
+try:
+    bridge.mutate({"op": "findadd", "filter": [["artist", "X"]]})
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+check("findadd goes out exactly once",
+      sum(1 for line in factory.wire if line.startswith("findadd")), 1)
+check("... and only the queue read that failed is repeated",
+      factory.wire, ["status", "findadd \"(artist == 'X')\"", "status"])
+
+# The same for add_and_play, where the `add` is the mutation at stake.
+factory, saved, bridge, events = connected_cmd([
+    {"script": [b"playlistlength: 5\n", b"OK\n", b"OK\n"], "fail_send_at": 3},
+    {"script": [b"playlistlength: 6\n", b"OK\n", b"OK\n"]},
+])
+try:
+    bridge.mutate({"op": "addplay", "uri": "X/song.mp3"})
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+check("`add` goes out exactly once",
+      sum(1 for line in factory.wire if line.startswith("add ")), 1)
+check("... and the later `play` still lands on the fresh connection",
+      factory.wire[-1], "play \"5\"")
 
 # And a read-only callback keeps the retry unconditionally: a second `status`
 # costs a round trip and can change nothing.
