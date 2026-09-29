@@ -874,9 +874,17 @@ def radio_url(search: str, country: str = "", tag: str = "", limit: int = 50) ->
     station name with a space or an `&` in it -- which is most of them -- would
     otherwise arrive as a truncated search plus a parameter nobody asked for.
     `hidebroken` is left on: rows that cannot play are not worth the bytes.
+
+    The name is only sent when there is one. A browse by country or by tag is a
+    question the directory answers on its own (measured against the live API:
+    `countrycode=DE` alone returns German stations), and an empty `name=` would
+    not narrow anything -- worse, it would read as "station names containing
+    nothing", which the directory has answered differently across releases.
     """
-    params = [("name", search), ("limit", str(limit)), ("hidebroken", "true"),
+    params = [("limit", str(limit)), ("hidebroken", "true"),
               ("order", "votes"), ("reverse", "true")]
+    if search:
+        params.insert(0, ("name", search))
     if country:
         params.append(("countrycode", country))
     if tag:
@@ -1766,10 +1774,13 @@ class Bridge:
         resolver both ignore their own timeouts.
         """
         search = str(request.get("search") or request.get("term") or "").strip()
-        if not search:
-            return []
         country = str(request.get("country") or "").strip()
         tag = str(request.get("tag") or "").strip()
+        # Nothing to ask: no station name and no narrowing. A country or a tag on
+        # its own *is* a question -- that is how the panel browses the directory
+        # ("which German stations are there", "which jazz stations").
+        if not search and not country and not tag:
+            return []
         try:
             limit = int(request.get("limit", RADIO_ROW_LIMIT))
         except (TypeError, ValueError):

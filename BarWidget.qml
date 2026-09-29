@@ -126,6 +126,11 @@ Panel {
   readonly property bool isPaused: connected && playbackState === "pause"
   readonly property string songFile: String(song.file || "")
   readonly property bool hasSong: connected && songFile !== ""
+  // A stream is not a file in the library: MPD hands out the http(s) URL itself
+  // as `file`. Everything the display does differently for one hangs on this --
+  // the name instead of the address, the station glyph instead of a cover, and
+  // no progress at all.
+  readonly property bool isStream: /^https?:\/\//i.test(songFile)
 
   // MPD reports elapsed only when something changes, so the clock is carried
   // forward locally and reset by every update -- otherwise a progress bar
@@ -172,6 +177,48 @@ Panel {
     return dot > 0 ? text.substring(0, dot) : text
   }
 
+  // ------------------------------------------------------- what a stream is
+  //
+  // Measured on a running stream: MPD reports `file` = the stream URL, `Name` =
+  // the station (`Groove Salad [SomaFM]`), `Title` = the running track from the
+  // ICY metadata -- and no artist, no album, no duration (`0.000`). So a stream
+  // has two lines to fill, neither of them an address, and nothing to seek.
+
+  // What the bar label, the card and the band call the song. For a library file
+  // that is the title, with the file name as the last resort; for a stream the
+  // station's name comes first, because a stream's `title` is only whatever is
+  // running on it right now and is often empty.
+  function songTitle() {
+    if (isStream)
+      return String(song.name || "") || String(song.title || "") || basename(songFile)
+    return String(song.title || "") || basename(songFile)
+  }
+
+  // The second line: artist and album for a file, what the station is playing
+  // (and how fat the stream is) for a stream.
+  function songMeta() {
+    var bits = []
+    if (isStream) {
+      var playing = String(song.title || "")
+      if (playing !== "" && playing.toLowerCase() !== songTitle().toLowerCase())
+        bits.push(playing)
+      if (bitrate !== "") bits.push(String(bitrate) + " kbps")
+      return bits.join("  ·  ")
+    }
+    if (song.artist) bits.push(String(song.artist))
+    var alb = String(song.album || "")
+    if (alb && alb !== String(song.title || "")) bits.push(alb)
+    return bits.join("  ·  ")
+  }
+
+  // Is there anything to seek in? A live stream has no timeline: MPD reports no
+  // duration for it, so the progress line and the seek gestures have nothing to
+  // work on and are left out (one measured stream: duration 0.000 while elapsed
+  // kept running -- a percentage would be nonsense).
+  function seekable() {
+    return !isStream && duration > 0
+  }
+
   function dirname(path) {
     var text = String(path || "")
     var cut = text.lastIndexOf("/")
@@ -187,7 +234,11 @@ Panel {
     var out = {
       artist: String(s.artist || ""),
       albumartist: String(s.albumartist || ""),
-      title: String(s.title || ""),
+      // A stream: the station's name is what stands where a file has a title,
+      // otherwise the label falls back to %filename% and shows a piece of the
+      // URL. The brackets in a format like "[%title%|%filename%]" then resolve
+      // on the name, which is what the row is about.
+      title: String(s.title || (isStream ? s.name : "") || ""),
       album: String(s.album || ""),
       track: String(s.track || ""),
       disc: String(s.disc || ""),
@@ -410,6 +461,9 @@ Panel {
   }
 
   function nudgeSeek(delta) {
+    // A live stream cannot be seeked (see seekable): the wheel that is set to
+    // "seek" would otherwise send commands that do nothing.
+    if (!seekable()) return
     bare("seek " + Math.max(0, Math.round(elapsed + delta)))
   }
 
@@ -518,9 +572,11 @@ Panel {
         anchors.centerIn: parent
         spacing: Style.space(6)
 
-        // The cover, as a small square before the text (showArt).
+        // The cover, as a small square before the text (showArt) -- or, while a
+        // stream plays, the station glyph: a stream never has cover art, and an
+        // empty slot where every song shows a picture reads as a broken image.
         Item {
-          visible: root.showArt && root.artPath !== ""
+          visible: root.showArt && (root.artPath !== "" || root.isStream)
           implicitWidth: visible ? root.barSize : 0
           implicitHeight: root.barSize
 
@@ -534,6 +590,15 @@ Panel {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             visible: status === Image.Ready
+          }
+
+          Text {
+            anchors.centerIn: parent
+            visible: root.artPath === "" && root.isStream
+            text: "󰐹"
+            color: root.isPlaying ? Color.accent : root.fg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
           }
         }
 
@@ -1030,7 +1095,8 @@ Panel {
             Text {
               anchors.centerIn: parent
               visible: osdCover.status !== Image.Ready
-              text: "󰝚"
+              // A stream has no cover to miss: the glyph says what it is.
+              text: root.isStream ? "󰐹" : "󰝚"
               color: root.isPlaying ? Color.accent : root.fg
               font.family: root.fontFamily
               font.pixelSize: Style.font.displayLarge

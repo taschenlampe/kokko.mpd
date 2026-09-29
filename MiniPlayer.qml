@@ -69,6 +69,11 @@ PanelWindow {
   readonly property bool hasTrack: service !== null && service.hasSong === true
   readonly property real durNow: (service && service.duration > 0) ? service.duration : 0
   readonly property bool playing: service !== null && service.isPlaying === true
+  // A stream: the widget answers this (BarWidget.isStream/seekable) -- a stream's
+  // `file` is the URL itself, and it has no duration to seek in.
+  readonly property bool streaming: service !== null && service.isStream === true
+  readonly property bool seekable: service !== null && service.seekable
+    ? service.seekable() : false
 
   // The bridge reports the position only when something changes, so the client
   // carries it forward between events; while dragging, the pointer wins.
@@ -189,8 +194,10 @@ PanelWindow {
 
       Text {
         width: parent.width
+        // The station's name for a stream, the title for a file (BarWidget.songTitle).
         text: mini.service
-          ? (String(mini.service.song.title || "") || mini.service.basename(mini.service.songFile))
+          ? (String(mini.service.songTitle ? mini.service.songTitle() : "")
+             || String(mini.service.song.title || "") || mini.service.basename(mini.service.songFile))
           : ""
         color: mini.fg
         font.family: mini.fontFamily
@@ -204,11 +211,18 @@ PanelWindow {
         text: {
           if (!mini.service) return ""
           var bits = []
-          if (mini.service.song.artist) bits.push(String(mini.service.song.artist))
-          // Album equals title on singles and untagged rips; the second line should always
-          // add information instead of repeating the first one.
-          var alb = String(mini.service.song.album || "")
-          if (alb && alb !== String(mini.service.song.title || "")) bits.push(alb)
+          if (mini.streaming) {
+            // A stream carries no artist and no album: what stands here is what is
+            // running on the station, plus the bitrate (BarWidget.songMeta).
+            var line = String(mini.service.songMeta ? mini.service.songMeta() : "")
+            if (line !== "") bits.push(line)
+          } else {
+            if (mini.service.song.artist) bits.push(String(mini.service.song.artist))
+            // Album equals title on singles and untagged rips; the second line should always
+            // add information instead of repeating the first one.
+            var alb = String(mini.service.song.album || "")
+            if (alb && alb !== String(mini.service.song.title || "")) bits.push(alb)
+          }
           if (mini.service.queueLength > 0)
             bits.push("#" + (mini.service.queuePosition + 1) + "/" + mini.service.queueLength)
           return bits.join("  ·  ")
@@ -219,11 +233,13 @@ PanelWindow {
         elide: Text.ElideRight
       }
 
-      // Progress: click or drag to seek.
+      // Progress: click or drag to seek. A stream has neither (mini.seekable),
+      // so the line is not drawn at all instead of sitting empty.
       Item {
         id: bar
         width: parent.width
         height: Style.space(12)
+        visible: mini.seekable
 
         Rectangle {
           anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
@@ -331,6 +347,9 @@ PanelWindow {
       }
 
       Text {
+        // A stream has no clock: `0:37 / --:--` says nothing about a live stream,
+        // so the readout is left out rather than shown half empty.
+        visible: !mini.streaming
         text: mini.fmt(mini.playPos) + " / " + (mini.durNow > 0 ? mini.fmt(mini.durNow) : "--:--")
         color: mini.dim
         font.family: mini.fontFamily

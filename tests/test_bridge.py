@@ -1023,6 +1023,38 @@ with FakeRadio(radio_reply([station()])) as srv:
         B.Bridge().radio_search({"search": "   "})
     check("an empty search asks the directory nothing", srv.requests, [])
 
+# A country or a tag on its own *is* a question: that is how the panel browses
+# the directory ("which German stations are there", "which jazz stations"). One
+# name is enough for the directory to answer, and an empty `name=` next to it
+# would narrow nothing -- it would read as "station names containing nothing".
+with FakeRadio(radio_reply([station(name="Deutschlandfunk")])) as srv:
+    with RadioPatched(srv.base, timeout=2.0):
+        rows = B.Bridge().radio_search({"search": "", "country": "DE"})
+    # `urlsplit` on nothing would be a crash rather than a failure: a bridge that
+    # never asks is exactly what this pair of checks is about, so the missing
+    # request has to read as a failed check with the count in it.
+    sent = (urllib.parse.parse_qs(urllib.parse.urlsplit(srv.requests[0][0]).query)
+            if srv.requests else {})
+    check("browsing a country asks for the country and sends no name",
+          ("name" in sent, sent.get("countrycode"), len(srv.requests)),
+          (False, ["DE"], 1))
+    check("... and the answer is still a station row",
+          [r["name"] for r in rows], ["Deutschlandfunk"])
+
+with FakeRadio(radio_reply([station(name="Jazz Radio")])) as srv:
+    with RadioPatched(srv.base, timeout=2.0):
+        rows = B.Bridge().radio_search({"search": "", "tag": "jazz"})
+    sent = (urllib.parse.parse_qs(urllib.parse.urlsplit(srv.requests[0][0]).query)
+            if srv.requests else {})
+    check("browsing a tag asks for the tag and sends no name",
+          ("name" in sent, sent.get("tag"), len(srv.requests)), (False, ["jazz"], 1))
+    check("... and that answer too", [r["name"] for r in rows], ["Jazz Radio"])
+
+with FakeRadio(radio_reply([station()])) as srv:
+    with RadioPatched(srv.base, timeout=2.0):
+        B.Bridge().radio_search({"search": "", "country": "", "tag": ""})
+    check("a browse with nothing at all still asks nothing", srv.requests, [])
+
 print("=== radio search: only stations that can play ===")
 # What the directory sends and what a row is allowed to be. `lastcheckok` is
 # radio-browser's own verdict on whether the stream worked the last time it

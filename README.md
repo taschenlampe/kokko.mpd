@@ -105,6 +105,15 @@ The panel itself opens with **`SUPER + CTRL + M`** — that is the binding this 
 documents; if you want a different key, bind `omarchy-shell kokko.mpd panel` to your
 own.
 
+**Radio (tab `9`)** — the station directory, browsable: `enter` on *By country* or
+*By genre* opens that list, `/` searches by station name, `enter` starts a station
+and `a` appends it to the queue. Nothing plays by itself while you browse. The
+stations come from [radio-browser.info](https://www.radio-browser.info/); a station
+offered on several relays is one row — the one with the most votes — instead of
+five near-identical lines. A stream in the queue is shown by its station name and
+what is running on it: it has no cover and no length, so there is no progress bar
+and nothing to seek.
+
 ## Going further
 
 <details>
@@ -112,10 +121,10 @@ own.
 
 | Key | Effect |
 |---|---|
-| `1`…`8`, `tab` | queue · search · albums · artists · genres · files · playlists · settings |
+| `1`…`9`, `tab` | queue · search · albums · artists · genres · files · playlists · settings · radio |
 | `t` | jump to the playing track, from any tab |
 | `<` `>` | previous / next track |
-| `/` | search — the current category only in albums/artists/genres, the filter in files/playlists, global elsewhere. Case never matters. |
+| `/` | search — the current category only in albums/artists/genres, the filter in files/playlists, the station directory in radio, global elsewhere. Case never matters. |
 | `j` `k`, `↑` `↓`, `pgup` `pgdn`, `g` `G` | move |
 | `enter` | open or play |
 | `a` / `A` | append the row / append everything in this list |
@@ -128,6 +137,7 @@ own.
 **Good to know:**
 
 - In search, `↓`/`↑` jump from the field to the first/last hit; `/` brings the field back.
+- In radio, nothing plays by itself: `enter` starts a station, `a` appends it, `i` shows what the directory knows about it.
 - Digits switch tabs *only* when the search field is empty — otherwise they're search text.
 - `esc` backs out step by step: song info → one level → panel.
 - Saved playlists need MPD's `playlist_directory` set in `~/.config/mpd/mpd.conf`.

@@ -4,8 +4,8 @@ import qs.Commons
 import qs.Ui
 
 // The panel: queue, a local search, the library by albums/artists/genres, the
-// music tree, and stored playlists -- plus transport, so nothing has to be
-// done twice.
+// music tree, stored playlists, the settings, and the public station directory --
+// plus transport, so nothing has to be done twice.
 //
 // The panel owns no MPD state. The bar widget (hostWidget) holds the
 // connection; this asks it questions (`query(kind, args, channel, cb)`) and
@@ -14,7 +14,7 @@ import qs.Ui
 // something and what the breadcrumb shows.
 //
 //   j k ↑ ↓      move            enter / l   open, or play it
-//   1 … 7        tab             h ← bs      back one frame
+//   1 … 9        tab             h ← bs      back one frame
 //   /            search          a           append (folder: all of it)
 //   i            song details    d D         remove / clear (queue)
 //   s            queue to list   r           rename a playlist
@@ -145,13 +145,15 @@ Panel {
   readonly property string promptLabel: promptMode === "save" ? "Save queue as:"
     : (promptMode === "rename" ? "Rename playlist:"
     : (promptMode === "format" ? "Label-Format:"
+    : (promptMode === "radio" ? "search stations:"
     : ((promptMode === "category" || promptMode === "filter")
-       ? "filter in " + root.rootFrameFor(root.tab).title + ":" : "search:")))
+       ? "filter in " + root.rootFrameFor(root.tab).title + ":" : "search:"))))
   readonly property string promptPlaceholder: promptMode === "search"
     ? "tracks, artists, albums …"
     : (promptMode === "format" ? "[%artist% - ][%title%|%filename%]"
+    : (promptMode === "radio" ? "station name — e.g. laut.fm"
     : (promptMode === "category" ? "searches this category only"
-    : (promptMode === "filter" ? "filters this list" : "type a name, enter confirms")))
+    : (promptMode === "filter" ? "filters this list" : "type a name, enter confirms"))))
 
   // Passing the frame in rather than reading `frame` inside this handler: QML
   // re-evaluates dependent bindings *after* the change signal, so `root.frame`
@@ -200,6 +202,9 @@ Panel {
     if (tab === "genres") return { mode: "list", tag: "genre", filter: [], title: "Genres" }
     if (tab === "files") return { mode: "files", path: "", title: "Library" }
     if (tab === "settings") return { mode: "settings", title: "Settings" }
+    // The station directory: a browse root like the others, but nothing under it
+    // comes from MPD (see loadFrame).
+    if (tab === "radio") return { mode: "radio", title: "Radio" }
     return { mode: "playlists", title: "Playlists" }
   }
 
@@ -244,6 +249,202 @@ Panel {
     return bits.join("  ›  ")
   }
 
+  // ------------------------------------------------------------------- radio
+  //
+  // The station directory: radio-browser.info, asked through the bridge's
+  // `radio_search` query. It is a query like the library ones -- same id, same
+  // channel, same generation -- but it takes no MPD connection and sends no MPD
+  // command, so this tab works with the player down and can never change it.
+  //
+  // Browsing is the same browser as the library: the root offers a country list
+  // and a genre list (local data, no question asked), a country or a genre opens
+  // that narrowing's stations, and `/` searches stations by name. Nothing here
+  // appends or plays on its own -- only `a` and enter do, exactly as in the
+  // library.
+
+  // What a station row says: the station and what it is -- never the URL, which
+  // is the one thing a person cannot read anything from.
+  function stationTitle(row) {
+    if (!row) return ""
+    var name = String(row.name || "").trim()
+    if (name !== "") return name
+    // A name the directory forgot: the address at least identifies the station.
+    var url = String(row.url || row.url_resolved || "")
+    var host = url.replace(/^https?:\/\//i, "").split("/")[0]
+    return host !== "" ? host : url
+  }
+
+  function stationSub(row) {
+    if (!row) return ""
+    var bits = []
+    var rate = Number(row.bitrate || 0)
+    if (rate > 0) bits.push(rate + " kbps")
+    if (String(row.codec || "") !== "") bits.push(String(row.codec))
+    if (String(row.country || "") !== "") bits.push(String(row.country))
+    // The directory really does list one station per relay (Swiss Groove arrived
+    // as relay1 and relay2). The rows are merged rather than repeated, and the
+    // count says the merge happened.
+    if (Number(row.streams || 1) > 1) bits.push(Number(row.streams) + " streams")
+    return bits.join("  ·  ")
+  }
+
+  // One station, however many relays the directory lists: merged by name and
+  // country, and the row that survives is the one with the most votes -- the
+  // station the directory's own users listen to. Merging is case-insensitive:
+  // the same station arrives spelled "Groove Salad" and "groove salad".
+  function dedupeStations(list) {
+    var out = []
+    var at = ({})
+    for (var i = 0; i < (list || []).length; i++) {
+      var row = list[i]
+      if (!row || typeof row !== "object") continue
+      var url = String(row.url_resolved || row.url || "")
+      if (url === "") continue
+      var name = String(row.name || "").trim()
+      // A missing name is not a station name: two nameless rows are two
+      // different streams, not one station listed twice.
+      var key = name === "" ? "url:" + url
+        : "n:" + name.toLowerCase() + "|c:" + String(row.country || "").toLowerCase()
+      var seen = at[key]
+      if (seen === undefined) {
+        var first = {}
+        for (var k in row) first[k] = row[k]
+        first.url = url
+        first.streams = 1
+        out.push(first)
+        at[key] = out.length - 1
+        continue
+      }
+      var kept = out[seen]
+      var count = Number(kept.streams || 1) + 1
+      if (Number(row.votes || 0) > Number(kept.votes || 0)) {
+        for (var k2 in row) kept[k2] = row[k2]
+        kept.url = url
+      }
+      kept.streams = count
+    }
+    return out
+  }
+
+  // A stream is an address in the queue, not a file in the library: its `file`
+  // is the http(s) URL itself. Everything the display does about streams starts
+  // here (the widget has the same test for the bar, the card and the band).
+  function isStream(row) {
+    return !!row && /^https?:\/\//i.test(String(row.file || ""))
+  }
+
+  // Is what is playing right now a stream? The widget holds the song; the seek
+  // keys ask here, because seeking a live stream is meaningless.
+  function streamPlaying() {
+    return !!(root.host && root.host.isStream === true)
+  }
+
+  // The radio frames together: they are the ones the directory answers and the
+  // player does not (loadFrame, and the empty-list line).
+  function radioFrame() {
+    return String(root.frameMode).indexOf("radio") === 0
+  }
+
+  // The countries offered for browsing. A curated list, not a directory call:
+  // the bridge has no op for `/json/countries`, the codes are the ones the
+  // search takes, and a list of two hundred is not something to walk with j/k.
+  function radioCountries() {
+    return [
+      { type: "radio", nav: "country", code: "AR", title: "Argentina" },
+      { type: "radio", nav: "country", code: "AU", title: "Australia" },
+      { type: "radio", nav: "country", code: "AT", title: "Austria" },
+      { type: "radio", nav: "country", code: "BE", title: "Belgium" },
+      { type: "radio", nav: "country", code: "BR", title: "Brazil" },
+      { type: "radio", nav: "country", code: "CA", title: "Canada" },
+      { type: "radio", nav: "country", code: "CZ", title: "Czechia" },
+      { type: "radio", nav: "country", code: "DK", title: "Denmark" },
+      { type: "radio", nav: "country", code: "FI", title: "Finland" },
+      { type: "radio", nav: "country", code: "FR", title: "France" },
+      { type: "radio", nav: "country", code: "DE", title: "Germany" },
+      { type: "radio", nav: "country", code: "GR", title: "Greece" },
+      { type: "radio", nav: "country", code: "HU", title: "Hungary" },
+      { type: "radio", nav: "country", code: "IE", title: "Ireland" },
+      { type: "radio", nav: "country", code: "IT", title: "Italy" },
+      { type: "radio", nav: "country", code: "JP", title: "Japan" },
+      { type: "radio", nav: "country", code: "MX", title: "Mexico" },
+      { type: "radio", nav: "country", code: "NL", title: "Netherlands" },
+      { type: "radio", nav: "country", code: "NZ", title: "New Zealand" },
+      { type: "radio", nav: "country", code: "NO", title: "Norway" },
+      { type: "radio", nav: "country", code: "PL", title: "Poland" },
+      { type: "radio", nav: "country", code: "PT", title: "Portugal" },
+      { type: "radio", nav: "country", code: "RO", title: "Romania" },
+      { type: "radio", nav: "country", code: "RU", title: "Russia" },
+      { type: "radio", nav: "country", code: "ES", title: "Spain" },
+      { type: "radio", nav: "country", code: "SE", title: "Sweden" },
+      { type: "radio", nav: "country", code: "CH", title: "Switzerland" },
+      { type: "radio", nav: "country", code: "UA", title: "Ukraine" },
+      { type: "radio", nav: "country", code: "GB", title: "United Kingdom" },
+      { type: "radio", nav: "country", code: "US", title: "United States" }
+    ]
+  }
+
+  // The tags offered for browsing, in the spelling the directory uses them.
+  function radioGenres() {
+    return ["80s", "90s", "ambient", "blues", "chillout", "classical", "country",
+            "dance", "electronic", "folk", "funk", "hiphop", "house", "jazz",
+            "lounge", "metal", "news", "oldies", "pop", "reggae", "rock", "soul",
+            "talk", "techno", "top40", "world"].map(function (tag) {
+      return { type: "radio", nav: "genre", value: tag, title: tag }
+    })
+  }
+
+  // The three ways into the directory, as the rows of the browse root.
+  function radioRowsFor(mode) {
+    if (String(mode) === "radioCountries") return root.radioCountries()
+    if (String(mode) === "radioGenres") return root.radioGenres()
+    return [
+      { type: "radio", nav: "countries", title: "By country",
+        hint: "pick a country, then one of its stations" },
+      { type: "radio", nav: "genres", title: "By genre",
+        hint: "jazz, classical, talk … — stations by tag" },
+      { type: "radio", nav: "search", title: "Search stations",
+        hint: "enter opens the field — or press / anywhere in this tab" }
+    ]
+  }
+
+  // The station search frame. One frame, replaced while the user keeps typing,
+  // exactly like applySearch -- otherwise the way back collects one frame per
+  // keystroke.
+  function applyRadioSearch(term) {
+    var trimmed = String(term || "").trim()
+    var nextFrame = { mode: "radioStations", search: trimmed,
+                      title: trimmed === "" ? "Radio" : "Radio: " + trimmed }
+    var top = root.topFrame()
+    if (top && String(top.mode) === "radioStations") {
+      root.sel = 0
+      root.detailRow = null
+      root.stack = root.stack.slice(0, root.stack.length - 1).concat([nextFrame])
+      return
+    }
+    if (trimmed === "") return
+    root.pushFrame(nextFrame)
+  }
+
+  // A station is in nobody's library, so there is nothing for MPD to look up --
+  // the pane can only repeat what the row already carries. That is worth doing
+  // (bitrate, codec, country, votes, tags) instead of asking after a URL.
+  function stationDetail(row) {
+    if (!row) return null
+    var out = { type: "radioStation" }
+    if (root.stationTitle(row) !== "") out.name = root.stationTitle(row)
+    var stream = String(row.url_resolved || row.url || "")
+    if (stream !== "") out.url = stream
+    if (String(row.tags || "") !== "") out.tags = String(row.tags)
+    if (String(row.codec || "") !== "") out.codec = String(row.codec)
+    var rate = Number(row.bitrate || 0)
+    if (rate > 0) out.bitrate = rate + " kbps"
+    if (String(row.country || "") !== "") out.country = String(row.country)
+    if (Number(row.votes || 0) > 0) out.votes = Number(row.votes)
+    if (Number(row.streams || 1) > 1) out.streams = Number(row.streams)
+    if (String(row.homepage || "") !== "") out.homepage = String(row.homepage)
+    return out
+  }
+
   // ----------------------------------------------------------------- loading
   //
   // One generation per load: MPD answers asynchronously and the user can move
@@ -275,7 +476,27 @@ Panel {
       return
     }
 
-    if (!root.up) { root.rows = []; root.setInfo("no connection to MPD"); return }
+    // The browse lists of the station directory need no server at all: they are
+    // local data. Same two reasons as the settings branch -- the generation goes
+    // up (so an answer from the view the user just left is dropped), and the rows
+    // are bound rather than copied.
+    if (mode === "radio" || mode === "radioCountries" || mode === "radioGenres") {
+      root.loadGeneration = root.loadGeneration + 1
+      root.loading = false
+      root.rows = Qt.binding(function() { return root.radioRowsFor(mode) })
+      root.sel = root.firstSelectable(0)
+      root.setInfo("")
+      return
+    }
+
+    // A station list is not MPD's either: the bridge asks the public directory
+    // and sends no MPD command, so it is readable with the player down -- and
+    // saying "no connection to MPD" over it would be a lie.
+    if (!root.up && mode !== "radioStations") {
+      root.rows = []
+      root.setInfo("no connection to MPD")
+      return
+    }
 
     var gen = ++root.loadGeneration
     var term = String(f.term || "").trim()
@@ -300,8 +521,12 @@ Panel {
       root.loading = false
       if (error !== "") { root.setInfo(error); return }
       // A search is grouped into artists and albums first, so the first thing on
-      // screen is something to add wholesale rather than 1309 loose tracks.
-      root.allRows = (mode === "search") ? root.groupHits(list) : (list || [])
+      // screen is something to add wholesale rather than 1309 loose tracks. A
+      // station list is merged the same way -- one row per station, not one per
+      // relay (dedupeStations).
+      root.allRows = (mode === "search") ? root.groupHits(list)
+        : (mode === "radioStations") ? root.dedupeStations(list)
+        : (list || [])
       root.rows = root.allRows
       // A filter that is still set (Dateien/Playlists) applies to the list that just
       // arrived -- and then shows its own count instead of the frame's.
@@ -358,6 +583,16 @@ Panel {
       host.query("playlist", { name: String(f.name || ""), limit: 3000 }, "list", answer)
       return
     }
+    if (mode === "radioStations") {
+      // One question to the public directory through the bridge. No MPD
+      // connection is taken for it and no MPD command is sent -- which is why
+      // this frame loads without `root.up` (see above).
+      host.query("radio_search",
+                 { search: String(f.search || ""), country: String(f.country || ""),
+                   tag: String(f.tag || ""), limit: 50 },
+                 "radio", answer)
+      return
+    }
 
     root.loading = false
     root.rows = []
@@ -375,6 +610,7 @@ Panel {
     if (mode === "files") return String(f.path || "") === "" ? "Library — " + n + " entries" : String(f.path) + " — " + n
     if (mode === "playlists") return n + " Playlists"
     if (mode === "plist") return n + " tracks"
+    if (mode === "radioStations") return n === 1 ? "1 station" : n + " stations"
     return n + " entries"
   }
 
@@ -551,6 +787,12 @@ Panel {
     if (row.type === "group" || row.type === "value") return String(row.value || "")
     if (row.type === "playlist") return String(row.playlist || "")
     if (row.type === "art") return String(row.path || "")
+    // A station: the station. Never the URL it is reachable at.
+    if (row.type === "radioStation") return root.stationTitle(row)
+    // A stream in the queue: MPD gives it a `Name` (the station) and a `Title`
+    // (what is running on it right now). The name wins -- it is the identity of
+    // the row, the track on it changes per song.
+    if (root.isStream(row) && String(row.name || "") !== "") return String(row.name)
     if (row.title) return String(row.title)
     if (row.file) return host.basename(row.file)
     if (row.directory) return String(row.directory).split("/").pop()
@@ -688,6 +930,11 @@ Panel {
   function rowSub(row) {
     if (!row) return ""
     if (row.type === "setting") return String(row.hint || "")
+    if (row.type === "radio") return String(row.hint || "")
+    if (row.type === "radioStation") return root.stationSub(row)
+    // A stream's second line is what is running on it -- MPD carries that in
+    // `Title` from the ICY metadata. Never the URL it comes from.
+    if (root.isStream(row)) return String(row.title || "")
     if (row.type === "group") return row.kind === "album" ? String(row.artist || "") : ""
     if (row.type === "value" || row.type === "playlist") return ""
     if (row.type === "directory") return "Folder"
@@ -712,6 +959,15 @@ Panel {
       return String(row.value || "")
     }
     if (row.type === "group") return String(row.count || 0) + " tracks"
+    if (row.type === "radioStation") {
+      // What the directory knows about the row: the votes decide the order and
+      // they are the one number worth showing.
+      var votes = Number(row.votes || 0)
+      return votes > 0 ? votes + " votes" : ""
+    }
+    // A live stream has no length: MPD reports `time` as "0.000", and a clock
+    // reading 0:00 next to a stream that has been playing for an hour is a lie.
+    if (root.isStream(row)) return ""
     if (row.time) return host.formatTime(row.time)
     if (row.type === "value" || row.type === "directory" || row.type === "playlist") return "›"
     return ""
@@ -761,9 +1017,41 @@ Panel {
       else if (row.kind === "int") root.stepSetting(row, 1)
       return
     }
+    // The radio browse is not the player's business: these rows only open other
+    // frames (a country list, a genre list, the search field), and every one of
+    // them works with MPD down.
+    if (row.type === "radio") {
+      if (row.nav === "countries") {
+        root.pushFrame({ mode: "radioCountries", title: "Countries" })
+        return
+      }
+      if (row.nav === "genres") { root.pushFrame({ mode: "radioGenres", title: "Genres" }); return }
+      if (row.nav === "search") { root.openPrompt("radio", "", true, true); return }
+      if (row.nav === "country") {
+        root.pushFrame({ mode: "radioStations", country: String(row.code || ""),
+                         title: String(row.title || "") })
+        return
+      }
+      if (row.nav === "genre") {
+        root.pushFrame({ mode: "radioStations", tag: String(row.value || ""),
+                         title: String(row.value || "") })
+        return
+      }
+      return
+    }
     if (!root.up) return
 
     if (mode === "queue") { if (row.id !== undefined) host.playId(row.id); return }
+    // A station is played the way a library track is: put the stream in the queue
+    // and start it. Nothing plays by itself while browsing -- this is the one
+    // click that does it.
+    if (row.type === "radioStation") {
+      var stationStream = String(row.url_resolved || row.url || "")
+      if (stationStream === "") return
+      host.addAndPlay(stationStream)
+      root.flash("playing: " + root.stationTitle(row))
+      return
+    }
     if (mode === "playlists") {
       root.pushFrame({ mode: "plist", name: String(row.playlist || ""), title: String(row.playlist || "") })
       return
@@ -857,6 +1145,11 @@ Panel {
     } else if (type === "playlist") {
       host.mutation("loadplaylist", { name: String(row.playlist || "") })
       what = "Playlist " + String(row.playlist || "") + " (replaces the queue)"
+    } else if (type === "radioStation") {
+      // One `add` with the stream URL: the queue keeps playing, the station waits
+      // its turn -- the same thing `a` does on a library row.
+      host.addUri(String(row.url_resolved || row.url || ""))
+      what = root.stationTitle(row)
     } else if (row.file) {
       host.addUri(String(row.file))
       what = root.rowTitle(row)
@@ -916,6 +1209,9 @@ Panel {
     }
     if (mode === "plist") { root.flash("load a playlist: a on the list in the Playlists tab"); return }
     if (mode === "queue") { root.flash("in the queue, a appends single tracks"); return }
+    // There is no "all of it" for stations: each one is a stream, and `A` on a
+    // list of them would put a hundred live streams in the queue.
+    if (root.radioFrame()) { root.flash("a appends the selected station"); return }
     root.flash("nothing to append here")
   }
 
@@ -956,11 +1252,13 @@ Panel {
   readonly property string hintKeys: {
     if (root.promptMode === "search")
       return (root.promptText === "" && !root.promptExplicit)
-        ? "type to search · 1–8 switch tabs · ↓/↑ enters the list · / for digits · esc done"
+        ? "type to search · 1–9 switch tabs · ↓/↑ enters the list · / for digits · esc done"
         : "type to filter · ↓/↑ enters the list · enter plays the hit · ctrl+u clears · esc done"
     if (root.promptMode === "category")
       return "type to search in " + root.rootFrameFor(root.tab).title
         + " · ↓/↑ enters the list · enter shows them · esc back"
+    if (root.promptMode === "radio")
+      return "type a station name · ↓/↑ goes to the list · enter keeps the hits · esc done"
     if (root.promptMode === "filter")
       return "type to filter this list · ↓/↑ enters the list · ctrl+u clears · esc shows all"
     if (root.promptMode !== "") return "type · enter confirms · esc cancels"
@@ -973,6 +1271,9 @@ Panel {
     if (mode === "playlists") return "enter opens · a loads · s saves the queue · r renames · d deletes"
     if (mode === "plist") return "enter plays · a appends · d removes the track · ← back"
     if (mode === "settings") return "enter/space toggles · -/+ change the value · 8 picks the tab · esc back"
+    if (mode === "radio") return "enter opens/typing · / searches stations · 9 picks the tab"
+    if (mode === "radioCountries" || mode === "radioGenres") return "enter shows its stations · h/esc back"
+    if (mode === "radioStations") return "enter plays · a appends · i station info · / new search · h/esc back"
     return ""
   }
 
@@ -1026,8 +1327,17 @@ Panel {
 
   function showDetails() {
     var row = root.rows[root.sel]
-    if (!row || !root.up) return
+    if (!row) return
     if (root.detailRow !== null) { root.detailRow = null; return }
+    // A station is in nobody's library: there is nothing for MPD to look up, and
+    // the row already carries everything the pane can say. So this needs no
+    // connection either.
+    if (row.type === "radioStation") {
+      root.detailTitle = root.stationTitle(row)
+      root.detailRow = root.stationDetail(row)
+      return
+    }
+    if (!root.up) return
     var uri = String(row.file || root.host.songFile || "")
     if (uri === "") return
     root.detailLoading = true
@@ -1047,9 +1357,10 @@ Panel {
     if (focus) Qt.callLater(function() { promptFocusTimer.restart() })
   }
 
-  // 1..8 -> tab name, so the number keys can be read in one place.
+  // 1..9 -> tab name, so the number keys can be read in one place.
   function tabForNumber(value) {
-    var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists", "settings"]
+    var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists",
+                 "settings", "radio"]
     var index = Number(value) - 1
     return (index >= 0 && index < order.length) ? order[index] : ""
   }
@@ -1091,6 +1402,10 @@ Panel {
     // rebuild the frame that is already there.
     if (root.promptMode === "category" && root.promptText.trim() !== "")
       root.applyCategorySearch(root.promptText)
+    // The station search lives in the frame stack like the others: leaving the
+    // field keeps the hits on screen instead of dropping back to the browse root.
+    if (root.promptMode === "radio" && root.promptText.trim() !== "")
+      root.applyRadioSearch(root.promptText)
     root.promptMode = ""
   }
 
@@ -1099,7 +1414,8 @@ Panel {
   // typing eight letters costs one MPD search, not eight.
   function searchWhileTyping() {
     if (root.promptMode === "filter") { root.applyLocalFilter(root.promptText); return }
-    if (root.promptMode !== "search" && root.promptMode !== "category") return
+    if (root.promptMode !== "search" && root.promptMode !== "category"
+        && root.promptMode !== "radio") return
     // What this search is, not what the mode may be by the time it runs.
     root.promptDebounceMode = root.promptMode
     promptDebounce.restart()
@@ -1122,6 +1438,7 @@ Panel {
       var mode = String(root.promptDebounceMode || "")
       if (mode === "" || mode !== root.promptMode) return
       if (mode === "category") { root.applyCategorySearch(root.promptText); return }
+      if (mode === "radio") { root.applyRadioSearch(root.promptText); return }
       root.applySearch(root.promptText)
     }
   }
@@ -1224,15 +1541,22 @@ Panel {
       root.openPrompt("filter", root.filterText, true, explicit)
       return
     }
+    // In the station directory `/` searches the directory -- from the browse root
+    // and from a station list alike, and with the term it already carries.
+    if (String(mode).indexOf("radio") === 0) {
+      root.openPrompt("radio", String(top.search || ""), true, explicit)
+      return
+    }
     root.setTab("search", true)
   }
 
   function submitPrompt() {
     var text = root.promptText.trim()
-    // Done typing: the scoped search keeps its result list, the filter keeps
-    // filtering, and in both cases the field goes away. Enter in the *list* then
-    // opens the row, exactly as in every other view.
-    if (root.promptMode === "category" || root.promptMode === "filter") {
+    // Done typing: the scoped search keeps its result list, the station search
+    // and the filter keep what they show, and in every case the field goes away.
+    // Enter in the *list* then opens the row, exactly as in every other view.
+    if (root.promptMode === "category" || root.promptMode === "filter"
+        || root.promptMode === "radio") {
       // leavePrompt, not a bare reset: it stops the pending delayed search and
       // runs it for the mode it was started in. Clearing the mode alone left the
       // timer to fire against an empty mode, and the scoped search became a
@@ -1337,7 +1661,7 @@ Panel {
       // one tabForNumber knows and the hint promises: `8` is the settings tab,
       // and it was typed into the field here instead of opening it.
       if (!root.promptExplicit && root.promptText === "" && text.length === 1
-          && text >= "1" && text <= "8") {
+          && text >= "1" && text <= "9") {
         root.closePrompt()
         root.setTab(root.tabForNumber(text))
         event.accepted = true
@@ -1397,6 +1721,7 @@ Panel {
     if (text === "6" || key === Qt.Key_6) { root.setTab("files"); event.accepted = true; return }
     if (text === "7" || key === Qt.Key_7) { root.setTab("playlists"); event.accepted = true; return }
     if (text === "8" || key === Qt.Key_8) { root.setTab("settings"); event.accepted = true; return }
+    if (text === "9" || key === Qt.Key_9) { root.setTab("radio"); event.accepted = true; return }
 
     // Settings tab: -/+ step a number, space flips a switch. Before the global
     // volume/play bindings, which own those keys everywhere else.
@@ -1503,8 +1828,20 @@ Panel {
     if (text === "v") { host.toggleOption("single"); event.accepted = true; return }
     if (key === Qt.Key_Plus || text === "+") { host.nudgeVolume(5); event.accepted = true; return }
     if (key === Qt.Key_Minus || text === "-") { host.nudgeVolume(-5); event.accepted = true; return }
-    if (key === Qt.Key_Comma) { host.bare("seek " + Math.max(0, Math.round(root.host.elapsed - 5))); event.accepted = true; return }
-    if (key === Qt.Key_Period) { host.bare("seek " + Math.round(root.host.elapsed + 5)); event.accepted = true; return }
+    // Seeking is for a recording. A live stream has no timeline to move in, so
+    // while one plays these two keys do nothing at all -- the same reason the band
+    // draws no progress line for it (one measured stream: duration 0.000).
+    if (key === Qt.Key_Comma) {
+      if (!root.streamPlaying())
+        host.bare("seek " + Math.max(0, Math.round(root.host.elapsed - 5)))
+      event.accepted = true
+      return
+    }
+    if (key === Qt.Key_Period) {
+      if (!root.streamPlaying()) host.bare("seek " + Math.round(root.host.elapsed + 5))
+      event.accepted = true
+      return
+    }
   }
 
   function step(delta) {
@@ -1640,7 +1977,8 @@ Panel {
               { key: "genres", label: "5" },
               { key: "files", label: "6" },
               { key: "playlists", label: "7" },
-              { key: "settings", label: "8" }
+              { key: "settings", label: "8" },
+              { key: "radio", label: "9" }
             ]
 
             delegate: Item {
@@ -2029,7 +2367,9 @@ Panel {
         elide: Text.ElideRight
         text: {
           if (root.loading) return "loading …"
-          if (!root.up) return "no connection to MPD"
+          // The station directory answers without MPD, so a radio frame keeps its
+          // own message rather than being told the player is down.
+          if (!root.up && !root.radioFrame()) return "no connection to MPD"
           if (root.frameMode === "search" && String(root.frame.term || "").trim() === "") return "type — it searches while you type"
           if (root.frameMode === "queue") return "queue is empty — a appends the selected track"
           if (root.frameMode === "playlists") return "no saved playlists — s saves the queue"
@@ -2325,7 +2665,7 @@ Panel {
   function labelFor(key) {
     var names = {
       artist: "Artists", albumartist: "Album artist", title: "Title", album: "Album",
-      track: "Track", disc: "Disc", date: "Datum", genre: "Genre", composer: "Komponist",
+      track: "Track", disc: "Disc", date: "Date", genre: "Genre", composer: "Composer",
       performer: "Performer", name: "Name", time: "Length", duration: "Length (s)",
       file: "File", "last-modified": "Modified", format: "Format", added: "Added"
     }
