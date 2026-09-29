@@ -141,7 +141,8 @@ const FUNCTIONS = [
   // stream display hangs on.
   "isStream", "radioFrame", "radioRowsFor", "radioCountries", "radioGenres",
   "dedupeStations", "stationTitle", "stationSub", "applyRadioSearch",
-  "stationDetail", "streamPlaying", "openRadioLevel", "showDetails", "detailPairs", "labelFor"
+  "stationRow", "stationDetail", "streamPlaying", "openRadioLevel", "showDetails",
+  "detailPairs", "labelFor"
 ];
 
 const MISSING = [];
@@ -951,6 +952,30 @@ function radioCase(title, run) {
   run();
 }
 
+// The bug the radio cases did not see: the list draws a row by its `type` (the
+// delegate's `rowType`, and rowTitle/rowSub/rowRight all switch on it), and the
+// station directory's answer carries no such field. Handed to the list as it
+// arrived -- which is what the loading branch did -- every station became a
+// blank row while the count read "50 stations" over it. So the guard is not
+// "dedupeStations returns something" but "every row a radio query puts into the
+// list is typed", and it is run on every way a station can land in `rows`: the
+// browse lists, a country, a genre and the free text search.
+function untypedRows(rows) {
+  return (rows || []).filter(function (r) {
+    return String((r && r.type) || "") === "";
+  });
+}
+// What a person saw: rows the list holds but draws with nothing in them.
+function blankRows(P, rows) {
+  return (rows || []).filter(function (r) {
+    return P.root.rowTitle(r) === "" && P.root.rowSub(r) === ""
+      && P.root.rowRight(r) === "";
+  });
+}
+function typesOf(rows) {
+  return (rows || []).map(function (r) { return String((r && r.type) || "(untyped)") });
+}
+
 function case10RadioTab() {
   // The radio tab is a ninth tab: `9` picks it, tabForNumber knows it, and the
   // header chips carry it -- the keyboard and the mouse have to agree on the
@@ -969,6 +994,11 @@ function case10RadioTab() {
           && titles.indexOf("Search stations") >= 0, titles.join(", "));
   check("a browse list asks the server nothing", P.queries.length === 0,
         JSON.stringify(P.queries));
+  // And every row of it is typed: the list draws a row by its `type`, so an
+  // untyped browse row would be a blank line here just as the stations were.
+  check("every row of the browse root carries a type",
+        P.root.rows.length === 3 && untypedRows(P.root.rows).length === 0,
+        typesOf(P.root.rows).join(", "));
 
   check("every number tabForNumber knows is a tab the key opens",
         [1, 2, 3, 4, 5, 6, 7, 8, 9].every(function (n) {
@@ -1055,6 +1085,19 @@ function case11DedupeStations() {
         P.root.dedupeStations(nameless).length + " row(s)");
   check("an empty answer stays empty", P.root.dedupeStations([]).length === 0,
         String(P.root.dedupeStations([]).length));
+
+  // ... and what it hands over are rows the list can draw. This is the class of
+  // bug case 11 could not see before: it checked the merge, not the shape. The
+  // directory's answer has no `type`, so rows that came straight out of it were
+  // drawn blank under a correct count (the reported "50 stations", empty list).
+  check("every row it returns is a typed station row, not the raw answer",
+        untypedRows(out).length === 0, typesOf(out).join(", "));
+  check("... and each one is drawn with the station in it, not blank",
+        blankRows(P, out).length === 0,
+        out.map(function (r) { return JSON.stringify(P.root.rowTitle(r)) }).join(", "));
+  check("a nameless station's row is typed too",
+        untypedRows(P.root.dedupeStations(nameless)).length === 0,
+        typesOf(P.root.dedupeStations(nameless)).join(", "));
 }
 group("case 11: one station, however many relays the directory lists");
 radioCase("one station, however many relays the directory lists", case11DedupeStations);
@@ -1081,6 +1124,10 @@ function case12BrowseDirectory() {
         P.root.rows.length > 0 && P.root.rows.every(function (r) {
           return String(r.code || "").length === 2;
         }), JSON.stringify(P.root.rows.slice(0, 3)));
+  check("... and every country row is typed (the list draws by type)",
+        untypedRows(P.root.rows).length === 0,
+        typesOf(P.root.rows.slice(0, 3)).join(", ") + " ... "
+          + P.root.rows.length + " rows");
   check("a country row shows the country, not the code",
         P.root.rowTitle(P.root.rows[0]) === "Argentina"
           && P.root.rowTitle(P.root.rows[0]) !== P.root.rows[0].code,
@@ -1105,6 +1152,19 @@ function case12BrowseDirectory() {
         P.rowsTitles().join(", "));
   check("the frame says how many stations it found", /2 stations/.test(P.root.infoText),
         P.root.infoText);
+  // The count and the list have to be the same story: the reported bug was a
+  // correct "50 stations" over rows the list could not draw. `rows` and
+  // `allRows` are the two lists the delegate draws from.
+  check("every station row the country answer put in the list is typed",
+        untypedRows(P.root.rows).length === 0 && untypedRows(P.root.allRows).length === 0,
+        typesOf(P.root.rows).join(", "));
+  check("... so the list shows the stations, not blank rows",
+        blankRows(P, P.root.rows).length === 0
+          && P.rowsTitles().join(", ") === "Deutschlandfunk, laut.fm lofi",
+        P.root.rows.map(function (r) {
+          return JSON.stringify(P.root.rowTitle(r)) + " / "
+            + JSON.stringify(P.root.rowSub(r));
+        }).join("   "));
   P.press("h");
   check("h goes back to the countries", P.root.frameMode === "radioCountries",
         P.root.frameMode);
@@ -1124,6 +1184,12 @@ function case12BrowseDirectory() {
   check("a genre narrows the same query by tag",
         genreAsk.kind === "radio_search" && genreAsk.args.tag === "jazz",
         JSON.stringify(genreAsk.args));
+  // The genre's stations are the same path and must come out as the same rows.
+  Q.answer(STATIONS);
+  check("the genre's stations land as typed rows as well",
+        Q.root.rows.length === 2 && untypedRows(Q.root.rows).length === 0
+          && Q.rowsTitles().join(", ") === "Deutschlandfunk, laut.fm lofi",
+        typesOf(Q.root.rows).join(", ") + " | " + Q.rowsTitles().join(", "));
 
   // The free text search: `/` in the radio tab is a station search, and it runs
   // while typing like the other two fields.
@@ -1143,6 +1209,13 @@ function case12BrowseDirectory() {
   check("the hits land in a station list under the browse root",
         R.root.frameMode === "radioStations" && R.root.rows.length === 1
           && R.frames().length === 2, R.frames().join(" | "));
+  // The free text search is the third way into the directory and the third way a
+  // station reaches the list -- the same guard applies to it.
+  check("a search hit is a typed station row too",
+        untypedRows(R.root.rows).length === 0
+          && R.root.rowTitle(R.root.rows[0]) === "laut.fm lofi",
+        typesOf(R.root.rows).join(", ") + " | "
+          + JSON.stringify(R.root.rowTitle(R.root.rows[0])));
   check("a station search asks no MPD question",
         R.queries.every(function (q) { return q.kind === "radio_search"; }),
         JSON.stringify(R.queries.map(function (q) { return q.kind; })));

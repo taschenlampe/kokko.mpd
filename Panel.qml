@@ -288,10 +288,34 @@ Panel {
     return bits.join("  ·  ")
   }
 
+  // A station row, as the list draws it. The directory sends ten fields and no
+  // `type` -- and `type` is the one field the list knows a row by: the delegate
+  // reads it (`rowType`) and every column switches on it (rowTitle, rowSub,
+  // rowRight). Handed over as they arrived, the stations were drawn as blank
+  // rows while the count above them said "50 stations" -- the answer was in the
+  // list, nothing named it. So every station row is built here, and the fields
+  // are the directory's own: name, url_resolved and url (the address that
+  // plays), codec, bitrate (the number -- rowSub formats it), country,
+  // countrycode, votes, streams, tags. `type` is *added*, nothing is
+  // reformatted away, and it is set last so a row that carries its own `type`
+  // cannot take the list's off it.
+  function stationRow(row) {
+    if (!row || typeof row !== "object") return null
+    var out = { type: "radioStation" }
+    for (var k in row) out[k] = row[k]
+    out.type = "radioStation"
+    // The address the row plays: whatever the directory resolved, or the raw
+    // `url` when there is none -- the merged row kept its pick.
+    out.url = String(row.url_resolved || row.url || "")
+    return out
+  }
+
   // One station, however many relays the directory lists: merged by name and
   // country, and the row that survives is the one with the most votes -- the
   // station the directory's own users listen to. Merging is case-insensitive:
-  // the same station arrives spelled "Groove Salad" and "groove salad".
+  // the same station arrives spelled "Groove Salad" and "groove salad". What it
+  // returns are station rows (`stationRow`), which is the only shape the list
+  // can draw -- this is the one place a station becomes a row.
   function dedupeStations(list) {
     var out = []
     var at = ({})
@@ -323,7 +347,10 @@ Panel {
       }
       kept.streams = count
     }
-    return out
+    // The merge runs on the directory's own objects; what leaves here are the
+    // rows the list draws. Without the type every station came through as the
+    // raw answer and the list stayed blank under a correct count.
+    return out.map(root.stationRow)
   }
 
   // A stream is an address in the queue, not a file in the library: its `file`
@@ -523,7 +550,10 @@ Panel {
       // A search is grouped into artists and albums first, so the first thing on
       // screen is something to add wholesale rather than 1309 loose tracks. A
       // station list is merged the same way -- one row per station, not one per
-      // relay (dedupeStations).
+      // relay (dedupeStations) -- and it comes back as station rows already
+      // (`stationRow`), typed, because the list draws a row by its type: the
+      // directory's own answer carried none, so the rows stayed blank while the
+      // count said "50 stations".
       root.allRows = (mode === "search") ? root.groupHits(list)
         : (mode === "radioStations") ? root.dedupeStations(list)
         : (list || [])
