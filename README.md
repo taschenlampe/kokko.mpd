@@ -7,8 +7,12 @@
 ## What it is
 
 A little bar widget for your music: cover + title always visible, a click opens the
-full player — queue, search, your whole library, playlists. Mouse-first, keyboard if
-you want it.
+full player — queue, search, your whole library, playlists, and a tab that browses
+internet radio. Mouse-first, keyboard if you want it.
+
+Radio comes with it: browse by country or genre, search the public
+[radio-browser.info](https://www.radio-browser.info/) directory, and one key puts the
+stream in your queue — no `mpc`, no second player.
 
 ## Get it running
 
