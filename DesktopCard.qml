@@ -31,10 +31,19 @@ Item {
   readonly property int cardRadius: Style.cornerRadius > 0 ? Style.cornerRadius : 16
 
   readonly property string coverPath: host ? String(host.artPath || "") : ""
+  readonly property bool streaming: host ? host.isStream === true : false
+  // A stream has no timeline to walk: the widget answers this (BarWidget.seekable).
+  readonly property bool seekable: host && host.seekable ? host.seekable() : false
   readonly property string title: {
-      // Radio streams carry `name` instead of `title`, untagged files carry neither.
-      // Every other surface falls back to the file's basename; this one said
-      // "Nothing playing" while music was on.
+      // The widget owns what the song is called, and a stream is called by its
+      // station's name rather than by anything cut out of the URL
+      // (BarWidget.songTitle: name, then the running track, then the file name).
+      if (host && host.songTitle) {
+        var line = String(host.songTitle())
+        if (line !== "") return line
+      }
+      // Untagged files carry neither; this one said "Nothing playing" while
+      // music was on.
       if (!host || !host.song) return "Nothing playing"
       var s = host.song
       var t = String(s.title || "")
@@ -42,7 +51,11 @@ Item {
       if (!t && s.file) t = String(host.basename ? host.basename(s.file) : "")
       return t || "Nothing playing"
     }
-  readonly property string artist: (host && host.song && (host.song.artist || host.song.albumartist)) ? String(host.song.artist || host.song.albumartist) : ""
+  // The second line: what is running on the station (and the bitrate) for a
+  // stream, artist/albumartist for a file.
+  readonly property string artist: streaming
+    ? (host && host.songMeta ? String(host.songMeta()) : "")
+    : ((host && host.song && (host.song.artist || host.song.albumartist)) ? String(host.song.artist || host.song.albumartist) : "")
   readonly property bool playing: host ? !!host.isPlaying : false
 
   readonly property real duration: host ? (Number(host.duration) || 0) : 0
@@ -128,11 +141,12 @@ Item {
           }
         }
 
-        // Fallback while there is no cover yet.
+        // Fallback while there is no cover yet -- and the station glyph for a
+        // stream, which never has one.
         Text {
           anchors.centerIn: parent
           visible: card.coverPath === ""
-          text: "\u266b"
+          text: card.streaming ? "󰐹" : "\u266b"
           color: card.faintColor
           font.pixelSize: Math.round(parent.width * 0.28)
           font.family: Style.font.family
@@ -192,7 +206,10 @@ Item {
       Item {
         id: progressBox
         Layout.fillWidth: true
-        Layout.preferredHeight: 14
+        // A live stream has no length and nothing to seek: the row goes away
+        // instead of drawing an empty bar (BarWidget.seekable).
+        Layout.preferredHeight: card.seekable ? 14 : 0
+        visible: card.seekable
 
         Text {
           id: elapsedText

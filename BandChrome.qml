@@ -50,6 +50,11 @@ Item {
 
   readonly property bool hasSong: !!host && host.hasSong === true
   readonly property string art: hasSong && host.artPath !== "" ? host.artPath : ""
+  // A stream has no timeline: no clock, no bar, no seek. The widget answers that
+  // (BarWidget.seekable -- a stream reports no duration at all), so the band does
+  // not have to guess from the numbers.
+  readonly property bool seekable: hasSong && host.seekable ? host.seekable() : false
+  readonly property bool streaming: hasSong && host.isStream === true
   // What the picture is decoded at: 2.5x the side it is drawn with, enough for the
   // scale in use and one rule instead of a size table per look.
   readonly property int artDecode: Math.round(Math.max(160, band.coverSize * 2.5))
@@ -72,18 +77,31 @@ Item {
 
   readonly property string title: {
     if (!band.hasSong) return ""
+    // The widget owns what the song is called, and a stream is called by its
+    // station name rather than by the piece of URL at the end of `file`
+    // (BarWidget.songTitle). Falling back here keeps a band working against a
+    // host that does not have it.
+    var line = band.host.songTitle ? String(band.host.songTitle()) : ""
+    if (line !== "") return line
     return String(band.host.song.title || "") || band.host.basename(band.host.song.file)
   }
 
   // artist · album · #pos/len -- and nothing that only repeats the title, or a
-  // track whose album tag is its own name would stand there twice.
+  // track whose album tag is its own name would stand there twice. A stream has
+  // neither artist nor album: there the line carries what is running on it (and
+  // the bitrate), which is all MPD knows about a stream.
   readonly property string meta: {
     if (!band.hasSong) return ""
     var bits = []
-    var artist = String(band.host.song.artist || "")
-    var album = String(band.host.song.album || "")
-    if (artist !== "" && artist.toLowerCase() !== band.title.toLowerCase()) bits.push(artist)
-    if (album !== "" && !band.oneLine && album.toLowerCase() !== band.title.toLowerCase()) bits.push(album)
+    if (band.streaming) {
+      var streamLine = band.host.songMeta ? String(band.host.songMeta()) : ""
+      if (streamLine !== "") bits.push(streamLine)
+    } else {
+      var artist = String(band.host.song.artist || "")
+      var album = String(band.host.song.album || "")
+      if (artist !== "" && artist.toLowerCase() !== band.title.toLowerCase()) bits.push(artist)
+      if (album !== "" && !band.oneLine && album.toLowerCase() !== band.title.toLowerCase()) bits.push(album)
+    }
     if (band.host.queueLength > 0)
       bits.push("#" + (band.host.queuePosition + 1) + "/" + band.host.queueLength)
     return bits.join("  ·  ")
@@ -276,6 +294,10 @@ Item {
   Item {
     id: progress
     height: Style.space(16)
+    // Nothing to show and nothing to seek while a stream plays: MPD reports no
+    // duration for one, so a bar would sit empty and a drag would aim at a
+    // timeline that does not exist.
+    visible: band.seekable
     // The thin line is as long as it needs to be, not as long as the band; the
     // full block fills the width of the text above it.
     width: band.oneLine ? Style.space(180) : heading.width

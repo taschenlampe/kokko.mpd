@@ -119,6 +119,37 @@ if (stripActual) {
 } else {
   console.log("   " + "stripActual".padEnd(13) + " absent -- no width rule for the no-title case")
 }
+
+// The stream display (case 12): the helpers that decide what a stream is shown
+// as, plus the one-line rule the widget uses to recognise one. Grabbed verbatim
+// like everything else, so the case checks the widget's own code and not a copy
+// of it -- and against a source without them it reports the absence instead of
+// dying before the first check.
+let streamPieces = null
+let isStreamRule = null
+try {
+  streamPieces = {
+    basename: grab(/^  function basename\(/m, "basename"),
+    songTitle: grab(/^  function songTitle\(/m, "songTitle"),
+    songMeta: grab(/^  function songMeta\(/m, "songMeta"),
+    seekable: grab(/^  function seekable\(/m, "seekable")
+  }
+  const m = /^  readonly property bool isStream:[ \t]*([^\n]+)$/m.exec(src)
+  if (m) isStreamRule = m[1].trim()
+} catch (e) {
+  streamPieces = null
+}
+console.log("extracted for the stream display:")
+if (streamPieces) {
+  for (const key of Object.keys(streamPieces)) {
+    const p = streamPieces[key]
+    console.log("   " + p.what.padEnd(13) + " " + (p.first + "-" + p.last).padEnd(11)
+      + " sha256:" + p.hash)
+  }
+  console.log("   " + "isStream".padEnd(13) + " " + "one line     " + isStreamRule)
+} else {
+  console.log("   none of songTitle/songMeta/seekable is in this source")
+}
 console.log()
 
 // One factory per run, so the widget's own state cannot leak between checks.
@@ -394,12 +425,86 @@ function caseIdleWidth() {
     ]))
 }
 
+// --- 12: what a stream is shown as ------------------------------------------
+// Measured on a running stream (SomaFM Groove Salad over MPD): `file` is the
+// URL, `Name` is the station ("Groove Salad [SomaFM]"), `Title` is the running
+// track from the ICY metadata ("Sine - The Return"), there is no artist tag and
+// no album tag, and the duration is 0.000. Three things follow from that, and
+// all three are the widget's: the name instead of the URL, the running track
+// instead of an empty second line, and no timeline to walk.
+function caseStreamDisplay() {
+  if (!streamPieces || !isStreamRule) {
+    report("12", "a stream shows its station, not its URL", false,
+      ["this source has none of the stream helpers (songTitle/songMeta/seekable)"
+        + " or no isStream rule, so there is nothing to check"])
+    return
+  }
+
+  // Built from the widget's own source: the recognition rule is evaluated as the
+  // widget writes it, so a rule that fails to spot a URL fails here too.
+  function view(state) {
+    return new Function("song", "songFile", "duration", "bitrate",
+      "var isStream = (" + isStreamRule + ");"
+      + streamPieces.basename.body + "\n"
+      + streamPieces.songTitle.body + "\n"
+      + streamPieces.songMeta.body + "\n"
+      + streamPieces.seekable.body + "\n"
+      + "return { songTitle: songTitle, songMeta: songMeta, seekable: seekable }")
+      (state.song, state.songFile, state.duration, state.bitrate)
+  }
+
+  const stream = view({
+    song: { file: "https://ice5.somafm.com/groovesalad-128-aac",
+            name: "Groove Salad [SomaFM]", title: "Sine - The Return" },
+    songFile: "https://ice5.somafm.com/groovesalad-128-aac",
+    duration: 0, bitrate: "128"
+  })
+  // A stream that sends no ICY metadata at all: MPD then has a name and nothing
+  // else, and the second line must not become a lone " kbps".
+  const bare = view({
+    song: { file: "http://radioeins.de/live.mp3", name: "Radio Eins" },
+    songFile: "http://radioeins.de/live.mp3", duration: 0, bitrate: "192"
+  })
+  // The control: a file in the library keeps exactly what it always showed.
+  const file = view({
+    song: { file: "Music/Boards of Canada/Dayvan.mp3", artist: "Boards of Canada",
+            album: "Music Has the Right to Children", title: "Dayvan Cowboy" },
+    songFile: "Music/Boards of Canada/Dayvan.mp3", duration: 341, bitrate: ""
+  })
+  const untagged = view({
+    song: { file: "Music/mix/05 Track.mp3" }, songFile: "Music/mix/05 Track.mp3",
+    duration: 200, bitrate: ""
+  })
+
+  report("12", "a stream shows its station, not its URL",
+    stream.songTitle() === "Groove Salad [SomaFM]"
+      && stream.songTitle().indexOf("http") < 0
+      && stream.songMeta() === "Sine - The Return  ·  128 kbps"
+      && bare.songTitle() === "Radio Eins" && bare.songMeta() === "192 kbps"
+      && stream.seekable() === false && bare.seekable() === false
+      && file.songTitle() === "Dayvan Cowboy"
+      && file.songMeta() === "Boards of Canada  ·  Music Has the Right to Children"
+      && file.seekable() === true
+      && untagged.songTitle() === "05 Track" && untagged.seekable() === true,
+    [
+      "stream   -> \"" + stream.songTitle() + "\" / \"" + stream.songMeta()
+        + "\", seekable: " + stream.seekable(),
+      "no ICY   -> \"" + bare.songTitle() + "\" / \"" + bare.songMeta() + "\"",
+      "file     -> \"" + file.songTitle() + "\" / \"" + file.songMeta()
+        + "\", seekable: " + file.seekable(),
+      "untagged -> \"" + untagged.songTitle() + "\", seekable: " + untagged.seekable(),
+      "expected: the station's name and its running track, never the URL, and",
+      "nothing to seek while a stream is on (duration 0.000)"
+    ])
+}
+
 caseArtCache()
 caseOsdTimers()
 caseStripReserve()
 caseIdleWidth()
+caseStreamDisplay()
 
 console.log(failures === 0
   ? "all state checks passed"
-  : failures + " of 4 state checks failed")
+  : failures + " of 5 state checks failed")
 process.exit(failures === 0 ? 0 : 1)

@@ -135,8 +135,13 @@ const FUNCTIONS = [
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
   "searchWhileTyping", "searchNow", "applySearch",
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
-  "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "mutateAndReload",
-  "handleKey"
+  "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "rowRight", "mutateAndReload",
+  "handleKey",
+  // The station directory: its own frames, its own rows, and the two helpers the
+  // stream display hangs on.
+  "isStream", "radioFrame", "radioRowsFor", "radioCountries", "radioGenres",
+  "dedupeStations", "stationTitle", "stationSub", "applyRadioSearch",
+  "stationDetail", "streamPlaying", "openRadioLevel", "showDetails", "detailPairs", "labelFor"
 ];
 
 const MISSING = [];
@@ -317,6 +322,7 @@ function makePanel(opts) {
     },
     mutation: function (op, args) { mutations.push({ op: op, args: args }); },
     addUri: function (uri) { mutations.push({ op: "add", args: { uri: uri } }); },
+    addAndPlay: function (uri) { mutations.push({ op: "addplay", args: { uri: uri } }); },
     basename: function (p) { return String(p).split("/").pop(); },
     formatTime: function (t) { return String(t); },
     previewLabel: function () { return ""; },
@@ -922,6 +928,383 @@ group("case 9: the eighth tab is reachable from an open, empty search field");
   check("control: `8` with no field open picks the settings tab",
         R.root.tab === "settings" && R.root.frameMode === "settings", R.root.tab);
 }
+
+// The station directory arrives with its own functions. Against a source that
+// does not have them -- the unfixed revision -- the five cases below report what
+// is missing and stand down instead of dying on the first call, so the run still
+// names the lines that fail. That report is the counter-proof: it shows the
+// cases test the change, not the harness.
+const RADIO_FNS = ["isStream", "radioFrame", "radioRowsFor", "radioCountries",
+                   "radioGenres", "dedupeStations", "stationTitle", "stationSub",
+                   "applyRadioSearch", "stationDetail", "streamPlaying",
+                   "openRadioLevel"];
+const RADIO_MISSING = (function () {
+  const probe = makePanel();
+  return RADIO_FNS.filter(function (n) { return typeof probe.root[n] !== "function" });
+})();
+function radioCase(title, run) {
+  if (RADIO_MISSING.length > 0) {
+    check(title + " -- the radio functions are in this source", false,
+      "missing: " + RADIO_MISSING.join(", "));
+    return;
+  }
+  run();
+}
+
+function case10RadioTab() {
+  // The radio tab is a ninth tab: `9` picks it, tabForNumber knows it, and the
+  // header chips carry it -- the keyboard and the mouse have to agree on the
+  // range, which is what case 9 already had to fix once at eight.
+  const P = makePanel();
+  check("tabForNumber knows nine tabs, the eighth still settings",
+        P.root.tabForNumber("8") === "settings" && P.root.tabForNumber("9") === "radio",
+        "8 -> " + P.root.tabForNumber("8") + ", 9 -> " + P.root.tabForNumber("9"));
+
+  P.key(0, "9");
+  check("`9` opens the radio tab", P.root.tab === "radio", P.root.tab);
+  check("the browse root is up", P.root.frameMode === "radio", P.root.frameMode);
+  const titles = P.rowsTitles();
+  check("it offers a country list, a genre list and a station search",
+        titles.indexOf("By country") >= 0 && titles.indexOf("By genre") >= 0
+          && titles.indexOf("Search stations") >= 0, titles.join(", "));
+  check("a browse list asks the server nothing", P.queries.length === 0,
+        JSON.stringify(P.queries));
+
+  check("every number tabForNumber knows is a tab the key opens",
+        [1, 2, 3, 4, 5, 6, 7, 8, 9].every(function (n) {
+          const Q = makePanel();
+          Q.key(0, String(n));
+          return Q.root.tab === Q.root.tabForNumber(String(n));
+        }), [1, 2, 3, 4, 5, 6, 7, 8, 9].map(function (n) {
+          const Q = makePanel();
+          Q.key(0, String(n));
+          return n + ":" + Q.root.tab;
+        }).join(", "));
+
+  // The chips are the mouse way in; a tab the keyboard has and the header does
+  // not is a tab half the users cannot reach.
+  check("the header chips carry the ninth tab (the mouse way in)",
+        /\{ key: "radio", label: "9" \}/.test(SRC), "chip row in Panel.qml");
+
+  // Control: with an empty search field the digit switches tabs instead of being
+  // typed into it -- the rule case 9 established, now with a ninth digit.
+  const Q = makePanel();
+  Q.key(0, "2");
+  Q.key(0, "9");
+  check("control: `9` from an open, empty search field switches tabs",
+        Q.root.tab === "radio" && Q.root.promptText === "",
+        Q.root.tab + " / " + JSON.stringify(Q.root.promptText));
+}
+group("case 10: the ninth tab is the station directory");
+radioCase("the ninth tab is the station directory", case10RadioTab);
+
+function case11DedupeStations() {
+  // The measured case: the directory returns the same station twice, once per
+  // relay URL. Two rows that play the same programme are noise, not choice.
+  const STATIONS = [
+    { name: "SWISS GROOVE", country: "Switzerland", countrycode: "CH",
+      url_resolved: "http://relay1.example/stream", codec: "MP3", bitrate: 128,
+      votes: 341, lastcheckok: 1, tags: "funk,soul" },
+    { name: "SWISS GROOVE", country: "Switzerland", countrycode: "CH",
+      url_resolved: "http://relay2.example/stream", codec: "MP3", bitrate: 320,
+      votes: 341, lastcheckok: 1, tags: "funk,soul" },
+    { name: "Jazz Radio", country: "France", countrycode: "FR",
+      url_resolved: "http://jazz.example/live", codec: "AAC", bitrate: 192,
+      votes: 900, lastcheckok: 1, tags: "jazz" },
+    { name: "groove salad", country: "The United States Of America", countrycode: "US",
+      url_resolved: "http://gs.example/aac", codec: "AAC", bitrate: 128,
+      votes: 5000, lastcheckok: 1, tags: "ambient" },
+    { name: "Groove Salad", country: "The United States Of America", countrycode: "US",
+      url_resolved: "http://gs.example/relay2", codec: "AAC", bitrate: 64,
+      votes: 3, lastcheckok: 1, tags: "ambient" }
+  ];
+  const P = makePanel();
+  const out = P.root.dedupeStations(STATIONS);
+
+  check("the two Swiss Groove relays are one row",
+        out.filter(function (r) { return /swiss groove/i.test(r.name) }).length === 1,
+        out.map(function (r) { return r.name }).join(", "));
+  check("... and the two Groove Salad spellings are one row as well",
+        out.filter(function (r) { return /groove salad/i.test(r.name) }).length === 1,
+        out.map(function (r) { return r.name }).join(", "));
+  check("five entries become three stations", out.length === 3,
+        out.map(function (r) { return r.name }).join(", "));
+
+  const gs = out.filter(function (r) { return /groove salad/i.test(r.name) })[0];
+  check("the surviving row is the one with the votes",
+        gs.votes === 5000 && gs.url_resolved === "http://gs.example/aac",
+        JSON.stringify(gs));
+  const single = out.filter(function (r) { return /swiss groove/i.test(r.name) })[0];
+  check("the alternatives are counted, not listed", single.streams === 2,
+        "swiss groove streams=" + single.streams);
+  check("a station the directory lists once says nothing about alternatives",
+        out.filter(function (r) { return /jazz radio/i.test(r.name) })[0].streams === 1,
+        "jazz radio streams="
+          + out.filter(function (r) { return /jazz radio/i.test(r.name) })[0].streams);
+  check("every surviving row is playable",
+        out.every(function (r) { return String(r.url_resolved).indexOf("http") === 0 }),
+        out.map(function (r) { return r.url_resolved }).join(", "));
+
+  // Two stations without a name are not the same station.
+  const nameless = [
+    { name: "", country: "Germany", url_resolved: "http://a.example/1", votes: 1 },
+    { name: "", country: "Germany", url_resolved: "http://b.example/2", votes: 2 }
+  ];
+  check("two stations without a name stay two rows",
+        P.root.dedupeStations(nameless).length === 2,
+        P.root.dedupeStations(nameless).length + " row(s)");
+  check("an empty answer stays empty", P.root.dedupeStations([]).length === 0,
+        String(P.root.dedupeStations([]).length));
+}
+group("case 11: one station, however many relays the directory lists");
+radioCase("one station, however many relays the directory lists", case11DedupeStations);
+
+function case12BrowseDirectory() {
+  const STATIONS = [
+    { name: "Deutschlandfunk", country: "Germany", countrycode: "DE",
+      url_resolved: "http://dlf.example/live", codec: "MP3", bitrate: 128,
+      votes: 700, lastcheckok: 1, tags: "news" },
+    { name: "laut.fm lofi", country: "Germany", countrycode: "DE",
+      url_resolved: "http://lofi.example/stream", codec: "MP3", bitrate: 128,
+      votes: 5100, lastcheckok: 1, tags: "lofi" }
+  ];
+
+  // `9` -> "By country" -> Germany -> its stations. The same browser as the
+  // library: enter goes in, h comes back out.
+  const P = makePanel();
+  P.key(0, "9");
+  P.root.sel = P.rowsTitles().indexOf("By country");
+  P.root.activate();
+  check("`By country` opens a country list", P.root.frameMode === "radioCountries",
+        P.root.frameMode);
+  check("the country rows carry the two-letter code the search needs",
+        P.root.rows.length > 0 && P.root.rows.every(function (r) {
+          return String(r.code || "").length === 2;
+        }), JSON.stringify(P.root.rows.slice(0, 3)));
+  check("a country row shows the country, not the code",
+        P.root.rowTitle(P.root.rows[0]) === "Argentina"
+          && P.root.rowTitle(P.root.rows[0]) !== P.root.rows[0].code,
+        P.root.rowTitle(P.root.rows[0]));
+
+  let de = -1;
+  P.root.rows.forEach(function (r, i) { if (r.code === "DE") de = i; });
+  check("Germany is in the list", de >= 0, "index " + de);
+  P.root.sel = de;
+  P.root.activate();
+  check("picking one opens its stations", P.root.frameMode === "radioStations",
+        P.root.frameMode);
+  const asked = P.queries[P.queries.length - 1];
+  check("the question is a radio_search with the country and no text",
+        asked.kind === "radio_search" && asked.channel === "radio"
+          && asked.args.country === "DE" && asked.args.search === ""
+          && asked.args.tag === "",
+        JSON.stringify(asked));
+
+  P.answer(STATIONS);
+  check("the answer becomes the station list", P.root.rows.length === 2,
+        P.rowsTitles().join(", "));
+  check("the frame says how many stations it found", /2 stations/.test(P.root.infoText),
+        P.root.infoText);
+  P.press("h");
+  check("h goes back to the countries", P.root.frameMode === "radioCountries",
+        P.root.frameMode);
+
+  // The genre path, from the same root.
+  const Q = makePanel();
+  Q.key(0, "9");
+  Q.root.sel = Q.rowsTitles().indexOf("By genre");
+  Q.root.activate();
+  check("`By genre` opens a genre list", Q.root.frameMode === "radioGenres",
+        Q.root.frameMode);
+  const jazz = Q.rowsTitles().indexOf("jazz");
+  check("jazz is in the genre list", jazz >= 0, Q.rowsTitles().slice(0, 8).join(", "));
+  Q.root.sel = jazz;
+  Q.root.activate();
+  const genreAsk = Q.queries[Q.queries.length - 1];
+  check("a genre narrows the same query by tag",
+        genreAsk.kind === "radio_search" && genreAsk.args.tag === "jazz",
+        JSON.stringify(genreAsk.args));
+
+  // The free text search: `/` in the radio tab is a station search, and it runs
+  // while typing like the other two fields.
+  const R = makePanel();
+  R.key(0, "9");
+  R.press("/");
+  check("`/` opens a station search field", R.root.promptMode === "radio",
+        R.root.promptMode);
+  R.type("laut.fm");
+  check("typing arms the delayed search", R.timers.promptDebounce.running === true);
+  R.fire("promptDebounce");
+  const textAsk = R.queries[R.queries.length - 1];
+  check("the term goes out as the search text",
+        textAsk.kind === "radio_search" && textAsk.args.search === "laut.fm",
+        JSON.stringify(textAsk.args));
+  R.answer([STATIONS[1]]);
+  check("the hits land in a station list under the browse root",
+        R.root.frameMode === "radioStations" && R.root.rows.length === 1
+          && R.frames().length === 2, R.frames().join(" | "));
+  check("a station search asks no MPD question",
+        R.queries.every(function (q) { return q.kind === "radio_search"; }),
+        JSON.stringify(R.queries.map(function (q) { return q.kind; })));
+
+  // `+` on a browse row means what `+` means everywhere -- take this row -- and
+  // on a country or a genre that is the level behind it, not a queue full of live
+  // streams. The button is not a dead glyph there.
+  const T = makePanel();
+  T.key(0, "9");
+  T.root.sel = T.rowsTitles().indexOf("By genre");
+  T.root.addRow();
+  check("`+` on a browse row opens the level instead of filling the queue",
+        T.root.frameMode === "radioGenres" && T.mutations.length === 0,
+        T.root.frameMode + " mutations=" + JSON.stringify(T.mutations));
+
+  // Browsing and searching never touch the queue -- nothing plays by itself.
+  check("no station was appended or played while browsing",
+        P.mutations.length === 0 && Q.mutations.length === 0 && R.mutations.length === 0,
+        JSON.stringify(P.mutations.concat(Q.mutations, R.mutations)));
+
+  // The directory is not MPD: the list is readable with the player down, and the
+  // tab does not claim otherwise.
+  const S = makePanel();
+  S.host.connected = false;
+  S.key(0, "9");
+  S.root.sel = S.rowsTitles().indexOf("By country");
+  S.root.activate();
+  S.root.sel = S.root.rows.map(function (r) { return r.code }).indexOf("DE");
+  S.root.activate();
+  check("a station list is readable while MPD is down",
+        S.root.frameMode === "radioStations"
+          && S.queries[S.queries.length - 1].kind === "radio_search",
+        S.root.frameMode);
+  S.answer(STATIONS);
+  check("... and it shows the stations it got",
+        S.root.rows.length === 2 && !/no connection/.test(S.root.infoText),
+        S.root.infoText);
+}
+group("case 12: browsing the directory, level by level");
+radioCase("browsing the directory, level by level", case12BrowseDirectory);
+
+function case13StationRow() {
+  const STATION = { type: "radioStation", name: "Groove Salad [SomaFM]",
+                    url_resolved: "https://ice5.somafm.com/groovesalad-128-aac",
+                    url: "https://ice5.somafm.com/groovesalad-128-aac",
+                    codec: "AAC", bitrate: 128, country: "The United States Of America",
+                    countrycode: "US", votes: 5000, streams: 2, tags: "ambient" };
+  const P = makePanel();
+  P.root.tab = "radio";
+  P.root.stack = [{ mode: "radioStations", title: "Radio" }];
+  P.root.rows = [STATION];
+  P.root.sel = 0;
+
+  check("the row is the station name", P.root.rowTitle(STATION) === "Groove Salad [SomaFM]",
+        P.root.rowTitle(STATION));
+  check("the URL is nowhere in it",
+        P.root.rowTitle(STATION).indexOf("http") < 0
+          && P.root.rowSub(STATION).indexOf("http") < 0,
+        P.root.rowTitle(STATION) + " | " + P.root.rowSub(STATION));
+  check("the second line carries bitrate, codec, country and the relay count",
+        P.root.rowSub(STATION) === "128 kbps  ·  AAC  ·  The United States Of America  ·  2 streams",
+        P.root.rowSub(STATION));
+  check("the right column names what the row has instead",
+        P.root.rowRight(STATION) === "5000 votes", P.root.rowRight(STATION));
+
+  // `a` appends the stream URL -- one `add`, and the queue keeps playing.
+  P.mutations.length = 0;
+  P.root.addRow();
+  check("`a` appends the stream URL",
+        P.mutations.length === 1 && P.mutations[0].op === "add"
+          && P.mutations[0].args.uri === STATION.url_resolved,
+        JSON.stringify(P.mutations[0]));
+  check("... and appending does not touch what is playing",
+        P.mutations.filter(function (m) { return m.op === "playid" || m.op === "addplay" }).length === 0,
+        JSON.stringify(P.mutations));
+
+  // Enter on the row plays it: `add` and then `play`, exactly like a library row.
+  P.mutations.length = 0;
+  P.root.activate();
+  check("enter adds the station and plays it",
+        P.mutations.length === 1 && P.mutations[0].op === "addplay"
+          && P.mutations[0].args.uri === STATION.url_resolved,
+        JSON.stringify(P.mutations[0]));
+
+  // `A` would append a whole library selection; there is no such thing here.
+  P.mutations.length = 0;
+  P.root.addAll();
+  check("`A` on a station list appends nothing by itself",
+        P.mutations.length === 0 && P.flashes.length > 0,
+        JSON.stringify(P.mutations) + " flashes=" + JSON.stringify(P.flashes));
+
+  // The station pane is local: a station is in nobody's library, so there is
+  // nothing for MPD to look up and the URL is not the thing to show.
+  const Q = makePanel();
+  Q.root.tab = "radio";
+  Q.root.stack = [{ mode: "radioStations", title: "Radio" }];
+  Q.root.rows = [STATION];
+  Q.root.sel = 0;
+  Q.queries.length = 0;
+  Q.root.showDetails();
+  check("`i` on a station asks nobody and shows what the row has",
+        Q.queries.length === 0 && Q.root.detailRow !== null
+          && Q.root.detailTitle === "Groove Salad [SomaFM]",
+        JSON.stringify(Q.queries) + " title=" + Q.root.detailTitle);
+  const fields = Q.root.detailPairs().map(function (p) { return p.label + "=" + p.value });
+  check("the pane names the station and its stream",
+        fields.indexOf("Name=Groove Salad [SomaFM]") >= 0
+          && fields.some(function (f) { return f.indexOf("ice5.somafm.com") >= 0 }),
+        fields.join(", "));
+}
+group("case 13: a station row shows the station, and appends rather than plays");
+radioCase("a station row shows the station, and appends rather than plays", case13StationRow);
+
+function case14StreamDisplay() {
+  // What MPD really answers for a stream (measured): `file` is the URL, `Name`
+  // is the station, `Title` is the running track, and there is no artist, no
+  // album and no length (`time` arrives as "0.000").
+  const STREAM = { type: "file", file: "https://ice5.somafm.com/groovesalad-128-aac",
+                   name: "Groove Salad [SomaFM]", title: "Sine - The Return",
+                   time: "0.000" };
+  const FILE = { type: "file", file: "Music/01.mp3", artist: "Alice", album: "Solo",
+                 title: "One", time: "212" };
+  const P = makePanel();
+
+  check("a stream is recognised by its file, not by a tag",
+        P.root.isStream(STREAM) === true && P.root.isStream(FILE) === false,
+        String(P.root.isStream(STREAM)) + " / " + String(P.root.isStream(FILE)));
+  check("the queue row is the station", P.root.rowTitle(STREAM) === "Groove Salad [SomaFM]",
+        P.root.rowTitle(STREAM));
+  check("the second line is what is on the station",
+        P.root.rowSub(STREAM) === "Sine - The Return", P.root.rowSub(STREAM));
+  check("a stream has no clock: the row keeps the time column empty",
+        P.root.rowRight(STREAM) === "", JSON.stringify(P.root.rowRight(STREAM)));
+  check("control: an ordinary file row is unchanged",
+        P.root.rowTitle(FILE) === "One" && P.root.rowSub(FILE) === "Alice  ·  Solo"
+          && P.root.rowRight(FILE) === "212", [P.root.rowTitle(FILE), P.root.rowSub(FILE),
+          P.root.rowRight(FILE)].join(" | "));
+
+  // Without ICY metadata the stream still has its name, and never the URL.
+  const BARE = { type: "file", file: "http://jazz.example:8000/live", name: "Jazz Radio" };
+  check("a stream without ICY metadata still shows its name",
+        P.root.rowTitle(BARE) === "Jazz Radio", P.root.rowTitle(BARE));
+  check("... and its second line stays empty instead of the URL",
+        P.root.rowSub(BARE) === "", JSON.stringify(P.root.rowSub(BARE)));
+
+  // Seeking a live stream is meaningless: the keys go quiet while one plays.
+  const Q = makePanel();
+  const bares = [];
+  Q.host.bare = function (command) { bares.push(String(command)) };
+  Q.host.elapsed = 42;
+  Q.host.isStream = true;
+  Q.key(Q.Qt.Key_Comma, ",");
+  Q.key(Q.Qt.Key_Period, ".");
+  check("`,` and `.` send no seek while a stream plays", bares.length === 0,
+        JSON.stringify(bares));
+  Q.host.isStream = false;
+  Q.key(Q.Qt.Key_Comma, ",");
+  check("control: on a file the same key still seeks",
+        bares.length === 1 && bares[0] === "seek 37", JSON.stringify(bares));
+}
+group("case 14: a stream is named, not addressed");
+radioCase("a stream is named, not addressed", case14StreamDisplay);
 
 group("language: the panel's strings are English");
 {
