@@ -201,6 +201,36 @@ def raised_by(fn):
     return ""
 
 
+class CannedConn(REAL_MPDConn):
+    """A connection that keeps the arguments of every command it is asked.
+
+    `execute_query` builds the argument list; this records it, so a check can
+    look at what MPD would have been asked instead of at the quoting on the
+    wire. `reject_regex` is a build without the `=~` operator: it refuses a
+    regex filter exactly like MPD does, with an ACK.
+    """
+
+    def __init__(self, version="0.23.5", pairs=(), reject_regex=False):
+        REAL_MPDConn.__init__(self, ("tcp", "127.0.0.1", 6600))
+        self.version = version
+        self.pairs = list(pairs)
+        self.reject_regex = reject_regex
+        self.calls = []
+
+    def command(self, name, *args):
+        self.calls.append((name, list(args)))
+        if self.reject_regex and any("=~" in str(a) for a in args):
+            raise B.MPDCommandError("unsupported operator")
+        return self.pairs, None
+
+
+def list_args(version, request, pairs=(), reject_regex=False):
+    """The `list` arguments execute_query builds for one request."""
+    conn = CannedConn(version, pairs, reject_regex)
+    B.Bridge().execute_query(conn, "list", request)
+    return conn.calls[-1][1]
+
+
 def check(name, got, want):
     global CHECKS
     CHECKS += 1
@@ -271,6 +301,41 @@ check("special characters are escaped",
 check("apostrophe in an artist name",
       B.quote_filter_value("O'Brien"), "O\\'Brien")
 check("backslash is doubled", B.quote_filter_value("a\\b"), "a\\\\b")
+
+print("=== a list search inside a filter keeps both conditions ===")
+# The panel narrows a nested list -- one artist, one genre -- and searches
+# inside it, and it sends both in one request (Panel.qml applyCategorySearch:
+# { mode: "list", tag: tag, filter: context, search: trimmed }). A list command
+# carries one filter, so the narrowing and the term have to be joined by AND.
+# Built the other way round, the term alone answered: artist "Little Dragon"
+# plus "New" came back with the "New" albums of every artist in the library
+# (measured against the real one: 12 rows, Little Dragon's among them).
+check("with a filter, the search is narrowed by it",
+      list_args("0.23.5", {"tag": "album",
+                           "filter": [["artist", "Little Dragon"]],
+                           "search": "New"}),
+      ["album", "((artist == 'Little Dragon') AND (album =~ '(?i)New'))"])
+# Several filter clauses to one term: the same AND, nothing dropped.
+check("two filter clauses keep the search too",
+      list_args("0.23.5", {"tag": "album",
+                           "filter": [["artist", "Little Dragon"], ["genre", "Trip-Hop"]],
+                           "search": "New"}),
+      ["album", "(((artist == 'Little Dragon') AND (genre == 'Trip-Hop')) AND (album =~ '(?i)New'))"])
+# Without a filter the expression is the one it always was.
+check("without a filter nothing changes",
+      list_args("0.23.5", {"tag": "album", "search": "New"}),
+      ["album", "(album =~ '(?i)New')"])
+# 0.20 has no filter expressions to join: it keeps the positional spelling,
+# exactly as before.
+check("a 0.20 server keeps the positional spelling",
+      list_args("0.20.3", {"tag": "album",
+                           "filter": [["artist", "Little Dragon"]],
+                           "search": "New"}),
+      ["album", "album", "New"])
+# And a build without `=~` still falls back to `contains` rather than failing.
+check("a regex-less build still answers",
+      list_args("0.23.5", {"tag": "album", "search": "New"}, reject_regex=True),
+      ["album", "(album contains 'New')"])
 
 print("=== cache key (art_key) ===")
 a = B.art_key({"file": "Rock/X/01.mp3", "album": "X", "albumartist": "Y"})
