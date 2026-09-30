@@ -201,9 +201,14 @@ for every key. No restart needed.
 - **The bar says "MPD is not answering"** — MPD is running but has stopped responding:
   it accepts connections and never sends its greeting (a broken internet-radio stream can
   wedge it that way, and the unit still reports *active*). The bridge probes for exactly
-  that every 20 s and the bar stops presenting the last title as current. **Restart MPD**
-  in the settings tab (9) is the one action offered; the plugin never restarts the daemon
-  by itself.
+  that — the interval, the timeout and the number of misses live in one place, the comment
+  above `HEALTH_INTERVAL` in `bin/mpd-bridge` — and every surface stops presenting the last
+  title as current: the bar, the hover card, the card on the wallpaper and the band.
+  **Restart MPD** in the settings tab (9) is the one action offered; the plugin never
+  restarts the daemon by itself. How long that takes is the unit's stop limit, not the
+  plugin's: a wedged MPD ignores SIGTERM, so `systemctl --user restart mpd` waits the limit
+  out before it kills — 90 s by systemd's default, 5 s with `TimeoutStopSec=5` in
+  `~/.config/systemd/user/mpd.service.d/override.conf`.
 - **The widget vanished from the bar** — a QML syntax error does exactly that, without
   a word. `qmllint` in the plugin folder, or the shell log, says where.
 - **The panel is empty but music plays** — the bridge could not reach MPD. Switch the

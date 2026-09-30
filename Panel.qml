@@ -905,7 +905,7 @@ Panel {
 
       { type: "header", title: "Player" },
       { type: "setting", kind: "action", action: "restart", title: "Restart MPD",
-        hint: "for when MPD has stopped answering — the watchdog does this by itself" },
+        hint: "for when MPD has stopped answering — the watchdog does this by itself; a wedged MPD ignores SIGTERM, so it can look idle until the unit's stop limit runs out (5 s here with a drop-in, 90 s without one)" },
     ]
   }
 

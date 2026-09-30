@@ -67,6 +67,10 @@ PanelWindow {
     ? service.fontFamily : Style.font.family
 
   readonly property bool hasTrack: service !== null && service.hasSong === true
+  // The widget's own verdict (BarWidget.stale: connected, but the greeting probe
+  // is failing). The card does not re-decide it from `connected` or from a health
+  // detail -- it asks, so there is one definition on every surface.
+  readonly property bool stale: !!service && service.stale === true
   readonly property real durNow: (service && service.duration > 0) ? service.duration : 0
   readonly property bool playing: service !== null && service.isPlaying === true
   // A stream: the widget answers this (BarWidget.isStream/seekable) -- a stream's
@@ -111,7 +115,10 @@ PanelWindow {
   Timer {
     interval: 250
     repeat: true
-    running: mini.open && mini.hasTrack && mini.playing && !mini.dragging && mini.dragFrac < 0
+    // Gated on `stale` too: while the daemon is wedged the position stops
+    // arriving, and a clock the card carries forward on its own would keep
+    // claiming a progress nobody is measuring.
+    running: mini.open && mini.hasTrack && mini.playing && !mini.stale && !mini.dragging && mini.dragFrac < 0
     onTriggered: mini.playPos = mini.playPos + 0.25
   }
 
@@ -194,11 +201,15 @@ PanelWindow {
 
       Text {
         width: parent.width
+        // While the daemon is wedged the last title is a memory rather than the
+        // state of anything: the line says what the connection is doing instead.
+        // The card stays up so the line can be read (BarWidget.stale).
         // The station's name for a stream, the title for a file (BarWidget.songTitle).
-        text: mini.service
-          ? (String(mini.service.songTitle ? mini.service.songTitle() : "")
-             || String(mini.service.song.title || "") || mini.service.basename(mini.service.songFile))
-          : ""
+        text: mini.stale ? "MPD is not answering"
+          : (mini.service
+             ? (String(mini.service.songTitle ? mini.service.songTitle() : "")
+                || String(mini.service.song.title || "") || mini.service.basename(mini.service.songFile))
+             : "")
         color: mini.fg
         font.family: mini.fontFamily
         font.pixelSize: Style.font.subtitle
@@ -209,6 +220,9 @@ PanelWindow {
       Text {
         width: parent.width
         text: {
+          // And the second line follows the first: a queue position and a tag
+          // line from the last answered status are a memory as well.
+          if (mini.stale) return ""
           if (!mini.service) return ""
           var bits = []
           if (mini.streaming) {
@@ -234,12 +248,14 @@ PanelWindow {
       }
 
       // Progress: click or drag to seek. A stream has neither (mini.seekable),
-      // so the line is not drawn at all instead of sitting empty.
+      // so the line is not drawn at all instead of sitting empty. While the
+      // daemon is wedged there is nothing to aim at either: the fill would sit
+      // where it froze and claim a position that stopped being measured.
       Item {
         id: bar
         width: parent.width
         height: Style.space(12)
-        visible: mini.seekable
+        visible: mini.seekable && !mini.stale
 
         Rectangle {
           anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
@@ -348,8 +364,9 @@ PanelWindow {
 
       Text {
         // A stream has no clock: `0:37 / --:--` says nothing about a live stream,
-        // so the readout is left out rather than shown half empty.
-        visible: !mini.streaming
+        // so the readout is left out rather than shown half empty -- and the same
+        // goes while the daemon is wedged, where the number stopped moving.
+        visible: !mini.streaming && !mini.stale
         text: mini.fmt(mini.playPos) + " / " + (mini.durNow > 0 ? mini.fmt(mini.durNow) : "--:--")
         color: mini.dim
         font.family: mini.fontFamily

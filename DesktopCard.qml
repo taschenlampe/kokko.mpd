@@ -31,10 +31,17 @@ Item {
   readonly property int cardRadius: Style.cornerRadius > 0 ? Style.cornerRadius : 16
 
   readonly property string coverPath: host ? String(host.artPath || "") : ""
+  // The widget's own verdict (BarWidget.stale): connected, but the greeting probe
+  // is failing. Derived here, or two surfaces would drift apart on the same state.
+  readonly property bool stale: !!host && host.stale === true
   readonly property bool streaming: host ? host.isStream === true : false
   // A stream has no timeline to walk: the widget answers this (BarWidget.seekable).
   readonly property bool seekable: host && host.seekable ? host.seekable() : false
   readonly property string title: {
+      // A wedged daemon has no current title: the last one is a memory, and
+      // standing it here as the state of the player would be the lie this whole
+      // state exists to stop (BarWidget.stale). The cover stays -- a memory.
+      if (card.stale) return "MPD is not answering"
       // The widget owns what the song is called, and a stream is called by its
       // station's name rather than by anything cut out of the URL
       // (BarWidget.songTitle: name, then the running track, then the file name).
@@ -52,10 +59,11 @@ Item {
       return t || "Nothing playing"
     }
   // The second line: what is running on the station (and the bitrate) for a
-  // stream, artist/albumartist for a file.
-  readonly property string artist: streaming
+  // stream, artist/albumartist for a file. Empty while the daemon is wedged: on
+  // that line the title above already carries the one thing there is to say.
+  readonly property string artist: card.stale ? "" : (streaming
     ? (host && host.songMeta ? String(host.songMeta()) : "")
-    : ((host && host.song && (host.song.artist || host.song.albumartist)) ? String(host.song.artist || host.song.albumartist) : "")
+    : ((host && host.song && (host.song.artist || host.song.albumartist)) ? String(host.song.artist || host.song.albumartist) : ""))
   readonly property bool playing: host ? !!host.isPlaying : false
 
   readonly property real duration: host ? (Number(host.duration) || 0) : 0
@@ -207,14 +215,16 @@ Item {
         id: progressBox
         Layout.fillWidth: true
         // A live stream has no length and nothing to seek: the row goes away
-        // instead of drawing an empty bar (BarWidget.seekable).
-        Layout.preferredHeight: card.seekable ? 14 : 0
-        visible: card.seekable
+        // instead of drawing an empty bar (BarWidget.seekable). While the daemon
+        // is wedged the same holds for a different reason: a position that
+        // stopped arriving still looks like a current one once it is drawn.
+        Layout.preferredHeight: card.seekable && !card.stale ? 14 : 0
+        visible: card.seekable && !card.stale
 
         Text {
           id: elapsedText
           anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-          text: card.host && card.host.hasSong ? card.host.formatTime(card.host.elapsed) : ""
+          text: card.host && card.host.hasSong && !card.stale ? card.host.formatTime(card.host.elapsed) : ""
           color: card.faintColor
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
@@ -226,7 +236,7 @@ Item {
         Text {
           id: durationText
           anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-          text: card.host && card.duration > 0 ? card.host.formatTime(card.duration) : ""
+          text: card.host && card.duration > 0 && !card.stale ? card.host.formatTime(card.duration) : ""
           color: card.faintColor
           font.family: Style.font.family
           font.pixelSize: Style.font.caption

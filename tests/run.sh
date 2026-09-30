@@ -54,14 +54,15 @@ run_state_test() {
   fi
   return 0
 }
-STATE_TESTS=(tests/test_panel_state.js tests/test_barwidget_state.js)
+STATE_TESTS=(tests/test_panel_state.js tests/test_barwidget_state.js tests/test_media_surfaces.js)
 if command -v node >/dev/null 2>&1; then
   # The panel's and the widget's state machines are plain functions over the QML
   # source: these tests pull them out verbatim and drive them in node. They catch
   # the class of bug neither qmllint nor the Python suite can see -- a delayed
   # handler re-deciding against a mode that changed meanwhile, a local filter
   # surviving a view switch, a failed fetch cached as "nothing there", a stale
-  # fade timer hiding a card that was just shown again.
+  # fade timer hiding a card that was just shown again, a last title still shown
+  # as current while the daemon is wedged (test_media_surfaces.js).
   STATE_OK=1
   for T in "${STATE_TESTS[@]}"; do
     run_state_test "$T" || STATE_OK=0
