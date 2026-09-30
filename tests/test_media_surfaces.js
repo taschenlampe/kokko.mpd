@@ -486,18 +486,26 @@ function caseDerived() {
 // above HEALTH_INTERVAL in bin/mpd-bridge. Prose points at it instead of
 // repeating the numbers -- and the restart action says how long the unit's stop
 // limit can leave it looking idle.
+//
+// The prose has two homes: the README keeps the short version and hands the depth
+// to docs/internals.md, and that file is where the numbers, the surfaces and the
+// drop-in have to stay. Both halves are checked, so the detail cannot go missing
+// unnoticed -- it may only move, together with the pointer that leads there.
 function caseTexts() {
   const readmePath = path.join(root, "README.md")
   const panelPath = path.join(root, "Panel.qml")
-  if (!fs.existsSync(readmePath) || !fs.existsSync(panelPath)) {
+  const docsPath = path.join(root, "docs", "internals.md")
+  const wanted = [readmePath, panelPath, docsPath]
+  if (!wanted.every(function (p) { return fs.existsSync(p) })) {
     report("5", "the prose points at the bridge and is honest about the restart", false,
       ["not found next to the surfaces: "
-        + [readmePath, panelPath].filter(function (p) { return !fs.existsSync(p) }).join(", "),
-       "expected: README.md and Panel.qml beside the three .qml files"])
+        + wanted.filter(function (p) { return !fs.existsSync(p) }).join(", "),
+       "expected: README.md, Panel.qml and docs/internals.md beside the three .qml files"])
     return
   }
   const readme = fs.readFileSync(readmePath, "utf8")
   const panel = fs.readFileSync(panelPath, "utf8")
+  const docs = fs.readFileSync(docsPath, "utf8")
 
   const hintM = /title: "Restart MPD",\s*\n\s*hint: "([^"]*)"/.exec(panel)
   const hint = hintM ? hintM[1] : null
@@ -510,16 +518,22 @@ function caseTexts() {
     && /\b90 s\b/.test(hint)
     && /\b5 s\b/.test(hint)
     && !/\b20 s\b|\b3 s\b|two misses|two failed/i.test(hint)
-  const pointerOk = !/\b20 s\b/.test(bullet)
-    && /HEALTH_INTERVAL|bin\/mpd-bridge/.test(bullet)
-    && /band|hover card|wallpaper/i.test(bullet)
-  const dropinOk = /\bTimeoutStopSec\b/.test(bullet)
-    && /override\.conf/.test(bullet)
-    && /\b90 s\b/.test(bullet)
-    && /\b5 s\b/.test(bullet)
+  // The README stays short: no probe numbers, and a pointer to the file that
+  // carries them. Writing the numbers back in here is what this forbids.
+  const readmeLink = /docs\/internals\.md/.test(bullet)
+  const pointerOk = !/\b20 s\b/.test(bullet) && readmeLink
+  // ... and that file has to be the honest one: it names the bridge constant the
+  // numbers live in, the surfaces that stop pretending, and the drop-in with both
+  // durations -- spelled either way, it is the facts that count.
+  const bridgeOk = /HEALTH_INTERVAL|bin\/mpd-bridge/.test(docs)
+  const surfacesOk = /band|hover card|wallpaper/i.test(docs)
+  const dropinOk = /\bTimeoutStopSec\b/.test(docs)
+    && /override\.conf/.test(docs)
+    && (/\b90 s\b|90 seconds|ninety seconds/i.test(docs))
+    && (/\b5 s\b|five seconds/i.test(docs))
 
   report("5", "the prose points at the bridge and is honest about the restart",
-    hintOk && pointerOk && dropinOk,
+    hintOk && pointerOk && bridgeOk && surfacesOk && dropinOk,
     [
       "Restart MPD hint  : " + (hint === null ? "not found" : "\"" + hint + "\""),
       "  names the unit's stop limit: " + (hint ? /stop\s?limit/i.test(hint) : false)
@@ -529,13 +543,13 @@ function caseTexts() {
       "README bullet     : " + (bulletM ? "found at the \"MPD is not answering\" entry"
         : "not found"),
       "  no \"20 s\" left: " + (bulletM ? !/\b20 s\b/.test(bullet) : false)
-        + ", points at the bridge (HEALTH_INTERVAL/bin/mpd-bridge): "
-        + (bulletM ? /HEALTH_INTERVAL|bin\/mpd-bridge/.test(bullet) : false)
-        + ", names the other surfaces: " + (bulletM ? /band|hover card|wallpaper/i.test(bullet) : false),
-      "  drop-in named (TimeoutStopSec in override.conf): "
-        + (bulletM ? /\bTimeoutStopSec\b/.test(bullet) && /override\.conf/.test(bullet) : false),
-      "expected: the numbers stay in the bridge comment, the prose points there,"
-        + " and the restart says what the unit's stop limit does to it"
+        + ", hands the depth over (docs/internals.md): " + (bulletM ? readmeLink : false),
+      "docs/internals.md : names the bridge (HEALTH_INTERVAL/bin/mpd-bridge): " + bridgeOk
+        + ", names the surfaces (band/hover card/wallpaper): " + surfacesOk,
+      "  drop-in named (TimeoutStopSec in override.conf, 90 s and 5 s): " + dropinOk,
+      "expected: the numbers stay in the bridge comment, the README points at the file"
+        + " that carries them (docs/internals.md), that file is honest about the restart,"
+        + " and the restart action says what the unit's stop limit does to it"
     ])
 }
 
