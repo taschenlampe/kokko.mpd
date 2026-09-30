@@ -568,7 +568,12 @@ Panel {
         root.sel = root.firstSelectable(0)
         if (root.pendingSelect === "first") root.pendingSelect = ""
       }
-      if (root.filterText === "") root.setInfo(root.infoFor(mode, f, list))
+      // The radio answer is counted from the rows the list actually shows:
+      // `dedupeStations` merges a station's relays into one row, so the directory's
+      // own count said "3 stations" over two rows. Every other mode counts the
+      // answer itself, as before.
+      if (root.filterText === "")
+        root.setInfo(root.infoFor(mode, f, mode === "radioStations" ? root.rows : list))
 
       // Opened on a long queue: put the selection on what is playing and scroll
       // there, so the list does not start somewhere the music is not.
@@ -1072,6 +1077,11 @@ Panel {
     // frames (a country list, a genre list, the search field), and every one of
     // them works with MPD down.
     if (row.type === "radio") { root.openRadioLevel(row); return }
+    // Same as `a`: a station row can be on screen with the player down, and enter
+    // appends *and* plays -- neither is the directory's business to promise.
+    if (row.type === "radioStation" && !root.up) {
+      root.flash("MPD is down — adding a station needs the player"); return
+    }
     if (!root.up) return
 
     if (mode === "queue") { if (row.id !== undefined) host.playId(row.id); return }
@@ -1154,9 +1164,21 @@ Panel {
   }
 
   function addOne(row) {
-    if (!row || !root.up) return
+    if (!row) return
     var type = String(row.type || "")
     if (type === "header") return
+    // The radio browse is not the player's business (see activate): a browse row
+    // opens the level it stands for whether or not MPD is up, which is the one
+    // thing this tab promises while the player is down.
+    if (type === "radio") { root.openRadioLevel(row); return }
+    // A station row can be on screen while the player is down -- the directory is a
+    // query, not MPD. Appending a stream is the player's business, so there is
+    // something to say instead of going quiet (the browse row answers for the same
+    // reason).
+    if (type === "radioStation" && !root.up) {
+      root.flash("MPD is down — adding a station needs the player"); return
+    }
+    if (!root.up) return
     var what = ""
 
     if (type === "group") {
@@ -1183,11 +1205,6 @@ Panel {
       // its turn -- the same thing `a` does on a library row.
       host.addUri(String(row.url_resolved || row.url || ""))
       what = root.stationTitle(row)
-    } else if (type === "radio") {
-      // A browse row carries nothing to append: it opens the level it stands for
-      // (see openRadioLevel), which is what the row does on a click as well.
-      root.openRadioLevel(row)
-      return
     } else if (row.file) {
       host.addUri(String(row.file))
       what = root.rowTitle(row)
@@ -1197,6 +1214,11 @@ Panel {
   }
 
   function addAll() {
+    // There is no "all of it" for stations: each one is a stream, and `A` on a list
+    // of them would put a hundred live streams in the queue. Nothing about that
+    // needs the player, so the answer comes before the connection guard -- this is
+    // the tab that is meant to work with MPD down.
+    if (root.radioFrame()) { root.flash("a appends the selected station"); return }
     if (!root.up) return
     var mode = root.frameMode
 
@@ -1247,9 +1269,6 @@ Panel {
     }
     if (mode === "plist") { root.flash("load a playlist: a on the list in the Playlists tab"); return }
     if (mode === "queue") { root.flash("in the queue, a appends single tracks"); return }
-    // There is no "all of it" for stations: each one is a stream, and `A` on a
-    // list of them would put a hundred live streams in the queue.
-    if (root.radioFrame()) { root.flash("a appends the selected station"); return }
     root.flash("nothing to append here")
   }
 
@@ -1898,7 +1917,12 @@ Panel {
   }
 
   function cycleTab(delta) {
-    var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists"]
+    // Every tab the digits reach, in the same order -- radio and settings included.
+    // A ring of seven sent `tab` from radio straight back to the queue (`indexOf`
+    // found nothing, so -1 + 1 became 0) and made the README's `1`…`9`, `tab` cell
+    // a lie.
+    var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists",
+                 "radio", "settings"]
     var at = order.indexOf(root.tab)
     root.setTab(order[(at + delta + order.length) % order.length])
   }
