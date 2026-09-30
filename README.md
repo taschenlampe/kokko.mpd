@@ -189,11 +189,21 @@ for every key. No restart needed.
 - A running MPD on `127.0.0.1:6600` (both address and password changeable in settings)
 - Nothing else — the bridge is pure Python standard library
 - `cava` is optional, only needed for the spectrum animation
+- The radio tab asks [radio-browser.info](https://www.radio-browser.info/) over HTTPS for
+  station lists: the search term, an optional country or genre, and a User-Agent naming
+  this plugin — no key, no account, nothing about your library. Playing a station needs
+  MPD built with its `curl` input plugin (the usual case)
 
 ## If something looks wrong
 
 - **Nothing happens at all** — is MPD running? `mpc status` in a terminal answers that
   in one line. The widget stays quiet instead of showing an error.
+- **The bar says "MPD is not answering"** — MPD is running but has stopped responding:
+  it accepts connections and never sends its greeting (a broken internet-radio stream can
+  wedge it that way, and the unit still reports *active*). The bridge probes for exactly
+  that every 20 s and the bar stops presenting the last title as current. **Restart MPD**
+  in the settings tab (9) is the one action offered; the plugin never restarts the daemon
+  by itself.
 - **The widget vanished from the bar** — a QML syntax error does exactly that, without
   a word. `qmllint` in the plugin folder, or the shell log, says where.
 - **The panel is empty but music plays** — the bridge could not reach MPD. Switch the

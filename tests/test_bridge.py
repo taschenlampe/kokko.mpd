@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import shutil
+import socket
 import socketserver
 import tempfile
 import threading
@@ -1179,6 +1180,82 @@ with FakeRadio(radio_reply([station()])) as srv:
     finally:
         B.MPDConn = saved
         stop_bridge(bridge)
+
+print("=== health: the daemon stops greeting ===")
+# A wedged MPD accepts the connection and then says nothing -- the state that
+# made the bar keep showing a stale title as if it were current. The decision
+# (two misses, one announcement per change) needs no socket; the probe is then
+# run against a real silent socket, a refused port and a transport that greets.
+
+class SilentMPD(socketserver.BaseRequestHandler):
+    """Accepts and never sends the banner. What a wedged MPD looks like."""
+
+    def handle(self):
+        time.sleep(5.0)          # outlive the probe's own timeout
+
+
+bridge = B.Bridge()
+events = []
+bridge.emit = events.append
+
+bridge.health_tick(False, "no banner")
+check("one miss is not a verdict", events, [])
+
+bridge.health_tick(False, "no banner")
+check("two misses in a row announce the wedge once",
+      [(e.get("event"), e.get("ok"), e.get("detail")) for e in events],
+      [("health", False, "no banner")])
+
+bridge.health_tick(False, "no banner")
+check("... and not again while it stays silent", len(events), 1)
+
+bridge.health_tick(True, "0.24.0")
+check("the greeting coming back is announced too",
+      [(e.get("event"), e.get("ok")) for e in events],
+      [("health", False), ("health", True)])
+
+bridge.health_tick(True, "0.24.0")
+check("... once, not on every probe", len(events), 2)
+
+bridge.health_tick(False, "no banner")
+bridge.health_tick(True, "0.24.0")
+check("a single miss after a recovery is not announced",
+      [e.get("ok") for e in events], [False, True])
+stop_bridge(bridge)
+
+# The probe, against a socket that really never greets.
+quiet = QuietServer(("127.0.0.1", 0), SilentMPD)
+threading.Thread(target=quiet.serve_forever, daemon=True).start()
+try:
+    bridge = B.Bridge()
+    bridge.target = ("tcp", "127.0.0.1", quiet.server_address[1])
+    ok, detail = bridge.probe_health()
+    check("a socket that never greets is a failed probe", (ok, detail != ""), (False, True))
+    check("... and the reason is the timeout, not a crash", detail, "timed out")
+finally:
+    quiet.shutdown()
+    quiet.server_close()
+
+# Nothing listening at all: MPD is not running, which is a different sentence.
+sock = socket.socket()
+sock.bind(("127.0.0.1", 0))
+closed_port = sock.getsockname()[1]
+sock.close()
+bridge = B.Bridge()
+bridge.target = ("tcp", "127.0.0.1", closed_port)
+ok, detail = bridge.probe_health()
+check("a refused connection is a failed probe too", (ok, detail != ""), (False, True))
+
+# And the healthy case, over the fake transport: one connection of its own.
+factory, saved = planted([{}])
+try:
+    bridge = B.Bridge()
+    check("a greeting that arrives is a healthy probe",
+          bridge.probe_health(), (True, "0.23.5"))
+    check("... on a connection the probe opens and closes itself",
+          len(factory.made), 1)
+finally:
+    B.MPDConn = saved
 
 print()
 if FAILS:
