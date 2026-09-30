@@ -95,10 +95,12 @@ Item {
     return String(band.host.song.title || "") || band.host.basename(band.host.song.file)
   }
 
-  // artist · album · #pos/len -- and nothing that only repeats the title, or a
-  // track whose album tag is its own name would stand there twice. A stream has
-  // neither artist nor album: there the line carries what is running on it (and
-  // the bitrate), which is all MPD knows about a stream.
+  // artist · album · #pos/len -- the album is named there also when it is the
+  // same word as the title (a single or an untagged rip): that repetition is
+  // wanted, the line is where the album belongs. The artist is still left off
+  // while it only repeats the title. A stream has neither artist nor album: there
+  // the line carries what is running on it (and the bitrate), which is all MPD
+  // knows about a stream.
   readonly property string meta: {
     if (!band.hasSong) return ""
     // Same rule: an artist, an album and a position from the last answered status
@@ -112,7 +114,7 @@ Item {
       var artist = String(band.host.song.artist || "")
       var album = String(band.host.song.album || "")
       if (artist !== "" && artist.toLowerCase() !== band.title.toLowerCase()) bits.push(artist)
-      if (album !== "" && !band.oneLine && album.toLowerCase() !== band.title.toLowerCase()) bits.push(album)
+      if (album !== "" && !band.oneLine) bits.push(album)
     }
     if (band.host.queueLength > 0)
       bits.push("#" + (band.host.queuePosition + 1) + "/" + band.host.queueLength)

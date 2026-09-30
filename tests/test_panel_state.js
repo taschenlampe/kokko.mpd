@@ -1577,6 +1577,52 @@ group("language: the panel's strings are English");
         "album flash quote, playlist flash, connection line");
 }
 
+// ---------------------------------------------------------------- case 17
+// The queue row and the album view. The user's decision: a queue row names the
+// track's album even when it is the same word as the track -- the repetition is
+// wanted there. The one place it must stay away is the album's own view, where
+// every row already sits under that album (root.frameTitle): repeating it on
+// each line would be noise, and that guard stays. The old guard against the tab
+// title is gone -- it was the bug this fixes, the album was compared against the
+// wrong string, so the rule never fired where it should.
+group("case 17: the queue names the album, the album view does not repeat it");
+{
+  const SINGLE = { type: "file", file: "d/01.flac", artist: "Dopplereffekt",
+                   album: "Athanatos", title: "Athanatos" };
+  const OTHER = { type: "file", file: "d/02.flac", artist: "Dopplereffekt",
+                  album: "Tetrahymena", title: "Cellular" };
+  const NOALBUM = { type: "file", file: "d/03.flac", artist: "Dopplereffekt",
+                    title: "Untitled" };
+
+  // In the queue the frame's title is "Queue": the album is not it, so the album
+  // stands -- the same word as the track included.
+  const P = makePanel();
+  P.root.stack = [{ mode: "queue", title: "Queue" }];
+  check("the queue row names the album although it equals the title",
+        P.root.rowSub(SINGLE) === "Dopplereffekt  ·  Athanatos", P.root.rowSub(SINGLE));
+  check("control: a row whose album differs from the title is untouched",
+        P.root.rowSub(OTHER) === "Dopplereffekt  ·  Tetrahymena", P.root.rowSub(OTHER));
+  check("control: a row with no album tag grows no album",
+        P.root.rowSub(NOALBUM) === "Dopplereffekt", P.root.rowSub(NOALBUM));
+
+  // Inside the album's own view (`find` under that album) every row already
+  // stands under it: the second line has to leave the album out -- the one place
+  // it is suppressed, and the guard that must survive the change.
+  const Q = makePanel();
+  Q.root.stack = [{ mode: "find", title: "Athanatos",
+                    filter: [["album", "Athanatos"]] }];
+  check("the album view does not repeat the album on every row",
+        Q.root.rowSub(SINGLE) === "Dopplereffekt", Q.root.rowSub(SINGLE));
+
+  // The same rule for a second album view: the guard keys on the frame's title,
+  // not on the track, so it holds for whatever album is open.
+  const R = makePanel();
+  R.root.stack = [{ mode: "find", title: "Tetrahymena",
+                    filter: [["album", "Tetrahymena"]] }];
+  check("... and it holds for another album's view as well",
+        R.root.rowSub(OTHER) === "Dopplereffekt", R.root.rowSub(OTHER));
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {

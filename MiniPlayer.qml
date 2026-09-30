@@ -232,10 +232,13 @@ PanelWindow {
             if (line !== "") bits.push(line)
           } else {
             if (mini.service.song.artist) bits.push(String(mini.service.song.artist))
-            // Album equals title on singles and untagged rips; the second line should always
-            // add information instead of repeating the first one.
+            // And the album, whenever the track carries one. The second line names
+            // the album and nothing else: on a single or an untagged rip whose
+            // album tag equals the title it repeats the first line, and that
+            // repetition is wanted -- the album belongs here. An absent tag adds
+            // nothing; no placeholder is invented for it.
             var alb = String(mini.service.song.album || "")
-            if (alb && alb !== String(mini.service.song.title || "")) bits.push(alb)
+            if (alb) bits.push(alb)
           }
           if (mini.service.queueLength > 0)
             bits.push("#" + (mini.service.queuePosition + 1) + "/" + mini.service.queueLength)
