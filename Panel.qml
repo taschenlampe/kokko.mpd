@@ -902,6 +902,10 @@ Panel {
         hint: "reads new and changed files — the everyday one" },
       { type: "setting", kind: "action", action: "rescan", title: "Rescan",
         hint: "re-reads everything, drops removed files — slow on a NAS" },
+
+      { type: "header", title: "Player" },
+      { type: "setting", kind: "action", action: "restart", title: "Restart MPD",
+        hint: "for when MPD has stopped answering — the watchdog does this by itself; a wedged MPD ignores SIGTERM, so it can look idle until the unit's stop limit runs out (5 s here with a drop-in, 90 s without one)" },
     ]
   }
 
@@ -912,6 +916,13 @@ Panel {
   // the library really changed.
   function runLibraryAction(row) {
     if (!row || root.host === null) return
+    if (String(row.action || "") === "restart") {
+      // The one action MPD cannot be asked for: it is the thing that is not
+      // answering. User-initiated only -- the watchdog owns the automatic kind.
+      root.host.restartMpd()
+      root.flash("restarting MPD …")
+      return
+    }
     var mode = String(row.action || "update") === "rescan" ? "rescan" : "update"
     root.scanRequested = true
     root.host.updateDatabase(mode, "")
@@ -2432,6 +2443,10 @@ Panel {
           // The station directory answers without MPD, so a radio frame keeps its
           // own message rather than being told the player is down.
           if (!root.up && !root.radioFrame()) return "no connection to MPD"
+          // Connected but deaf: the bridge's greeting probe says so (HEALTH_INTERVAL).
+          // The row that fixes it is the Player group in the settings tab.
+          if (root.host && root.host.connected && root.host.mpdHealthy === false)
+            return "MPD has stopped answering — restart it in the settings tab (9)"
           if (root.frameMode === "search" && String(root.frame.term || "").trim() === "") return "type — it searches while you type"
           if (root.frameMode === "queue") return "queue is empty — a appends the selected track"
           if (root.frameMode === "playlists") return "no saved playlists — s saves the queue"

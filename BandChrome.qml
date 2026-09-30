@@ -49,11 +49,16 @@ Item {
   readonly property color line: Qt.rgba(fg.r, fg.g, fg.b, 0.14)
 
   readonly property bool hasSong: !!host && host.hasSong === true
+  // The widget's own verdict (BarWidget.stale): connected, but the greeting probe
+  // is failing. Derived here so every look reads the same state as the bar.
+  readonly property bool stale: !!host && host.stale === true
   readonly property string art: hasSong && host.artPath !== "" ? host.artPath : ""
   // A stream has no timeline: no clock, no bar, no seek. The widget answers that
   // (BarWidget.seekable -- a stream reports no duration at all), so the band does
-  // not have to guess from the numbers.
-  readonly property bool seekable: hasSong && host.seekable ? host.seekable() : false
+  // not have to guess from the numbers. A wedged daemon has no timeline either:
+  // the last one stopped, and drawing it would present a still picture as motion.
+  readonly property bool seekable: hasSong && !band.stale && host.seekable
+    ? host.seekable() : false
   readonly property bool streaming: hasSong && host.isStream === true
   // What the picture is decoded at: 2.5x the side it is drawn with, enough for the
   // scale in use and one rule instead of a size table per look.
@@ -77,6 +82,10 @@ Item {
 
   readonly property string title: {
     if (!band.hasSong) return ""
+    // While the daemon is wedged the last title is a memory, not the state of the
+    // player: the band says what the connection is doing instead. It stays up --
+    // with its cover -- so the line can be read (BarWidget.stale).
+    if (band.stale) return "MPD is not answering"
     // The widget owns what the song is called, and a stream is called by its
     // station name rather than by the piece of URL at the end of `file`
     // (BarWidget.songTitle). Falling back here keeps a band working against a
@@ -92,6 +101,9 @@ Item {
   // the bitrate), which is all MPD knows about a stream.
   readonly property string meta: {
     if (!band.hasSong) return ""
+    // Same rule: an artist, an album and a position from the last answered status
+    // are a memory as well.
+    if (band.stale) return ""
     var bits = []
     if (band.streaming) {
       var streamLine = band.host.songMeta ? String(band.host.songMeta()) : ""
@@ -171,9 +183,10 @@ Item {
 
       // Only the disc turns, and `paused` rather than `running`: that freezes the
       // interpolation where it is, so the record carries on from its angle instead
-      // of jumping back to 0 degrees after a pause.
+      // of jumping back to 0 degrees after a pause. `stale` freezes it too: a
+      // platter that keeps turning claims a playback nobody is reporting.
       RotationAnimation on rotation {
-        paused: !(band.cover === "disc" && band.hasSong && band.host.isPlaying)
+        paused: !(band.cover === "disc" && band.hasSong && !band.stale && band.host.isPlaying)
         loops: Animation.Infinite
         from: 0; to: 360
         duration: 9000
@@ -322,7 +335,9 @@ Item {
     Text {
       id: elapsed
       anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-      text: band.hasSong ? band.host.formatTime(band.host.elapsed) : ""
+      // While the daemon is wedged the number stopped moving: leaving it drawn
+      // would present a frozen position as the current one.
+      text: band.hasSong && !band.stale ? band.host.formatTime(band.host.elapsed) : ""
       color: band.faint
       font.family: band.fontFamily
       font.pixelSize: Style.font.caption
@@ -332,7 +347,7 @@ Item {
     Text {
       id: duration
       anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-      text: band.hasSong && band.host.duration > 0
+      text: band.hasSong && !band.stale && band.host.duration > 0
         ? band.host.formatTime(band.host.duration) : ""
       color: band.faint
       font.family: band.fontFamily

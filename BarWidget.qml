@@ -120,6 +120,15 @@ Panel {
   property int databaseRevision: 0
   property string lastAck: ""
 
+  // The daemon's liveness -- which is not what `connected` says. The bridge can
+  // hold a socket to an MPD that has stopped answering entirely: a reset internet
+  // radio stream can wedge it so that it accepts connections, sends no greeting,
+  // burns no CPU, and the unit still reports active. The bridge probes the
+  // greeting and tells us; until it says otherwise, the surfaces must not present
+  // the last title as if it were current.
+  property bool mpdHealthy: true
+  property string healthDetail: ""
+
   // MPD spells every one of these as a string.
   readonly property string playbackState: String(status.state || "stop")
   readonly property bool isPlaying: connected && playbackState === "play"
@@ -271,7 +280,10 @@ Panel {
     return out
   }
 
-  readonly property string label: hasSong ? Format.render(format, tokens) : ""
+  // While the daemon is wedged, whatever is on screen is a memory rather than the
+  // state of anything -- `stale` is what every surface asks before it speaks.
+  readonly property bool stale: connected && !mpdHealthy
+  readonly property string label: hasSong && !stale ? Format.render(format, tokens) : ""
   readonly property bool artIsTheIcon: showArt && !showStateIcon && label === ""
 
   // ----------------------------------------------------------- the bridge
@@ -365,6 +377,14 @@ Panel {
       status = ({})
       song = ({})
       lastError = String(event.error || "")
+      return
+    }
+
+    if (name === "health") {
+      // Two failed greeting probes in a row (see HEALTH_INTERVAL in the bridge):
+      // the daemon is not answering, however healthy the socket looks.
+      mpdHealthy = event.ok === true
+      healthDetail = String(event.detail || "")
       return
     }
 
@@ -645,7 +665,7 @@ Panel {
             id: miniBars
             // Only while it really plays, and only with levels in hand: a frozen
             // spectrum would claim something that is not true.
-            visible: root.isPlaying && root.vizBars.length > 0
+            visible: root.isPlaying && !root.stale && root.vizBars.length > 0
             count: 5
             levels: root.vizBars
             width: Style.space(20)
@@ -714,11 +734,14 @@ Panel {
           onScrollingChanged: if (!scrolling) labelText.x = 0
         }
 
-        // Nothing playing: say what the connection is doing instead of sitting
-        // there empty. Only when the label has nothing to say.
+        // Nothing playing -- or the daemon gone quiet underneath a title that
+        // would otherwise still be standing there: say what the connection is
+        // doing instead of pretending. `stale` is the wedged-but-connected case.
         Text {
-          visible: !root.hasSong
-          text: root.connected ? "" : (root.lastError !== "" ? root.lastError : "waiting for MPD …")
+          visible: !root.hasSong || root.stale
+          text: root.stale
+            ? "MPD is not answering"
+            : (root.connected ? "" : (root.lastError !== "" ? root.lastError : "waiting for MPD …"))
           color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.6)
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -770,7 +793,7 @@ Panel {
   // had switched it off, so the process ran for a surface that was not there. The
   // `desktopWidget` property above already reads exactly this setting.
   readonly property bool desktopCardVisible: desktopWidget
-  readonly property bool vizWanted: isPlaying && (panelOpen || desktopCardVisible || showStateIcon)
+  readonly property bool vizWanted: !stale && isPlaying && (panelOpen || desktopCardVisible || showStateIcon)
 
   function applyViz(line) {
     var parts = String(line).split(";")
@@ -883,6 +906,15 @@ Panel {
   // so a string has to arrive quoted: a raw `[%artist% - ]` is not valid JSON and
   // the write is dropped without a word. Numbers and booleans are their own JSON.
   // argv, not a shell string: a label format may contain anything.
+  // The explicit, user-initiated recovery: the panel offers it as an action row
+  // once MPD has stopped answering. The watchdog owns the automatic kind, and a
+  // display should not restart a daemon behind the user's back -- but naming the
+  // fault and offering the one action is the plugin's job. It assumes MPD runs as
+  // a user unit named `mpd`, which is how the package ships it.
+  function restartMpd() {
+    Util.execArgv(["systemctl", "--user", "restart", "mpd"])
+  }
+
   function setSetting(key, value) {
     var json
     if (value === true) json = "true"
@@ -1163,6 +1195,8 @@ Panel {
     function state(): string {
       return JSON.stringify({
         connected: root.connected,
+        healthy: root.mpdHealthy,
+        healthDetail: root.healthDetail,
         target: root.target,
         version: root.serverVersion,
         state: root.playbackState,

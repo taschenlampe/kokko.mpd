@@ -78,6 +78,9 @@ Output (stdout, one JSON object per line):
     {"event":"art","uri":..,"path":..,"mime":..}
     {"event":"result","id":..,"kind":..,"channel":..,"rows":[..],"error":..}
     {"event":"database"}      the library changed; anything showing it is stale
+    {"event":"health","ok":..,"detail":..}
+                              the daemon answered/stopped answering its greeting;
+                              see HEALTH_INTERVAL -- `connected` does not say this
 """
 
 from __future__ import annotations
@@ -139,6 +142,18 @@ RADIO_GRACE = 2.0
 # No radio answer is worth buffering unbounded.
 RADIO_MAX_BYTES = 4 * 1024 * 1024
 RADIO_ROW_LIMIT = 200
+
+# The liveness probe for the daemon itself. MPD can accept a connection on its
+# control port and then never send the greeting: a reset internet-radio stream can
+# wedge it that way, and while it is wedged `systemctl --user is-active mpd` still
+# says active, the process burns no CPU, and nobody on the MPD protocol is told.
+# An idle socket has no timeout by design, so the plugin would keep showing the
+# last title as if it were current. The one question with an answer is this one:
+# does the greeting arrive? Two misses in a row are a verdict (a single stalled
+# moment is not a wedge), and the answer goes out once per change as `health`.
+HEALTH_INTERVAL = 20.0
+HEALTH_TIMEOUT = 3.0
+HEALTH_FAILS = 2
 
 # What travels with a song. MPD volunteers more than this -- Added, sticker
 # counts, the audio format -- and every field costs bytes on a line that can
@@ -1009,6 +1024,11 @@ class Bridge:
         self.idle = None
         self.connected = False
 
+        # Liveness of the daemon, which is not the same as `connected`: the shell
+        # can hold a socket to an MPD that no longer answers. None = not checked.
+        self.health_ok = None
+        self.health_fails = 0
+
         self.art_uri = ""       # what the art thread is fetching or last fetched
         self.art_sent = None    # last (uri, path) announced, to stay quiet on repeats
         self.art_missing = set()  # art keys MPD had no cover for; see request_art
@@ -1110,6 +1130,54 @@ class Bridge:
         if self.connected:
             self.connected = False
             self.emit({"event": "disconnected", "error": reason})
+
+    # ------------------------------------------------------------- health
+    #
+    # See HEALTH_INTERVAL above. One extra short-lived connection every interval,
+    # nothing said while the answer does not change; the probe never touches the
+    # command or idle sockets, so a wedged daemon cannot make it hang the rest of
+    # the bridge.
+
+    def probe_health(self) -> tuple:
+        """Does the daemon greet? Its own connection, its own timeout."""
+        conn = MPDConn(self.target, self.password)
+        try:
+            version = conn.connect(HEALTH_TIMEOUT)
+            return True, version
+        except (MPDError, OSError) as exc:
+            return False, error_text(exc) or "no greeting"
+        finally:
+            conn.close()
+
+    def health_tick(self, ok: bool, detail: str = "") -> None:
+        """One probe result folded into the announced state.
+
+        Deliberately no I/O: the decision (two misses, announce once per change)
+        is the part worth testing, so it is separable from the socket.
+        """
+        if ok:
+            self.health_fails = 0
+            if self.health_ok is not True:
+                self.health_ok = True
+                self.emit({"event": "health", "ok": True, "detail": detail,
+                           "target": describe(self.target)})
+            return
+        self.health_fails += 1
+        if self.health_fails >= HEALTH_FAILS and self.health_ok is not False:
+            self.health_ok = False
+            self.emit({"event": "health", "ok": False, "detail": detail,
+                       "fails": self.health_fails,
+                       "target": describe(self.target)})
+
+    def health_worker(self) -> None:
+        while not self.stop.is_set():
+            try:
+                ok, detail = self.probe_health()
+            except Exception as exc:      # a guard may not die on one bad probe
+                ok, detail = False, error_text(exc)
+            self.health_tick(ok, detail)
+            if self.stop.wait(HEALTH_INTERVAL):
+                return
 
     def manager(self) -> None:
         """Connect, then sit in `idle` until something changes or breaks."""
@@ -2127,6 +2195,7 @@ class Bridge:
 
     def run(self) -> int:
         threading.Thread(target=self.manager, daemon=True).start()
+        threading.Thread(target=self.health_worker, daemon=True).start()
         self.ensure_query_worker()
         try:
             while not self.stop.is_set():
