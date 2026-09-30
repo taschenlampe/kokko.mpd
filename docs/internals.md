@@ -50,6 +50,32 @@ them, because it is usually the bigger one — the same order MPD itself chooses
 Important: the files have to be readable for the user the bridge runs as (usually
 no problem with a library on a NAS).
 
+## When MPD stops answering
+
+A broken internet-radio stream can wedge MPD so that it accepts connections on its
+control port and then never sends its greeting — no CPU use, and
+`systemctl --user is-active mpd` still says *active*. No MPD protocol message says so,
+and the bridge's `idle` socket has no timeout by design, so the bridge probes the one
+thing that has an answer: the banner. `HEALTH_INTERVAL`, `HEALTH_TIMEOUT` and
+`HEALTH_FAILS` in `bin/mpd-bridge` are the whole policy (20 s, 3 s, two misses in a
+row); the verdict goes out as a `health` event, and every surface asks before it
+speaks — the bar, the hover card, the wallpaper card and the band stop presenting the
+last title as current. The settings tab offers **Restart MPD** as the one action; the
+plugin never restarts the daemon by itself.
+
+How long a recovery takes is one number: a wedged MPD ignores SIGTERM, so
+`systemctl --user restart mpd` waits out the unit's stop limit. systemd's default is
+90 s; a drop-in of five seconds makes it five — which is what lets a watchdog outside
+the plugin restart it in about a second:
+
+    ~/.config/systemd/user/mpd.service.d/override.conf
+    [Service]
+    TimeoutStopSec=5
+
+Without root, `kill -STOP $(systemctl --user show mpd -p MainPID --value)` freezes the
+daemon into exactly that state, and `SIGCONT` (or a restart) releases it — the cheap
+way to test the surfaces and the watchdog.
+
 ## Structure, command line, fine tuning
 
 Everything else (server, port, password, label width, scroll behaviour, card
@@ -81,7 +107,9 @@ this compositor.
 track — an artist with 900 tracks costs one query. Every action reports in the
 footer.
 
-**Settings** live in `~/.config/omarchy/shell.json` in the widget entry:
+**Settings** live in `~/.config/omarchy/shell.json` in the widget entry — host, port,
+password, label format, the card and desktop-card options. The plugin's settings tab
+writes them there too (`setBarWidget`), so there is only ever one writer.
 
 **From the command line:**
 
@@ -106,5 +134,3 @@ o.bind("XF86AudioPlay", "Play/pause", "omarchy-shell -q kokko.mpd toggle", { loc
 o.bind("XF86AudioNext", "Next track", "omarchy-shell -q kokko.mpd next", { locked = true })
 o.bind("XF86AudioPrev", "Previous track", "omarchy-shell -q kokko.mpd prev", { locked = true })
 ```
-
-</details>

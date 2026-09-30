@@ -7,12 +7,8 @@
 ## What it is
 
 A little bar widget for your music: cover + title always visible, a click opens the
-full player — queue, search, your whole library, playlists, and a tab that browses
-internet radio. Mouse-first, keyboard if you want it.
-
-Radio comes with it: browse by country or genre, search the public
-[radio-browser.info](https://www.radio-browser.info/) directory, and one key puts the
-stream in your queue — no `mpc`, no second player.
+full player — queue, search, your whole library, playlists, and internet radio.
+Mouse-first, keyboard if you want it.
 
 ## Get it running
 
@@ -22,10 +18,9 @@ omarchy plugin enable kokko.mpd --section center
 omarchy restart shell
 ```
 
-That's it. You need a running MPD on `127.0.0.1:6600` (default, no password) —
-nothing else. `cava` is optional, it just adds the little spectrum animation.
-
-Open the panel any time with **`SUPER + CTRL + M`**.
+That's it. Open the panel any time with **`SUPER + CTRL + M`** — or bind
+`omarchy-shell kokko.mpd panel` to a key of your own. What it needs is
+[below](#requirements).
 
 <details>
 <summary>Prefer a folder you control, or need to update/remove it?</summary>
@@ -57,6 +52,10 @@ appends a track, album, or artist to the queue.
 - **Quick cleanup** — clear a row, clear the queue, or keep only what's playing.
 - **Track-change popup** — a brief card (and optional desktop notification) whenever
 a new song starts.
+- **Internet radio** — browse by country or genre, or search the public
+[radio-browser.info](https://www.radio-browser.info/) directory (tab `8`): `enter` plays a
+station, `a` appends it, and a station offered on several relays stays one row. A stream
+shows its station name and what's running on it — no cover, no length, so no seek bar.
 
 <details>
 <summary>See it — bar, queue, search, settings, wallpaper</summary>
@@ -104,19 +103,6 @@ That's really all you need. Everything below is for when you want more.
 | middle click | next track |
 | scroll | volume (or seek/track — configurable) |
 | hover | shows the card: cover, progress, buttons |
-
-The panel itself opens with **`SUPER + CTRL + M`** — that is the binding this plugin
-documents; if you want a different key, bind `omarchy-shell kokko.mpd panel` to your
-own.
-
-**Radio (tab `8`)** — the station directory, browsable: `enter` on *By country* or
-*By genre* opens that list, `/` searches by station name, `enter` starts a station
-and `a` appends it to the queue. Nothing plays by itself while you browse. The
-stations come from [radio-browser.info](https://www.radio-browser.info/); a station
-offered on several relays is one row — the one with the most votes — instead of
-five near-identical lines. A stream in the queue is shown by its station name and
-what is running on it: it has no cover and no length, so there is no progress bar
-and nothing to seek.
 
 ## Going further
 
@@ -186,29 +172,20 @@ for every key. No restart needed.
 
 ## Requirements
 
-- A running MPD on `127.0.0.1:6600` (both address and password changeable in settings)
-- Nothing else — the bridge is pure Python standard library
-- `cava` is optional, only needed for the spectrum animation
-- The radio tab asks [radio-browser.info](https://www.radio-browser.info/) over HTTPS for
-  station lists: the search term, an optional country or genre, and a User-Agent naming
-  this plugin — no key, no account, nothing about your library. Playing a station needs
-  MPD built with its `curl` input plugin (the usual case)
+- A running MPD on `127.0.0.1:6600` — address and password are changeable in the settings
+- Nothing else — the bridge is pure Python standard library; `cava` is optional, for the spectrum
+- The radio tab asks [radio-browser.info](https://www.radio-browser.info/) over HTTPS (the search
+  term and an optional country or genre — no key, no account, nothing about your library);
+  playing a station needs MPD built with its `curl` input plugin
 
 ## If something looks wrong
 
 - **Nothing happens at all** — is MPD running? `mpc status` in a terminal answers that
   in one line. The widget stays quiet instead of showing an error.
-- **The bar says "MPD is not answering"** — MPD is running but has stopped responding:
-  it accepts connections and never sends its greeting (a broken internet-radio stream can
-  wedge it that way, and the unit still reports *active*). The bridge probes for exactly
-  that — the interval, the timeout and the number of misses live in one place, the comment
-  above `HEALTH_INTERVAL` in `bin/mpd-bridge` — and every surface stops presenting the last
-  title as current: the bar, the hover card, the card on the wallpaper and the band.
-  **Restart MPD** in the settings tab (9) is the one action offered; the plugin never
-  restarts the daemon by itself. How long that takes is the unit's stop limit, not the
-  plugin's: a wedged MPD ignores SIGTERM, so `systemctl --user restart mpd` waits the limit
-  out before it kills — 90 s by systemd's default, 5 s with `TimeoutStopSec=5` in
-  `~/.config/systemd/user/mpd.service.d/override.conf`.
+- **The bar says "MPD is not answering"** — MPD is alive but deaf: it accepts connections and
+  never sends its greeting (a broken radio stream can wedge it that way, while the unit still
+  reports *active*). Every surface stops showing the last title; **Restart MPD** in the settings
+  tab (9) is the one action. Mechanism and the daemon-side fix: [docs/internals.md](docs/internals.md).
 - **The widget vanished from the bar** — a QML syntax error does exactly that, without
   a word. `qmllint` in the plugin folder, or the shell log, says where.
 - **The panel is empty but music plays** — the bridge could not reach MPD. Switch the
