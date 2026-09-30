@@ -137,6 +137,9 @@ const FUNCTIONS = [
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "rowRight", "mutateAndReload",
   "handleKey",
+  // The tab ring: the digits and `tab` are two encodings of one order, and the
+  // ring once held seven of the nine tabs.
+  "cycleTab",
   // The station directory: its own frames, its own rows, and the two helpers the
   // stream display hangs on.
   "isStream", "radioFrame", "radioRowsFor", "radioCountries", "radioGenres",
@@ -1422,6 +1425,119 @@ function case14StreamDisplay() {
 }
 group("case 14: a stream is named, not addressed");
 radioCase("a stream is named, not addressed", case14StreamDisplay);
+
+// ---------------------------------------------------------------- case 15
+// The digits and `tab` are two encodings of one order, so they have to agree: the
+// ring held seven entries, `indexOf("radio")` therefore found nothing, `-1 + 1`
+// became 0, and tab from the radio (or the settings) tab dropped the user back on
+// the queue -- while the README's `1`…`9`, `tab` cell promised the cycle. Nothing
+// covered `cycleTab`, which is why the renumbering missed it.
+function case15TabRing() {
+  const NINE = ["queue", "search", "albums", "artists", "genres", "files", "playlists",
+                "radio", "settings"];
+  const wrong = [];
+  NINE.forEach(function (tab, i) {
+    const P = makePanel();
+    P.root.tab = tab;
+    P.root.cycleTab(1);
+    const want = NINE[(i + 1) % NINE.length];
+    if (P.root.tab !== want) wrong.push(tab + " -> " + P.root.tab + " (want " + want + ")");
+  });
+  check("one step from every tab lands on the next, in the digit order",
+        wrong.length === 0, wrong.length === 0 ? NINE.length + " tabs agree" : wrong.join(", "));
+
+  // The shape the user hit: the eighth tab, then the tab key.
+  const K = makePanel();
+  K.key(0, "8");
+  K.root.cycleTab(1);
+  check("`8` then tab lands on settings, not back on the queue",
+        K.root.tab === "settings", K.root.tab);
+
+  const S = makePanel();
+  S.root.tab = "settings";
+  S.root.cycleTab(1);
+  check("... and from settings it wraps to the queue", S.root.tab === "queue", S.root.tab);
+
+  const T = makePanel();
+  T.root.tab = "queue";
+  const seen = {};
+  for (var i = 0; i < NINE.length; i++) { seen[T.root.tab] = true; T.root.cycleTab(1); }
+  check("... nine steps touch every tab and come back to the start",
+        T.root.tab === "queue" && Object.keys(seen).length === NINE.length,
+        Object.keys(seen).sort().join(", ") + " -> " + T.root.tab);
+}
+
+group("case 15: `tab` walks all nine tabs");
+case15TabRing();
+
+// ---------------------------------------------------------------- case 16
+// The radio tab is the one sold as working with the player down, and its count has
+// to be the count of the list it shows. `+`/`A` on a browse row ran the connection
+// guard before the radio branch, and the info line was built from the directory's
+// raw answer -- three relays of one station read "3 stations" over two rows.
+function case16RadioWithPlayerDown() {
+  const P = makePanel();
+  P.host.connected = false;
+  P.key(0, "8");
+  check("the radio tab opens with MPD down",
+        P.root.tab === "radio" && P.root.frameMode === "radio",
+        P.root.tab + " / " + P.root.frameMode);
+
+  P.root.sel = P.rowsTitles().indexOf("By genre");
+  P.root.addRow();
+  check("`+` on a browse row opens the level with MPD down",
+        P.root.frameMode === "radioGenres" && P.mutations.length === 0,
+        P.root.frameMode + " mutations=" + JSON.stringify(P.mutations));
+
+  P.flashes.length = 0;
+  P.root.addAll();
+  check("`A` in a radio frame answers instead of going silent",
+        P.flashes.length > 0, JSON.stringify(P.flashes));
+
+  // Three relays, two stations: the list merges them, so the count must too.
+  const R = makePanel();
+  R.key(0, "8");
+  R.root.sel = R.rowsTitles().indexOf("By country");
+  R.root.activate();
+  R.root.sel = R.root.rows.map(function (r) { return r.code }).indexOf("DE");
+  R.root.activate();
+  check("a country opens its station list", R.root.frameMode === "radioStations",
+        R.root.frameMode);
+  R.answer([
+    { type: "radioStation", name: "Swiss Groove", url_resolved: "https://a/1",
+      url: "https://a/1", country: "Switzerland", bitrate: 128, votes: 10, streams: 2 },
+    { type: "radioStation", name: "Swiss Groove", url_resolved: "https://a/2",
+      url: "https://a/2", country: "Switzerland", bitrate: 128, votes: 4, streams: 2 },
+    { type: "radioStation", name: "Byte FM", url_resolved: "https://b/1",
+      url: "https://b/1", country: "Germany", bitrate: 96, votes: 1, streams: 1 }
+  ]);
+  check("three relays are two rows", R.root.rows.length === 2, R.root.rows.length + " rows");
+  check("... and the info line counts the rows the list shows",
+        R.root.infoText === "2 stations", JSON.stringify(R.root.infoText));
+
+  // A station row can be on screen while the player is down: the directory is a
+  // query, not MPD. Appending a stream is the player's business, so `a` has to say
+  // that instead of going quiet -- the browse row answers for the same reason.
+  R.host.connected = false;
+  check("... and the panel knows the player is down", R.root.up === false, String(R.root.up));
+  R.flashes.length = 0;
+  R.mutations.length = 0;
+  R.root.sel = R.root.rows.map(function (r) { return String(r.name) }).indexOf("Byte FM");
+  R.root.addRow();
+  check("`a` on a station with MPD down says why instead of going silent",
+        R.flashes.length > 0 && R.mutations.length === 0,
+        JSON.stringify(R.flashes) + " mutations=" + JSON.stringify(R.mutations));
+
+  R.flashes.length = 0;
+  R.mutations.length = 0;
+  R.root.activate();
+  check("`enter` on a station with MPD down says the same thing",
+        R.flashes.length > 0 && R.mutations.length === 0,
+        JSON.stringify(R.flashes) + " mutations=" + JSON.stringify(R.mutations));
+}
+
+group("case 16: the radio tab with the player down, and the count it shows");
+radioCase("the radio tab with the player down, and the count it shows", case16RadioWithPlayerDown);
 
 group("language: the panel's strings are English");
 {
