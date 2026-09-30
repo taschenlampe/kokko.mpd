@@ -986,10 +986,11 @@ Panel {
     if (row.type === "directory") return "Folder"
     var bits = []
     if (row.artist) bits.push(String(row.artist))
-    // The guard used to compare against the tab's title, so it never fired in the
-      // queue: a single whose album equals its title printed the title twice.
-      if (row.album && String(row.album) !== String(row.title || "")
-          && root.frameTitle !== String(row.album)) bits.push(String(row.album))
+    // The album is named on the row -- also when it is the same word as the track
+    // (a single or an untagged rip), where the repetition is wanted. The one place
+    // it stays away is the album's own view: every row there already stands under
+    // that album (root.frameTitle), so repeating it on each line would be noise.
+    if (row.album && root.frameTitle !== String(row.album)) bits.push(String(row.album))
     if (row.genre && root.frameMode === "find") bits.push(String(row.genre))
     // No track number here: the list is already in track order and the number
     // usually leads the title anyway -- it was noise on every single row.

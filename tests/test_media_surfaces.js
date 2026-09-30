@@ -352,7 +352,9 @@ function bandView(h) {
 }
 
 let failures = 0
+let total = 0
 function report(id, title, ok, detail) {
+  total++
   if (!ok) failures++
   console.log("[" + (ok ? "PASS" : "FAIL") + "] " + id + " " + title)
   detail.forEach(function (line) { console.log("        " + line) })
@@ -537,13 +539,52 @@ function caseTexts() {
     ])
 }
 
+// --- 6: the album stands in the player even when it repeats the title -------
+// The decision this case pins down: the hover card and the band name the album
+// on their second line whenever a track carries one -- a single whose album tag
+// is its own name included. The old rule hid the album while it equalled the
+// title to avoid a repetition; the repetition is wanted there now. The wallpaper
+// card (DesktopCard.qml) is deliberately not asked here: it stays minimal and
+// carries no album line at all. The controls are the other half: a track with no
+// album tag must not grow one, and the value is the album, not an invention.
+function caseAlbumRepeatsTitle() {
+  const single = { file: "Music/Dopplereffekt/Athanatos.flac", artist: "Dopplereffekt",
+                   album: "Athanatos", title: "Athanatos" }
+  const untagged = { file: "Music/Dopplereffekt/Untitled.flac", artist: "Dopplereffekt",
+                     title: "Athanatos" }
+  // The band takes its title from the widget (BarWidget.songTitle), and the
+  // widget takes it from the same tags the card reads -- so a single with
+  // album == title is one where songTitle() answers with the album's word too.
+  const mini = miniView(host({ song: single, songTitle: "Athanatos" }))
+  const miniBare = miniView(host({ song: untagged, songTitle: "Athanatos" }))
+  const band = bandView(host({ song: single, songTitle: "Athanatos" }))
+  const bandBare = bandView(host({ song: untagged, songTitle: "Athanatos" }))
+
+  const wants = "Dopplereffekt  ·  Athanatos  ·  #3/7"
+  const bare = "Dopplereffekt  ·  #3/7"
+
+  report("6", "the album stands in the player even when it equals the title",
+    mini.meta === wants && band.meta === wants
+      && miniBare.meta === bare && bandBare.meta === bare,
+    [
+      "hover card, album == title : \"" + mini.meta + "\"",
+      "band,       album == title : \"" + band.meta + "\"",
+      "hover card, no album tag   : \"" + miniBare.meta + "\"",
+      "band,       no album tag   : \"" + bandBare.meta + "\"",
+      "expected: \"" + wants + "\" whenever the album tag is there (even as the"
+        + " title), and \"" + bare + "\" when it is not -- never an invented album",
+      "the wallpaper card is not asked: it stays minimal (DesktopCard.qml)"
+    ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
 caseDerived()
 caseTexts()
+caseAlbumRepeatsTitle()
 
 console.log(failures === 0
   ? "all media-surface checks passed"
-  : failures + " of 5 media-surface checks failed")
+  : failures + " of " + total + " media-surface checks failed")
 process.exit(failures === 0 ? 0 : 1)
