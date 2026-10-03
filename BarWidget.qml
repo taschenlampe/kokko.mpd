@@ -137,8 +137,8 @@ Panel {
   readonly property bool hasSong: connected && songFile !== ""
   // A stream is not a file in the library: MPD hands out the http(s) URL itself
   // as `file`. Everything the display does differently for one hangs on this --
-  // the name instead of the address, the station glyph instead of a cover, and
-  // no progress at all.
+  // the name instead of the address, the station logo (or its glyph while that
+  // has not arrived; the bridge fetches it, issue #56), and no progress at all.
   readonly property bool isStream: /^https?:\/\//i.test(songFile)
 
   // MPD reports elapsed only when something changes, so the clock is carried
@@ -593,14 +593,16 @@ Panel {
         spacing: Style.space(6)
 
         // The cover, as a small square before the text (showArt) -- or, while a
-        // stream plays, the station glyph: a stream never has cover art, and an
-        // empty slot where every song shows a picture reads as a broken image.
+        // stream plays, its station logo (the bridge resolves the directory's
+        // favicon, issue #56) and the station glyph only while there is no logo:
+        // an empty slot where every song shows a picture reads as a broken image.
         Item {
           visible: root.showArt && (root.artPath !== "" || root.isStream)
           implicitWidth: visible ? root.barSize : 0
           implicitHeight: root.barSize
 
           Image {
+            id: stationCover
             anchors.centerIn: parent
             width: parent.implicitWidth - Style.space(6)
             height: width
@@ -614,7 +616,10 @@ Panel {
 
           Text {
             anchors.centerIn: parent
-            visible: root.artPath === "" && root.isStream
+            // The glyph stands in while there is no logo -- and comes back when
+            // a resolved logo fails to load (a dead favicon URL, or a WEBP this
+            // Qt build cannot decode), so a stream never shows an empty slot.
+            visible: root.isStream && stationCover.status !== Image.Ready
             text: "󰐹"
             color: root.isPlaying ? Color.accent : root.fg
             font.family: root.fontFamily

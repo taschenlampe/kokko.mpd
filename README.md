@@ -55,7 +55,8 @@ a new song starts.
 - **Internet radio** — browse by country or genre, or search the public
 [radio-browser.info](https://www.radio-browser.info/) directory (tab `8`): `enter` plays a
 station, `a` appends it, and a station offered on several relays stays one row. A stream
-shows its station name and what's running on it — no cover, no length, so no seek bar.
+shows its station name, its station logo and what's running on it — still no length, so
+no seek bar.
 
 <details>
 <summary>See it — bar, queue, search, settings, wallpaper</summary>

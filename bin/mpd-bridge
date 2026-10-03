@@ -34,6 +34,11 @@ same way the browsing queries hand back songs. It runs on the query worker like
 the others, but its HTTP call carries its own hard ceiling (see http_get),
 because a socket that never answers must cost one reply -- never the bridge.
 
+The same directory answers one question for the art worker: which station is
+behind the stream that is playing? Its record carries `favicon`, and that logo
+is fetched into the album-art cache and announced like any other cover (issue
+#56). Only the running stream is resolved -- never a row in the radio tab.
+
 Input (stdin, one line each):
     config {"host":..,"port":..,"password":..}   (re)connect with these settings
     toggle | play | pause | stop | next | prev
@@ -132,6 +137,9 @@ QUERY_ROW_LIMIT = 20000
 # identify themselves with a User-Agent -- a bare urllib request is refused.
 RADIO_API = "https://all.api.radio-browser.info"
 RADIO_PATH = "/json/stations/search"
+# The other question the same directory answers: given a stream address, which
+# station is it? That record carries `favicon`, the station's logo.
+RADIO_BYURL_PATH = "/json/stations/byurl"
 RADIO_UA = "kokko.mpd/0.1 (+https://github.com/taschenlampe/kokko.mpd)"
 # One HTTP request: connect and read. Short on purpose -- this is a search box
 # somebody is typing in, not a download.
@@ -141,6 +149,12 @@ RADIO_TIMEOUT = 8.0
 RADIO_GRACE = 2.0
 # No radio answer is worth buffering unbounded.
 RADIO_MAX_BYTES = 4 * 1024 * 1024
+# A station logo is fetched while a stream plays, off the play/pause path, but
+# still with its own ceiling: measured logos run to 400 KB, and a favicon URL
+# that answers with something else must not be buffered whole. One byte past the
+# ceiling is read so an oversize body can be told apart from one at the limit.
+RADIO_FAVICON_TIMEOUT = 6.0
+RADIO_FAVICON_MAX = 512 * 1024
 RADIO_ROW_LIMIT = 200
 
 # The liveness probe for the daemon itself. MPD can accept a connection on its
@@ -607,14 +621,34 @@ def version_at_least(version: str, major: int, minor: int) -> bool:
 # ------------------------------------------------------------------- album art
 
 
+def is_stream_uri(uri: str) -> bool:
+    """A live internet stream: MPD hands out the http(s) address as `file`."""
+    return bool(re.match(r"https?://", uri or "", re.IGNORECASE))
+
+
+def stream_art_key(uri: str) -> str:
+    """The cache identity of a stream's logo: the whole address, hashed.
+
+    An album key is the directory plus the album, because every track of a
+    release shares one picture. A radio stream has no album, and two stations
+    can sit at the same host -- SomaFM's `ice5.somafm.com` serves both Groove
+    Salad and Drone Zone -- so the album rule would give two stations one logo.
+    The full URL is the identity here.
+    """
+    return hashlib.sha1(("stream\n" + uri).encode("utf-8")).hexdigest()[:20]
+
+
 def art_key(song: dict) -> str:
     """Identity of the artwork, not of the song.
 
     Keyed on the song's directory plus album so every track of an album shares
     one cache entry -- which is what `albumart` returns anyway. The album tag
-    is in there because two albums can sit in one directory.
+    is in there because two albums can sit in one directory. A stream is not a
+    song in an album at all: it is keyed on its own URL (see stream_art_key).
     """
     uri = song.get("file", "")
+    if is_stream_uri(uri):
+        return stream_art_key(uri)
     directory = uri.rsplit("/", 1)[0] if "/" in uri else ""
     parts = [directory, song.get("album", ""), song.get("albumartist", "")]
     if not directory:
@@ -706,6 +740,23 @@ def prune_cache() -> None:
             os.unlink(path)
     except OSError:
         pass
+
+
+def store_art(key: str, data: bytes, mime: str) -> str:
+    """Write fetched artwork into the cache and return its path.
+
+    One writer per call: the temp name comes from art_tmp_path, so two fetches
+    of the same picture cannot take the file from each other, and the rename
+    lands it whole (see art_tmp_path). The prune runs here because a write is
+    the only thing that can push the cache over its keep.
+    """
+    path = os.path.join(cache_dir(), key + extension_for(data, mime))
+    tmp = art_tmp_path(path)
+    with open(tmp, "wb") as handle:
+        handle.write(data)
+    os.replace(tmp, path)
+    prune_cache()
+    return path
 
 
 def fetch_binary(conn: MPDConn, command: str, uri: str) -> tuple:
@@ -1006,6 +1057,130 @@ def radio_stations(body, limit: int = 50) -> list:
         if len(rows) >= limit:
             break
     return rows
+
+
+# ---------------------------------------------------------------- stream logo
+#
+# The running stream's station logo (issue #56). MPD knows nothing about it --
+# a stream is not a file with a cover -- but the same public directory that
+# answers the search box can be asked which station a stream address belongs to,
+# and that record carries `favicon`. So the logo is fetched from there, off the
+# play/pause path like the album art, and cached like any other cover: the
+# surfaces then draw an ordinary image where they used to draw the glyph.
+
+
+def radio_byurl_url(stream: str) -> str:
+    """The byurl request for one stream address, parameters and all."""
+    params = [("url", stream)]
+    return RADIO_API + RADIO_BYURL_PATH + "?" + urllib.parse.urlencode(params)
+
+
+def radio_favicon(body) -> str:
+    """The logo URL in a byurl answer, or "".
+
+    The directory answers with the stations whose stream address matches. The
+    first record that carries a `favicon` wins; one without it is not an answer
+    -- the surface keeps its glyph. An answer that is not a station list is a
+    RadioError, the same shape radio_stations uses, so a directory that is down
+    is one failure to report rather than a traceback.
+    """
+    try:
+        stations = json.loads(bytes(body).decode("utf-8", "replace"))
+    except (ValueError, TypeError):
+        raise RadioError("radio-browser sent an answer that is not JSON")
+    if not isinstance(stations, list):
+        raise RadioError("radio-browser sent an answer that is not a station list")
+    for entry in stations:
+        if not isinstance(entry, dict):
+            continue
+        favicon = str(entry.get("favicon") or "").strip()
+        if favicon:
+            return favicon
+    return ""
+
+
+# Stream URL -> favicon URL (or ""). A state refresh asks about the running
+# station again and again while nothing about it changed, so the answer is kept.
+# A definitively empty answer is kept too -- a station without a logo will not
+# grow one a second later -- while a directory that could not be reached is
+# *not* remembered, because the next refresh may well get through.
+_favicon_cache = {}
+_favicon_lock = threading.Lock()
+
+
+def favicon_for(stream: str) -> str:
+    """The station logo URL behind a stream address, asked once per URL."""
+    with _favicon_lock:
+        if stream in _favicon_cache:
+            return _favicon_cache[stream]
+    try:
+        body = http_get(radio_byurl_url(stream), RADIO_TIMEOUT)
+        favicon = radio_favicon(body)
+    except (RadioError, ValueError):
+        return ""
+    with _favicon_lock:
+        _favicon_cache[stream] = favicon
+    return favicon
+
+
+def fetch_remote(url: str, timeout: float, accept: str = "image/*") -> tuple:
+    """Fetch a non-JSON resource: (content_type, body).
+
+    The same ceiling as http_get -- the socket timeout is the fast path and the
+    watchdog thread is the backstop name resolution ignores -- because a favicon
+    URL must not be able to park the worker either. One byte past the maximum is
+    read, so a body at the limit is kept and an oversize one is dropped by the
+    caller. Only the header is returned alongside the bytes: this is how the
+    caller tells an image apart from an HTML error page.
+    """
+    result = {}
+
+    def fetch():
+        try:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": RADIO_UA, "Accept": accept})
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                result["type"] = response.headers.get("Content-Type") or ""
+                result["body"] = response.read(RADIO_FAVICON_MAX + 1)
+        except BaseException as exc:      # carried across, not raised here
+            result["error"] = exc
+
+    worker = threading.Thread(target=fetch, name="radio_fetch", daemon=True)
+    worker.start()
+    worker.join(timeout + RADIO_GRACE)
+    if worker.is_alive():
+        raise RadioError("the image did not answer within %gs"
+                         % (timeout + RADIO_GRACE))
+    if "error" in result:
+        raise RadioError(error_text(result["error"]))
+    return str(result.get("type") or ""), result.get("body") or b""
+
+
+def stream_art(stream: str) -> tuple:
+    """(data, mime) for a stream's station logo, or (b"", "").
+
+    Four rules, straight from the live directory:
+
+    * About a fifth of the `favicon` URLs are dead. A fetch that fails is not an
+      error to report -- it is "no logo", and the surface keeps its glyph.
+    * Some URLs answer with an HTML error page. Only `image/*` is an image.
+    * Measured logos run to 400 KB; anything past RADIO_FAVICON_MAX is dropped
+      rather than cached.
+    * No logo URL is an answer too (the station is simply not in the directory
+      with a picture, or not in it at all): (b"", "") -- the glyph stays.
+    """
+    favicon = favicon_for(stream)
+    if not favicon:
+        return b"", ""
+    try:
+        ctype, data = fetch_remote(favicon, RADIO_FAVICON_TIMEOUT)
+    except RadioError:
+        return b"", ""
+    if not str(ctype).lower().startswith("image/"):
+        return b"", ""
+    if not data or len(data) > RADIO_FAVICON_MAX:
+        return b"", ""
+    return data, ctype
 
 
 # ----------------------------------------------------------------- the bridge
@@ -2000,12 +2175,7 @@ class Bridge:
             if not path:
                 data, mime = fetch_art(conn, uri)
                 if data:
-                    path = os.path.join(cache_dir(), key + extension_for(data, mime))
-                    tmp = art_tmp_path(path)
-                    with open(tmp, "wb") as handle:
-                        handle.write(data)
-                    os.replace(tmp, path)
-                    prune_cache()
+                    path = store_art(key, data, mime)
             return [{"type": "art", "path": path}]
 
         if kind == "listplaylists":
@@ -2062,38 +2232,43 @@ class Bridge:
 
     def art_worker(self, uri: str, key: str, generation: int) -> None:
         # Its own connection: a cover can be megabytes, and holding the command
-        # lock for that long would make the transport buttons feel stuck.
-        conn = MPDConn(self.target, self.password)
+        # lock for that long would make the transport buttons feel stuck. A
+        # stream takes no MPD connection at all -- its logo comes from the public
+        # directory -- but it is the same worker, off the play/pause path.
         path = ""
         mime = ""
+        conn = None
         # "MPD was asked and had nothing" is an answer worth remembering; a
         # connection that broke on the way is not. Remembering that one would
         # hide the cover until a rescan, when the next refresh may well get
         # through.
         no_cover = False
         try:
-            conn.connect()
-            conn.sock.settimeout(CMD_TIMEOUT)
-            # MPD hands binary back in chunks of `binarylimit` bytes, 8KB by
-            # default, so a 3MB cover would be 400 round trips. Servers older
-            # than 0.22 ACK this and keep their default, which still works.
-            try:
-                conn.command("binarylimit", ART_CHUNK)
-            except MPDCommandError:
-                pass
-            data, mime = fetch_art(conn, uri)
-            no_cover = not data
-            if data:
-                path = os.path.join(cache_dir(), key + extension_for(data, mime))
-                tmp = art_tmp_path(path)
-                with open(tmp, "wb") as handle:
-                    handle.write(data)
-                os.replace(tmp, path)
-                prune_cache()
+            if is_stream_uri(uri):
+                data, mime = stream_art(uri)
+                no_cover = not data
+                if data:
+                    path = store_art(key, data, mime)
+            else:
+                conn = MPDConn(self.target, self.password)
+                conn.connect()
+                conn.sock.settimeout(CMD_TIMEOUT)
+                # MPD hands binary back in chunks of `binarylimit` bytes, 8KB by
+                # default, so a 3MB cover would be 400 round trips. Servers older
+                # than 0.22 ACK this and keep their default, which still works.
+                try:
+                    conn.command("binarylimit", ART_CHUNK)
+                except MPDCommandError:
+                    pass
+                data, mime = fetch_art(conn, uri)
+                no_cover = not data
+                if data:
+                    path = store_art(key, data, mime)
         except (MPDError, OSError):
             path = ""
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
             with self.art_lock:
                 # Before the uri guard is let go: a caller that sees the guard
                 # free -- the next refresh -- has to see the answer too.
