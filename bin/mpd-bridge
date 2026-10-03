@@ -35,9 +35,12 @@ the others, but its HTTP call carries its own hard ceiling (see http_get),
 because a socket that never answers must cost one reply -- never the bridge.
 
 The same directory answers one question for the art worker: which station is
-behind the stream that is playing? Its record carries `favicon`, and that logo
+behind the stream that is playing? Its records carry `favicon`, and that logo
 is fetched into the album-art cache and announced like any other cover (issue
-#56). Only the running stream is resolved -- never a row in the radio tab.
+#56). The records disagree -- one stream address can match several, and the
+first favicon is not the good one -- so the logo is a *chain* of candidates,
+tried in turn until one is an image (follow-up to #56). Only the running stream
+is resolved -- never a row in the radio tab.
 
 Input (stdin, one line each):
     config {"host":..,"port":..,"password":..}   (re)connect with these settings
@@ -155,6 +158,12 @@ RADIO_MAX_BYTES = 4 * 1024 * 1024
 # ceiling is read so an oversize body can be told apart from one at the limit.
 RADIO_FAVICON_TIMEOUT = 6.0
 RADIO_FAVICON_MAX = 512 * 1024
+# The directory answers one stream address with several records, and they do not
+# agree, so the logo is a chain of candidates (see radio_favicon_candidates) and
+# the first image wins. This is the cap on how many of them one stream may cost:
+# a directory that lists the same address a dozen times must not turn into a
+# dozen fetches on a stream that is playing.
+RADIO_ART_CANDIDATES = 4
 RADIO_ROW_LIMIT = 200
 
 # The liveness probe for the daemon itself. MPD can accept a connection on its
@@ -1064,9 +1073,12 @@ def radio_stations(body, limit: int = 50) -> list:
 # The running stream's station logo (issue #56). MPD knows nothing about it --
 # a stream is not a file with a cover -- but the same public directory that
 # answers the search box can be asked which station a stream address belongs to,
-# and that record carries `favicon`. So the logo is fetched from there, off the
-# play/pause path like the album art, and cached like any other cover: the
-# surfaces then draw an ordinary image where they used to draw the glyph.
+# and those records carry `favicon`. It answers one address with several records
+# and they do not agree, so the logo is a candidate chain -- every record's
+# favicon, then each record's homepage /favicon.ico -- and the first candidate
+# that is an image wins (follow-up to #56). The fetch is off the play/pause path
+# like the album art, and cached like any other cover: the surfaces then draw an
+# ordinary image where they used to draw the glyph.
 
 
 def radio_byurl_url(stream: str) -> str:
@@ -1075,14 +1087,40 @@ def radio_byurl_url(stream: str) -> str:
     return RADIO_API + RADIO_BYURL_PATH + "?" + urllib.parse.urlencode(params)
 
 
-def radio_favicon(body) -> str:
-    """The logo URL in a byurl answer, or "".
+def homepage_favicon(homepage: str) -> str:
+    """`<scheme>://<host>/favicon.ico` for a station homepage, or "".
 
-    The directory answers with the stations whose stream address matches. The
-    first record that carries a `favicon` wins; one without it is not an answer
-    -- the surface keeps its glyph. An answer that is not a station list is a
-    RadioError, the same shape radio_stations uses, so a directory that is down
-    is one failure to report rather than a traceback.
+    The fallback for a record that carries no `favicon` -- or one whose URL is
+    dead: the station's own web server very often serves its logo at the address
+    every browser asks for. A homepage that is empty, a bare word like "n/a", or
+    one without a scheme and a host yields nothing at all, so a broken value can
+    never turn into a request.
+    """
+    try:
+        parts = urllib.parse.urlsplit((homepage or "").strip())
+    except ValueError:
+        return ""
+    if not parts.scheme or not parts.netloc:
+        return ""
+    return "%s://%s/favicon.ico" % (parts.scheme, parts.netloc)
+
+
+def radio_favicon_candidates(body) -> list:
+    """The logo candidates in a byurl answer, best-first, deduplicated.
+
+    The directory answers one stream address with *several* station records and
+    they do not agree: measured on streaming.smartradio.ch, the first record's
+    `favicon` was a favicon.ico that answers 404 while the second's was a 30 KB
+    PNG. So the first favicon is not the answer -- the answer is a chain:
+
+      * every non-empty `favicon` of every record, in answer order;
+      * then each record's homepage `<scheme>://<host>/favicon.ico`
+        (see homepage_favicon).
+
+    Two equal URLs are one candidate, so a directory repeating itself does not
+    cost a second fetch. An answer that is not a station list is a RadioError,
+    the same shape radio_stations uses, so a directory that is down is one
+    failure to report rather than a traceback.
     """
     try:
         stations = json.loads(bytes(body).decode("utf-8", "replace"))
@@ -1090,37 +1128,59 @@ def radio_favicon(body) -> str:
         raise RadioError("radio-browser sent an answer that is not JSON")
     if not isinstance(stations, list):
         raise RadioError("radio-browser sent an answer that is not a station list")
+
+    candidates = []
+    seen = set()
+
+    def add(url) -> None:
+        url = str(url or "").strip()
+        if url and url not in seen:
+            seen.add(url)
+            candidates.append(url)
+
     for entry in stations:
-        if not isinstance(entry, dict):
-            continue
-        favicon = str(entry.get("favicon") or "").strip()
-        if favicon:
-            return favicon
-    return ""
+        if isinstance(entry, dict):
+            add(entry.get("favicon"))
+    for entry in stations:
+        if isinstance(entry, dict):
+            add(homepage_favicon(entry.get("homepage")))
+    return candidates
 
 
-# Stream URL -> favicon URL (or ""). A state refresh asks about the running
-# station again and again while nothing about it changed, so the answer is kept.
-# A definitively empty answer is kept too -- a station without a logo will not
-# grow one a second later -- while a directory that could not be reached is
-# *not* remembered, because the next refresh may well get through.
+# Stream URL -> candidate logo URLs (possibly empty). A state refresh asks about
+# the running station again and again while nothing about it changed, so the
+# candidate list is asked once and kept. A definitively empty answer is kept too
+# -- a station without a logo will not grow one a second later -- while a
+# directory that could not be reached is *not* remembered, because the next
+# refresh may well get through.
 _favicon_cache = {}
 _favicon_lock = threading.Lock()
 
 
-def favicon_for(stream: str) -> str:
-    """The station logo URL behind a stream address, asked once per URL."""
+def favicon_candidates_for(stream: str) -> list:
+    """The logo candidate chain behind a stream address, asked once per URL."""
     with _favicon_lock:
         if stream in _favicon_cache:
             return _favicon_cache[stream]
     try:
         body = http_get(radio_byurl_url(stream), RADIO_TIMEOUT)
-        favicon = radio_favicon(body)
+        candidates = radio_favicon_candidates(body)
     except (RadioError, ValueError):
-        return ""
+        return []
     with _favicon_lock:
-        _favicon_cache[stream] = favicon
-    return favicon
+        _favicon_cache[stream] = candidates
+    return candidates
+
+
+def favicon_for(stream: str) -> str:
+    """The best-guess logo URL behind a stream address, or "".
+
+    The one-URL shape callers knew before the chain: the first candidate (see
+    favicon_candidates_for). stream_art walks the whole chain; this stays for a
+    caller that only wants to name a single URL. An empty chain is still "".
+    """
+    candidates = favicon_candidates_for(stream)
+    return candidates[0] if candidates else ""
 
 
 def fetch_remote(url: str, timeout: float, accept: str = "image/*") -> tuple:
@@ -1159,28 +1219,33 @@ def fetch_remote(url: str, timeout: float, accept: str = "image/*") -> tuple:
 def stream_art(stream: str) -> tuple:
     """(data, mime) for a stream's station logo, or (b"", "").
 
-    Four rules, straight from the live directory:
+    The directory's records for one stream disagree, so the logo is a *chain*
+    of candidates (see radio_favicon_candidates) and the first one that turns
+    out to be an image wins. Five rules, straight from the live directory:
 
-    * About a fifth of the `favicon` URLs are dead. A fetch that fails is not an
-      error to report -- it is "no logo", and the surface keeps its glyph.
-    * Some URLs answer with an HTML error page. Only `image/*` is an image.
+    * The first record's favicon is not necessarily the good one: measured, the
+      first answered 404 while the second answered a 30 KB PNG. A dead
+      candidate is therefore not the end -- the next one is tried.
+    * About a fifth of the `favicon` URLs are dead, and some answer with an HTML
+      error page. Only `image/*` is an image; anything else is passed over.
     * Measured logos run to 400 KB; anything past RADIO_FAVICON_MAX is dropped
-      rather than cached.
-    * No logo URL is an answer too (the station is simply not in the directory
-      with a picture, or not in it at all): (b"", "") -- the glyph stays.
+      rather than cached, and the next candidate is tried.
+    * At most RADIO_ART_CANDIDATES fetches per stream, so a directory listing
+      the same address a dozen times cannot turn into a dozen requests.
+    * Every candidate failing -- or no candidate at all -- is (b"", ""): the
+      surface keeps its glyph, and nothing is reported as an error.
     """
-    favicon = favicon_for(stream)
-    if not favicon:
-        return b"", ""
-    try:
-        ctype, data = fetch_remote(favicon, RADIO_FAVICON_TIMEOUT)
-    except RadioError:
-        return b"", ""
-    if not str(ctype).lower().startswith("image/"):
-        return b"", ""
-    if not data or len(data) > RADIO_FAVICON_MAX:
-        return b"", ""
-    return data, ctype
+    for favicon in favicon_candidates_for(stream)[:RADIO_ART_CANDIDATES]:
+        try:
+            ctype, data = fetch_remote(favicon, RADIO_FAVICON_TIMEOUT)
+        except RadioError:
+            continue
+        if not str(ctype).lower().startswith("image/"):
+            continue
+        if not data or len(data) > RADIO_FAVICON_MAX:
+            continue
+        return data, ctype
+    return b"", ""
 
 
 # ----------------------------------------------------------------- the bridge
