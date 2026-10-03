@@ -1203,7 +1203,7 @@ print("=== stream logos: a running station is resolved to its favicon ===")
 
 def bridge_has_stream_logos():
     return all(hasattr(B, name) for name in (
-        "radio_byurl_url", "radio_favicon", "favicon_for", "stream_art",
+        "radio_byurl_url", "radio_favicon_candidates", "favicon_for", "stream_art",
         "RADIO_BYURL_PATH", "RADIO_FAVICON_MAX"))
 
 
@@ -1258,13 +1258,13 @@ else:
 
     # The usable half of a byurl answer: the logo URL, or nothing.
     check("the station's favicon is read from the record",
-          B.radio_favicon(json.dumps([{
+          B.radio_favicon_candidates(json.dumps([{
               "favicon": "http://logo/x.png", "lastcheckok": 1}]).encode()),
-          "http://logo/x.png")
+          ["http://logo/x.png"])
     check("a record without a favicon is no logo",
-          B.radio_favicon(json.dumps([{"favicon": ""}]).encode()), "")
+          B.radio_favicon_candidates(json.dumps([{"favicon": ""}]).encode()), [])
     check("an answer that is not a station list is a radio error",
-          raised_by(lambda: B.radio_favicon(b'{"error":"nope"}')), "RadioError")
+          raised_by(lambda: B.radio_favicon_candidates(b'{"error":"nope"}')), "RadioError")
 
     # The lookup is cached: the running station does not re-ask the directory on
     # every state change.
@@ -1355,6 +1355,218 @@ else:
                                             {"uri": STREAM_URL})
         check("browsing a stream row never resolves a logo",
               (srv.requests, rows), ([], [{"type": "art", "path": ""}]))
+
+print("=== stream logos: the fallback walks a chain of candidates ===")
+# Issue #56 resolved a stream to *one* favicon -- the first record that carried
+# one. The live directory disproved that: for a single stream address it returns
+# several records, and the first favicon is not the good one. Measured on
+# streaming.smartradio.ch:9502, the first record's favicon (jazzgumboradio's
+# favicon.ico) answers 404 while its second (a 30 KB PNG) answers 200. So the
+# resolution becomes a candidate chain: every non-empty `favicon` in answer
+# order, deduplicated, then each record's homepage /favicon.ico; the first
+# candidate that is an image wins. The loop is capped so a directory with dozens
+# of matching records cannot fire dozens of fetches, and every candidate failing
+# is simply "no logo" -- never an error the surface could show.
+#
+# The section is skipped when the bridge has none of this, and reports the
+# absence as one failed check instead of dying before the first one -- the same
+# shape the section above uses.
+
+
+def bridge_has_candidate_chain():
+    return all(hasattr(B, name) for name in (
+        "radio_favicon_candidates", "favicon_candidates_for",
+        "homepage_favicon", "RADIO_ART_CANDIDATES"))
+
+
+def chain_responder(build_records, files):
+    """The directory's answer plus every candidate URL on the same server.
+
+    `build_records(base)` returns the byurl records for the request's own Host,
+    so a favicon or a homepage points back at this fake server whichever port it
+    landed on. `files` maps a path to (status, content_type, body); a path not in
+    it is a 404 HTML page, the way a dead favicon answers.
+    """
+    def responder(handler):
+        base = "http://" + handler.headers["Host"]
+        if handler.path.startswith("/json/stations/byurl"):
+            body = json.dumps(build_records(base)).encode("utf-8")
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.end_headers()
+            handler.wfile.write(body)
+            return
+        path = urllib.parse.urlsplit(handler.path).path
+        status, image_type, image = files.get(
+            path, (404, "text/html", b"<html>not found</html>"))
+        handler.send_response(status)
+        handler.send_header("Content-Type", image_type)
+        handler.send_header("Content-Length", str(len(image)))
+        handler.end_headers()
+        handler.wfile.write(image)
+    return responder
+
+
+def candidate_paths(srv):
+    """The paths the fake server was asked for, directory requests aside."""
+    return [urllib.parse.urlsplit(p).path for p, _h in srv.requests
+            if not p.startswith("/json/stations/byurl")]
+
+
+if not bridge_has_candidate_chain():
+    check("the logo fallback tries a chain of candidates", False, True)
+else:
+    CHAIN_URL = "https://streaming.smartradio.ch:9502/stream"
+
+    check("the per-stream fetch cap is a small number",
+          B.RADIO_ART_CANDIDATES, 4)
+
+    # The reader itself: favicons first, in answer order, deduplicated, then
+    # each record's homepage /favicon.ico -- and a homepage with no scheme or
+    # host is not a candidate at all.
+    check("every record's favicon is a candidate, in order",
+          B.radio_favicon_candidates(json.dumps([
+              {"favicon": "http://a/1.png"},
+              {"favicon": "http://a/2.png"},
+          ]).encode()),
+          ["http://a/1.png", "http://a/2.png"])
+    check("a repeated favicon is one candidate",
+          B.radio_favicon_candidates(json.dumps([
+              {"favicon": "http://a/same.png"},
+              {"favicon": "http://a/same.png"},
+          ]).encode()),
+          ["http://a/same.png"])
+    check("a missing favicon falls back to the homepage's /favicon.ico",
+          B.radio_favicon_candidates(json.dumps([
+              {"favicon": "", "homepage": "http://radio.example/show"},
+          ]).encode()),
+          ["http://radio.example/favicon.ico"])
+    check("favicons come before homepage fallbacks",
+          B.radio_favicon_candidates(json.dumps([
+              {"favicon": "http://a/x.png", "homepage": "http://radio.example/"},
+          ]).encode()),
+          ["http://a/x.png", "http://radio.example/favicon.ico"])
+    check("a broken homepage is skipped, not turned into a request",
+          [B.homepage_favicon(v) for v in ("", "n/a", "www.example.com")],
+          ["", "", ""])
+    check("an answer that is not a station list is a radio error",
+          raised_by(lambda: B.radio_favicon_candidates(b'{"error":"nope"}')),
+          "RadioError")
+
+    # 1) The live jazzgumboradio case: the first record's favicon is dead, the
+    #    second record's is a good image -- the second one's bytes come back.
+    files = {"/dead.png": (404, "text/html", b"<html>gone</html>"),
+             "/good.png": (200, "image/png", png_logo(30699))}
+    with FakeRadio(chain_responder(
+            lambda base: [
+                {"favicon": base + "/dead.png"},
+                {"favicon": base + "/good.png"},
+            ], files)) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            data, mime = B.stream_art(CHAIN_URL)
+        check("a dead first favicon does not hide the second record's logo",
+              (data, mime), (png_logo(30699), "image/png"))
+        check("... both candidates were actually tried",
+              candidate_paths(srv), ["/dead.png", "/good.png"])
+
+    # 2) A record with no favicon but a homepage: <host>/favicon.ico is the
+    #    candidate that answers.
+    files = {"/favicon.ico": (200, "image/x-icon", png_logo(512))}
+    with FakeRadio(chain_responder(
+            lambda base: [{"favicon": "", "homepage": base + "/show"}],
+            files)) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            data, mime = B.stream_art(CHAIN_URL)
+        check("a station without a favicon is rescued by its homepage",
+              (data, mime), (png_logo(512), "image/x-icon"))
+        check("... through the homepage's /favicon.ico",
+              candidate_paths(srv), ["/favicon.ico"])
+
+    # 3) Every candidate dead: no logo, and no exception either.
+    files = {"/a.png": (404, "text/html", b"<html>no</html>")}
+    with FakeRadio(chain_responder(
+            lambda base: [{"favicon": base + "/a.png", "homepage": ""}],
+            files)) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            check("all candidates dead is simply no logo",
+                  B.stream_art(CHAIN_URL), (b"", ""))
+
+    # 4) The cap holds: eight dead candidates must cost at most
+    #    RADIO_ART_CANDIDATES fetches. The candidate fetches are the calls to
+    #    the (real) fetch the test intercepts and counts.
+    files = {"/dead%d.png" % n: (404, "text/html", b"no") for n in range(8)}
+    with FakeRadio(chain_responder(
+            lambda base: [{"favicon": base + "/dead%d.png" % n}
+                          for n in range(8)], files)) as srv:
+        calls = []
+        real_fetch = B.fetch_remote
+
+        def counting_fetch(url, timeout, accept="image/*"):
+            calls.append(url)
+            return real_fetch(url, timeout, accept)
+
+        B.fetch_remote = counting_fetch
+        try:
+            with RadioPatched(srv.base, timeout=2.0):
+                B._favicon_cache.clear()
+                check("a directory with many dead records is still no logo",
+                      B.stream_art(CHAIN_URL), (b"", ""))
+        finally:
+            B.fetch_remote = real_fetch
+        check("... and the fetch loop stops at the cap",
+              len(calls), B.RADIO_ART_CANDIDATES)
+
+    # 5) Dedupe reaches the wire: the same URL twice in the chain is fetched once.
+    files = {"/same.png": (200, "image/png", png_logo(64))}
+    with FakeRadio(chain_responder(
+            lambda base: [{"favicon": base + "/same.png"},
+                          {"favicon": base + "/same.png"}],
+            files)) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            data, mime = B.stream_art(CHAIN_URL)
+        hits = [p for p in candidate_paths(srv) if p == "/same.png"]
+        check("a repeated candidate is fetched once",
+              (len(hits), data == png_logo(64)), (1, True))
+
+    # 6) The candidate list is asked once per stream. A definitively empty
+    #    answer is remembered; a directory that could not be reached is not.
+    with FakeRadio(chain_responder(lambda base: [], {})) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            first = B.favicon_candidates_for(CHAIN_URL)
+            second = B.favicon_candidates_for(CHAIN_URL)
+        asked = [p for p, _h in srv.requests
+                 if p.startswith("/json/stations/byurl")]
+        check("an empty answer is remembered as no candidates",
+              (first, second), ([], []))
+        check("... and asked once, not once per refresh", len(asked), 1)
+
+    B._favicon_cache.clear()
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    dead_port = closed.getsockname()[1]
+    closed.close()
+    with RadioPatched("http://127.0.0.1:%d" % dead_port, timeout=0.3, grace=0.2):
+        unreachable = B.favicon_candidates_for(CHAIN_URL)
+    check("a directory that could not be reached is not remembered",
+          (unreachable, CHAIN_URL in B._favicon_cache), ([], False))
+
+    # 7) A broken homepage on a record with a dead favicon is skipped, and the
+    #    whole thing still ends as "no logo" rather than a crash.
+    with FakeRadio(chain_responder(
+            lambda base: [{"favicon": base + "/gone.png",
+                           "homepage": "n/a"},
+                          {"favicon": "", "homepage": ""}],
+            {"/gone.png": (410, "text/html", b"<html>gone</html>")})) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            check("a broken homepage neither crashes nor fetches",
+                  B.stream_art(CHAIN_URL), (b"", ""))
 
 print("=== health: the daemon stops greeting ===")
 # A wedged MPD accepts the connection and then says nothing -- the state that
