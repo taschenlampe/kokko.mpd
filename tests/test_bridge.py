@@ -1181,6 +1181,181 @@ with FakeRadio(radio_reply([station()])) as srv:
         B.MPDConn = saved
         stop_bridge(bridge)
 
+print("=== stream logos: a running station is resolved to its favicon ===")
+# The bridge already speaks radio-browser for the search box. The same
+# directory answers `GET /json/stations/byurl?url=<stream-url>` with the station
+# record for a stream address, and that record carries `favicon`. Issue #56:
+# the running stream is resolved through it, the logo is fetched into the one
+# art cache, and the local path is announced like any other cover -- the glyph
+# stays only while there is no logo.
+#
+# Four rules come straight from the live directory and are checked here:
+#   * about a fifth of the `favicon` URLs are dead -> that is "no logo", not an
+#     error the surface could show;
+#   * measured logos run to 400 KB -> anything past the ceiling is dropped;
+#   * some URLs answer with an HTML error page -> only `image/*` is an image;
+#   * the lookup is cached per stream URL, so a state change does not ask again.
+#
+# The section is skipped when the bridge has none of this: against the unfixed
+# file it reports the absence as a failed check instead of dying before the
+# first one -- the same shape case 12 uses over BarWidget.qml.
+
+
+def bridge_has_stream_logos():
+    return all(hasattr(B, name) for name in (
+        "radio_byurl_url", "radio_favicon", "favicon_for", "stream_art",
+        "RADIO_BYURL_PATH", "RADIO_FAVICON_MAX"))
+
+
+def png_logo(size):
+    """A fake PNG of an exact byte length, so the ceiling can be aimed at."""
+    head = b"\x89PNG\r\n\x1a\n"
+    return head + b"x" * max(0, size - len(head))
+
+
+def stream_responders(favicon_rel, image=b"", image_type="image/png",
+                      favicon_status=200):
+    """The directory's two answers: the byurl record and the logo itself.
+
+    The favicon URL is built from the request's own Host header, so the record
+    points back at this fake server whichever port it landed on.
+    """
+    def responder(handler):
+        base = "http://" + handler.headers["Host"]
+        if handler.path.startswith("/json/stations/byurl"):
+            body = json.dumps([{
+                "stationuuid": "u-1", "name": "Groove Salad",
+                "url": "", "url_resolved": "", "lastcheckok": 1,
+                "favicon": (base + favicon_rel) if favicon_rel else "",
+            }]).encode("utf-8")
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.end_headers()
+            handler.wfile.write(body)
+            return
+        handler.send_response(favicon_status)
+        handler.send_header("Content-Type", image_type)
+        handler.send_header("Content-Length", str(len(image)))
+        handler.end_headers()
+        handler.wfile.write(image)
+    return responder
+
+
+if not bridge_has_stream_logos():
+    check("the bridge resolves a running stream's station logo", False, True)
+else:
+    STREAM_URL = "https://ice5.somafm.com/groovesalad-128-aac"
+
+    check("the byurl endpoint is the directory's",
+          B.RADIO_API + B.RADIO_BYURL_PATH,
+          "https://all.api.radio-browser.info/json/stations/byurl")
+    check("the stream address is one whole parameter",
+          urllib.parse.parse_qs(urllib.parse.urlsplit(
+              B.radio_byurl_url("http://s/x?a=1&b=2")).query).get("url"),
+          ["http://s/x?a=1&b=2"])
+    check("the size ceiling is 512 KB", B.RADIO_FAVICON_MAX, 512 * 1024)
+
+    # The usable half of a byurl answer: the logo URL, or nothing.
+    check("the station's favicon is read from the record",
+          B.radio_favicon(json.dumps([{
+              "favicon": "http://logo/x.png", "lastcheckok": 1}]).encode()),
+          "http://logo/x.png")
+    check("a record without a favicon is no logo",
+          B.radio_favicon(json.dumps([{"favicon": ""}]).encode()), "")
+    check("an answer that is not a station list is a radio error",
+          raised_by(lambda: B.radio_favicon(b'{"error":"nope"}')), "RadioError")
+
+    # The lookup is cached: the running station does not re-ask the directory on
+    # every state change.
+    with FakeRadio(stream_responders("/logo.png", png_logo(200))) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            first = B.favicon_for(STREAM_URL)
+            second = B.favicon_for(STREAM_URL)
+        asked = [p for p, _h in srv.requests
+                 if p.startswith("/json/stations/byurl")]
+        check("the station record is found once", first, srv.base + "/logo.png")
+        check("the lookup is cached -- the directory is asked once",
+              len(asked), 1)
+        check("... and the second call answers from memory", second, first)
+
+    # A valid image lands as data plus an image mime.
+    with FakeRadio(stream_responders("/logo.png", png_logo(200))) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            data, mime = B.stream_art(STREAM_URL)
+        check("a valid logo comes back whole",
+              (data, mime), (png_logo(200), "image/png"))
+
+    # A dead favicon URL -- about a fifth of the measured ones -- is no logo; it
+    # is not an error the surface could show.
+    with FakeRadio(stream_responders("/dead.png", b"", favicon_status=404)) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            check("a dead favicon URL is no logo, not an error",
+                  B.stream_art(STREAM_URL), (b"", ""))
+
+    # Past the ceiling the bytes are dropped rather than cached.
+    with FakeRadio(stream_responders("/big.png",
+                                     png_logo(B.RADIO_FAVICON_MAX + 4096))) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            check("a logo past the size ceiling is dropped",
+                  B.stream_art(STREAM_URL), (b"", ""))
+
+    # HTML where an image belongs is not an image.
+    with FakeRadio(stream_responders("/page", b"<html>not found</html>",
+                                     image_type="text/html")) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            check("HTML where an image belongs is dropped",
+                  B.stream_art(STREAM_URL), (b"", ""))
+
+    # The whole path: the worker announces the running stream's logo as a path
+    # in the one art cache.
+    stream_cache = tempfile.mkdtemp(prefix="mpd-streamart-")
+    saved_cache_home = os.environ.get("XDG_CACHE_HOME")
+    os.environ["XDG_CACHE_HOME"] = stream_cache
+    try:
+        with FakeRadio(stream_responders("/logo.png", png_logo(4096))) as srv:
+            with RadioPatched(srv.base, timeout=2.0):
+                B._favicon_cache.clear()
+                bridge = B.Bridge()
+                events = []
+                bridge.emit = events.append
+                song = {"file": STREAM_URL, "name": "Groove Salad"}
+                bridge.art_worker(STREAM_URL, B.art_key(song),
+                                  bridge.generation)
+        art = [e for e in events if e.get("event") == "art"]
+        path = str(art[0].get("path") or "") if art else ""
+        check("the running stream announces a logo path", bool(path), True)
+        check("... written into the one art cache",
+              os.path.dirname(path), B.cache_dir())
+        bytes_on_disk = b""
+        if path and os.path.exists(path):
+            with open(path, "rb") as handle:
+                bytes_on_disk = handle.read()
+        check("... carrying the logo's own bytes", bytes_on_disk, png_logo(4096))
+        check("... and the surface is told it is an image",
+              str(art[0].get("mime", "") if art else "").startswith("image/"), True)
+    finally:
+        shutil.rmtree(stream_cache, ignore_errors=True)
+        if saved_cache_home is None:
+            os.environ.pop("XDG_CACHE_HOME", None)
+        else:
+            os.environ["XDG_CACHE_HOME"] = saved_cache_home
+
+    # Only the running station is resolved. A row in the radio tab is browsed
+    # through the `art` query, and that one must not reach the directory at all.
+    with FakeRadio(stream_responders("/logo.png", png_logo(64))) as srv:
+        with RadioPatched(srv.base, timeout=2.0):
+            B._favicon_cache.clear()
+            rows = B.Bridge().execute_query(CannedConn(), "art",
+                                            {"uri": STREAM_URL})
+        check("browsing a stream row never resolves a logo",
+              (srv.requests, rows), ([], [{"type": "art", "path": ""}]))
+
 print("=== health: the daemon stops greeting ===")
 # A wedged MPD accepts the connection and then says nothing -- the state that
 # made the bar keep showing a stale title as if it were current. The decision

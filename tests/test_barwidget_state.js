@@ -498,13 +498,94 @@ function caseStreamDisplay() {
     ])
 }
 
+// --- 13: a stream shows its station logo, and the glyph comes back on error --
+// Issue #56: while a stream plays, the bridge resolves the station's favicon and
+// hands the widget a local path like any other cover. The widget has to show it
+// where the station glyph stands today -- and, because a logo can fail to load
+// (about a fifth of the favicon URLs are dead, and Qt may lack WEBP), the glyph
+// has to come back when the image does not arrive. Both rules are read out of
+// the shipped source verbatim, so against the unfixed file this case fails on
+// the error-fallback value rather than on a missing name.
+function caseStreamLogo() {
+  const coverVM = /visible: (root\.showArt &&[^\n]+)/.exec(src)
+  if (!coverVM) {
+    report("13", "a stream shows its station logo, the glyph returns on error", false,
+      ["not found in " + target + ": the cover slot's `visible:` line",
+       "expected: the cover Item that decides between the logo and the glyph"])
+    return
+  }
+  const region = src.slice(coverVM.index, coverVM.index + 1400)
+  const imgVM = /Image\s*\{[\s\S]*?source:\s*root\.artPath[\s\S]*?visible:\s*([^\n]+)/.exec(region)
+  const glyphVM = /visible:\s*([^\n]+)\n\s*text:\s*"󰐹"/.exec(region)
+  if (!imgVM || !glyphVM) {
+    report("13", "a stream shows its station logo, the glyph returns on error", false,
+      ["not found in " + target + ": " + (!imgVM ? "the cover Image's visible rule" : "the glyph Text"),
+       "expected: the Image bound to root.artPath and the stream glyph next to it"])
+    return
+  }
+  const coverExpr = coverVM[1].trim()
+  const imageExpr = imgVM[1].trim()
+  const glyphExpr = glyphVM[1].trim()
+  // The glyph may name the Image whose status it watches (that is the fix). If
+  // it does not, there is nothing to hand it and the expression reads artPath.
+  const idM = /([A-Za-z_]\w*)\.status/.exec(glyphExpr)
+  const glyphId = idM ? idM[1] : null
+
+  global.Image = { Null: 0, Ready: 1, Loading: 2, Error: 3 }
+  const evalCover = new Function("root", "return (" + coverExpr + ")")
+  const evalImage = new Function("status", "Image", "return (" + imageExpr + ")")
+  const evalGlyph = glyphId
+    ? new Function("root", "Image", glyphId, "return (" + glyphExpr + ")")
+    : new Function("root", "Image", "return (" + glyphExpr + ")")
+
+  function shown(artPath, isStream, status) {
+    const root = { showArt: true, artPath: artPath, isStream: isStream }
+    const item = evalCover(root)
+    const image = item && evalImage(status, global.Image)
+    const glyph = item && (glyphId
+      ? evalGlyph(root, global.Image, { status: status })
+      : evalGlyph(root, global.Image))
+    return { item: item, image: image, glyph: glyph }
+  }
+
+  const R = global.Image.Ready, E = global.Image.Error, N = global.Image.Null
+  // [name, artPath, isStream, image status, image drawn?, glyph drawn?]
+  const cases = [
+    ["stream, logo loaded",     "/cache/logo.png", true,  R, true,  false],
+    ["stream, no logo",         "",                true,  N, false, true ],
+    ["stream, logo failed",     "/cache/logo.webp", true, E, false, true ],
+    ["file, cover loaded",      "/cache/c.jpg",    false, R, true,  false],
+    ["file, no cover",          "",                false, N, false, false]
+  ]
+  const rows = cases.map(function (c) {
+    const s = shown(c[1], c[2], c[3])
+    return { name: c[0], s: s, wantImage: c[4], wantGlyph: c[5],
+             ok: s.image === c[4] && s.glyph === c[5] }
+  })
+  const ok = rows.every(function (r) { return r.ok })
+
+  report("13", "a stream shows its station logo, the glyph returns on error", ok,
+    rows.map(function (r) {
+      return (r.ok ? "ok    " : "WRONG ") + r.name.padEnd(22)
+        + " image " + r.s.image + " (want " + r.wantImage + ")"
+        + ", glyph " + r.s.glyph + " (want " + r.wantGlyph + ")"
+    }).concat([
+      "cover slot  : " + coverExpr,
+      "image drawn : " + imageExpr,
+      "glyph drawn : " + glyphExpr + (glyphId ? "" : "   (reads artPath, not the image)"),
+      "expected: a loaded logo hides the glyph; no logo and a failed logo both",
+      "bring the glyph back, so a dead favicon URL is never an empty slot"
+    ]))
+}
+
 caseArtCache()
 caseOsdTimers()
 caseStripReserve()
 caseIdleWidth()
 caseStreamDisplay()
+caseStreamLogo()
 
 console.log(failures === 0
   ? "all state checks passed"
-  : failures + " of 5 state checks failed")
+  : failures + " of 6 state checks failed")
 process.exit(failures === 0 ? 0 : 1)
