@@ -541,19 +541,25 @@ Panel {
     return w + maxWidth
   }
 
-  // The width the strip actually takes. With a title -- playing or paused -- it is
-  // the reserve above, unchanged, so a title change still cannot move the edge.
-  // With nothing playing (stopped, disconnected, before the first connect) the
-  // reserve is the wrong answer: it is sized for a label that is not there. Before
-  // the content went back to the right edge (case 14), that state also showed the
-  // slack as a band on *both* sides of the glyph -- measured 196 px reserved
-  // against 108 px of content, i.e. 88 px of nothing on the left and on the right.
-  // There the strip is as wide as the
-  // content row needs, taken from `info` itself rather than from a new constant.
+  // The width the strip takes: as wide as what it shows, plus the strip's own 10 px.
+  // With a title or without -- the label grows and shrinks with the title, and a width
+  // reserved for the widest allowed one leaves the difference as a visible hole next
+  // to the state glyph. Measured live with `maxWidth` 240: 276 px of box against
+  // 146 px of ink, 82 px of nothing on the left and 48 px on the right. What the
+  // hover card needs is not a wide widget but a stable reference, and it has one:
+  // it is centred on `stripActual` itself (see `cardCenterX`).
+  //
+  // The price, and it is a deliberate trade: the strip's left edge follows the title,
+  // so the neighbouring widgets in the bar's centre section move by the difference
+  // between two titles. That was what `stripReserve` was there to prevent; the hole
+  // it cost turned out to be the worse of the two. `stripReserve` stays defined for
+  // the one reader that still wants the setting-derived number.
   readonly property real stripActual: {
     if (vertical) return barSize
-    if (hasSong) return stripReserve
-    return info.implicitWidth
+    // The 10 px is the strip's own padding, and it is only there while a title stands
+    // in it -- the notification line ("MPD is not answering", stopped, disconnected)
+    // is as wide as its text, as it always was.
+    return hasSong ? info.implicitWidth + Style.space(10) : info.implicitWidth
   }
 
   // %elapsed% and %remaining% move once a second; MPD only reports elapsed
@@ -578,13 +584,13 @@ Panel {
     Item {
       id: nowPlaying
       visible: true
-      // One width at all times while a title is there, taken from `stripReserve` -- the
-      // number the code already computed from the configured label maximum, not from the
-      // title. A box that grew and shrank with the title moved the widget's left edge and
-      // dragged the hover card with it (measured: 43 px for a ten-character change), which
-      // read as the whole thing jolting. The free space the reserve leaves is the price of
-      // a box that holds still -- and it is only paid while a title is there to hold still:
-      // with nothing playing the box is as wide as its content (`stripActual`).
+      // As wide as its content in every state, taken from `stripActual`. It used to
+      // be pinned to `stripReserve` so that a title change could not move the edge --
+      // and paid for that with a hole the width of the difference: measured 276 px of
+      // box against 146 px of ink. The hole turned out to be the worse of the two, so
+      // the width follows the title again, and the neighbouring widgets move by the
+      // difference between two titles (measured: 43 px for a ten-character change).
+      // The hover card follows the strip itself, never a reserve.
       implicitWidth: root.vertical ? root.barSize : root.stripActual
       implicitHeight: root.vertical ? info.implicitHeight + Style.space(8) : root.barSize
 
@@ -1287,12 +1293,13 @@ Panel {
           boxW: Math.round(labelBox.width),
           textW: Math.round(labelText.implicitWidth),
           contentRight: Math.round(info.x + info.width),
-          // and content -> right edge of the reserve.
+          // and content -> the strip's right edge, which is now the only edge there
+          // is: the reserve no longer decides any width.
           // The two distances the eye notices: indicator -> label, and content ->
-          // the right edge of the reserve. -1 when there is no indicator.
+          // the right edge of the strip. -1 when there is no indicator.
           glyphGap: root.showStateIcon
             ? Math.round(labelBox.x - (stateIndicator.x + stateIndicator.width)) : -1,
-          rightGap: Math.round(root.stripReserve - (info.x + info.width)),
+          rightGap: Math.round(root.stripActual - (info.x + info.width)),
           textX: Math.round(labelText.x),
           // Published so the smoke test can hold the rule: no marquee while the
           // player is not playing.
