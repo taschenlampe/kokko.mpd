@@ -353,9 +353,13 @@ function caseIdleWidth() {
   // The whole width expression of the `nowPlaying` item, ternary included, so the
   // vertical branch is the source's own and not the test's model of it.
   const widthM = /^      implicitWidth: (root\.vertical \? root\.barSize : .+?)\s*$/m.exec(src)
-  const anchorM = /return root\.mapToItem\(null, root\.width, 0\)\.x - (.+?)\s*\/\s*2\s*$/m.exec(src)
+  // The card's offset may be wrapped over two lines -- the expression grew -- so the dash
+  // is looked for after an optional line break. What is captured is the reference width,
+  // which is itself a ternary now (the reserve while a title is there, the actual width
+  // when none is), so the case's own `root` carries `hasSong`.
+  const anchorM = /\.x\s*\n?\s*-\s*\((.+?)\)\s*\/\s*2\s*$/m.exec(src)
   if (!widthM || !anchorM) {
-    report("11", "with no title the strip is only as wide as its content", false, [
+    report("11", "the strip is as wide as its content, with or without a title", false, [
       "not found in " + target + ": " + (widthM ? "the card's anchor offset" : "the strip's width expression"),
       "expected: the `nowPlaying` item's implicitWidth and the hover card's",
       "cardCenterX offset, which this case reads out of the source"
@@ -383,6 +387,7 @@ function caseIdleWidth() {
     global.stripReserve = reserved  // in QML this is the root property
     const root = {
       vertical: verticalValue, barSize: global.barSize, stripReserve: reserved,
+      hasSong: hasSongValue,
       stripActual: actualRule ? actualRule() : undefined
     }
     return { width: evalWidth(root), anchor: evalAnchor(root), reserve: reserved }
@@ -412,9 +417,11 @@ function caseIdleWidth() {
       && roomier.width === content + 10 && roomier.reserve === 236
       && idle.width === content && roomierIdle.width === content
       && upright.width === global.barSize && uprightIdle.width === global.barSize
-      // The hover card is centred on the width the strip actually has, so it stays on
-      // the widget instead of hanging off a reserve the widget no longer fills.
-      && playing.anchor === playing.width && idle.anchor === idle.width,
+      // The hover card is centred on a number that does not follow the title: while one
+      // is there that is the reserve (the widget's width moves, the card must not), and
+      // with nothing playing, where the strip is as wide as its text, it is the actual
+      // width. That is the 12.09. decision in `9edf301`, kept for the no-title case.
+      && playing.anchor === otherTitle.anchor && idle.anchor === idle.width,
     [
       "stripReserve from the settings           : " + idle.reserve + " px (card anchor only)",
       "with a title (content 20 / 148 px)       : " + playing.width + " / " + otherTitle.width + " px",
@@ -423,7 +430,9 @@ function caseIdleWidth() {
       "  the reserve is " + idle.reserve + " px; pinned to it the strip showed",
       "  " + emptyPerSide + " px of nothing on each side -- the measured 88 px",
       "vertical bar, with / without a title     : " + upright.width + " / " + uprightIdle.width + " px",
-      "card anchor offset, with / without title : " + playing.anchor + " / " + idle.anchor + " px",
+      "card anchor, playing / other title       : " + playing.anchor + " / " + otherTitle.anchor + " px",
+      "  the same number: the card may not move when the title changes",
+      "card anchor, no title                    : " + idle.anchor + " px (the actual width)",
       "expected: content + 10 px in every horizontal state -- the reserve no longer",
       "decides the width, it only tells the hover card where to centre"
     ].concat(actualRule ? [] : [
@@ -619,6 +628,58 @@ function caseStripAlignment() {
      "reserve's slack collects at the left instead of on both sides"])
 }
 
+// --- 15: the state glyph claims only the width it draws ----------------------
+// The spectrum and the glyph share one slot, and only one of them is visible at a time.
+// The slot was sized `Math.max(iconText, bars)`, so while the bars ran the *hidden*
+// glyph's width stayed in the row: measured live, the row accounted for 239 px while
+// the title took 144 of them -- 83 px of nothing between the spectrum and the title,
+// which is the hole the eye sees between the title and the clock. Invisible means zero
+// here, exactly as the cover slot above already does it.
+function caseIndicatorWidth() {
+  const lines = src.split("\n")
+  let at = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*id: stateIndicator\s*$/.test(lines[i])) { at = i; break }
+  }
+  // The rule is the next `implicitWidth:` line after the item's id -- a counted window
+  // breaks as soon as a comment grows, which is what happened here first.
+  let rule = null
+  for (let i = at; at >= 0 && i < lines.length && i < at + 20; i++) {
+    const m = /^(\s*)implicitWidth: (.*)$/.exec(lines[i])
+    if (!m) continue
+    const indent = m[1].length
+    const parts = [m[2]]
+    // The rule may run over several lines -- a ternary reads better that way -- so every
+    // following line indented deeper than the property belongs to it.
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() === "" || lines[j].match(/^\s*/)[0].length <= indent) break
+      parts.push(lines[j].trim())
+    }
+    rule = parts.join(" ")
+    break
+  }
+  if (!rule) {
+    report("15", "the state glyph claims only the width it draws", false, [
+      "no `implicitWidth` rule for `stateIndicator` found in " + target,
+      "expected: one that answers with the bars' width while they run, the glyph's own"
+    ])
+    return
+  }
+  const evalRule = new Function("visible", "miniBars", "stateIconText",
+    "return (" + rule + ")")
+  const glyphW = 83, barsW = 20
+  const hidden = evalRule(false, { visible: true, width: barsW }, { implicitWidth: glyphW })
+  const barsRun = evalRule(true, { visible: true, width: barsW }, { implicitWidth: glyphW })
+  const glyphOnly = evalRule(true, { visible: false, width: 0 }, { implicitWidth: glyphW })
+  report("15", "the state glyph claims only the width it draws",
+    hidden === 0 && barsRun === barsW && glyphOnly === glyphW,
+    ["indicator switched off (showStateIcon false) : " + hidden + " px (want 0)",
+     "bars running, glyph hidden behind them        : " + barsRun + " px (want " + barsW + ")",
+     "no bars, glyph showing                        : " + glyphOnly + " px (want " + glyphW + ")",
+     "rule: " + rule,
+     "expected: never the hidden glyph's width -- that was 83 px of nothing in the row"])
+}
+
   caseArtCache()
   caseOsdTimers()
   caseStripReserve()
@@ -626,8 +687,9 @@ function caseStripAlignment() {
   caseStreamDisplay()
   caseStreamLogo()
   caseStripAlignment()
+  caseIndicatorWidth()
 
   console.log(failures === 0
     ? "all state checks passed"
-    : failures + " of 7 state checks failed")
+    : failures + " of 8 state checks failed")
 process.exit(failures === 0 ? 0 : 1)
