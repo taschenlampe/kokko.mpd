@@ -578,14 +578,49 @@ function caseStreamLogo() {
     ]))
 }
 
-caseArtCache()
-caseOsdTimers()
-caseStripReserve()
-caseIdleWidth()
-caseStreamDisplay()
-caseStreamLogo()
+// --- 14: the reserve's slack sits on one side, not on both -------------------
+// The box is sized for the widest allowed title (`maxWidth`), so it is almost
+// always wider than what stands in it: measured live, 276 px of box against 227 px
+// of content -- 49 px of slack. Centred, that slack splits into two bands, about
+// 24 px on each side, and the widget reads as content sitting in a box that is too
+// big for it. Right-aligned, the unused rest shows up at the left, where nothing of
+// ours follows it, and the right edge lines up with the box the bar laid out.
+function caseStripAlignment() {
+  const lines = src.split("\n")
+  let at = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*id: info\s*$/.test(lines[i])) { at = i; break }
+  }
+  const block = at < 0 ? "" : (function () {
+    // The anchor block runs from `id: info` to the row's own `spacing:` line; the
+    // comment above it may grow, so the window follows the code rather than a count.
+    let end = at
+    while (end < lines.length && !/^\s*spacing:/.test(lines[end])) end++
+    return lines.slice(at, end + 1).join("\n")
+  })()
+  const horizontal = /anchors\.right:\s*root\.vertical \? undefined : parent\.right/.test(block)
+  const vertical = /anchors\.centerIn:\s*root\.vertical \? parent : undefined/.test(block)
+  const bare = /anchors\.centerIn:\s*parent\s*$/m.test(block)
+  report("14", "the strip's slack sits on one side, not on both",
+    at >= 0 && horizontal && vertical && !bare,
+    ["Row `id: info` found at line " + (at + 1),
+     "  right-aligned in the horizontal strip: " + horizontal,
+     "  centred in the vertical one:           " + vertical,
+     "  bare `anchors.centerIn: parent` (splits the slack in two): " + bare,
+     "expected: anchors.right = root.vertical ? undefined : parent.right, with a",
+     "matching rightMargin -- and centerIn only in the vertical strip, so the",
+     "reserve's slack collects at the left instead of on both sides"])
+}
 
-console.log(failures === 0
-  ? "all state checks passed"
-  : failures + " of 6 state checks failed")
+  caseArtCache()
+  caseOsdTimers()
+  caseStripReserve()
+  caseIdleWidth()
+  caseStreamDisplay()
+  caseStreamLogo()
+  caseStripAlignment()
+
+  console.log(failures === 0
+    ? "all state checks passed"
+    : failures + " of 7 state checks failed")
 process.exit(failures === 0 ? 0 : 1)
