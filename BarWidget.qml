@@ -544,10 +544,11 @@ Panel {
   // The width the strip actually takes. With a title -- playing or paused -- it is
   // the reserve above, unchanged, so a title change still cannot move the edge.
   // With nothing playing (stopped, disconnected, before the first connect) the
-  // reserve is the wrong answer: it is sized for a label that is not there, and
-  // because the content is centred it leaves the same empty band on either side of
-  // the glyph -- measured 196 px reserved against 108 px of content, i.e. 88 px of
-  // nothing on the left *and* on the right. There the strip is as wide as the
+  // reserve is the wrong answer: it is sized for a label that is not there. Before
+  // the content went back to the right edge (case 14), that state also showed the
+  // slack as a band on *both* sides of the glyph -- measured 196 px reserved
+  // against 108 px of content, i.e. 88 px of nothing on the left and on the right.
+  // There the strip is as wide as the
   // content row needs, taken from `info` itself rather than from a new constant.
   readonly property real stripActual: {
     if (vertical) return barSize
@@ -589,7 +590,16 @@ Panel {
 
       Row {
         id: info
-        anchors.centerIn: parent
+        // The strip's box is sized for the widest allowed title, so it is almost
+        // always wider than what stands in it -- and that slack belongs on ONE side.
+        // Centred it splits into two bands and the content reads as sitting in a box
+        // too big for it (measured live: 276 px of box against 227 px of content, so
+        // about 24 px on each side). Right-aligned, the unused rest collects at the
+        // left, where nothing of ours follows it, and the right edge lines up with
+        // the box the bar laid out for us.
+        anchors.right: root.vertical ? undefined : parent.right
+        anchors.rightMargin: root.vertical ? 0 : Style.space(5)
+        anchors.centerIn: root.vertical ? parent : undefined
         spacing: Style.space(6)
 
         // The cover, as a small square before the text (showArt) -- or, while a
