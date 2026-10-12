@@ -556,10 +556,10 @@ Panel {
   // the one reader that still wants the setting-derived number.
   readonly property real stripActual: {
     if (vertical) return barSize
-    // The 10 px is the strip's own padding, and it is only there while a title stands
-    // in it -- the notification line ("MPD is not answering", stopped, disconnected)
-    // is as wide as its text, as it always was.
-    return hasSong ? info.implicitWidth + Style.space(10) : info.implicitWidth
+    // The 10 px is the strip's own padding, and it is paid in both states. Without it the
+    // notification glyph ("MPD is not answering", stopped, disconnected) sat flush against
+    // the neighbouring widget -- measured, the two read as one element instead of two.
+    return info.implicitWidth + Style.space(10)
   }
 
   // %elapsed% and %remaining% move once a second; MPD only reports elapsed

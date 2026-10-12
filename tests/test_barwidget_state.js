@@ -415,7 +415,7 @@ function caseIdleWidth() {
       // that may not move: the number the hover card is centred on.
       && playing.width === content + 10 && otherTitle.width === 148 + 10
       && roomier.width === content + 10 && roomier.reserve === 236
-      && idle.width === content && roomierIdle.width === content
+      && idle.width === content + 10 && roomierIdle.width === content + 10
       && upright.width === global.barSize && uprightIdle.width === global.barSize
       // The hover card is centred on a number that does not follow the title: while one
       // is there that is the reserve (the widget's width moves, the card must not), and
