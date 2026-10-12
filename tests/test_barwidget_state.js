@@ -400,25 +400,32 @@ function caseIdleWidth() {
 
   const emptyPerSide = (idle.reserve - content) / 2
 
-  report("11", "with no title the strip is only as wide as its content",
+  report("11", "the strip is as wide as its content, with or without a title",
     idle.reserve === 196
-      && playing.width === idle.reserve && otherTitle.width === playing.width
-      && roomier.width === roomier.reserve && roomier.reserve === 236
+      // With a title the strip used to be pinned to the reserve, and the difference
+      // showed up as a visible hole (measured live: 276 px of box against 146 px of
+      // ink, 82 px of nothing on the left and 48 px on the right). It follows the
+      // title again -- that is the decision this case records -- and its width is the
+      // content plus the strip's own 10 px. The reserve survives for the one thing
+      // that may not move: the number the hover card is centred on.
+      && playing.width === content + 10 && otherTitle.width === 148 + 10
+      && roomier.width === content + 10 && roomier.reserve === 236
       && idle.width === content && roomierIdle.width === content
       && upright.width === global.barSize && uprightIdle.width === global.barSize
-      // The hover card is anchored on the same number the strip is wide: half of
-      // the actual width, never half of the reserve.
+      // The hover card is centred on the width the strip actually has, so it stays on
+      // the widget instead of hanging off a reserve the widget no longer fills.
       && playing.anchor === playing.width && idle.anchor === idle.width,
     [
-      "stripReserve from the settings           : " + idle.reserve + " px",
+      "stripReserve from the settings           : " + idle.reserve + " px (card anchor only)",
       "with a title (content 20 / 148 px)       : " + playing.width + " / " + otherTitle.width + " px",
       "settings changed (label max 200 -> 236)  : " + roomier.width + " px",
       "no title (stopped, content 20 px)        : " + idle.width + " px",
-      "  the reserve would be " + idle.reserve + " px -- " + emptyPerSide + " px of nothing",
-      "  on each side, the measured 88 px",
+      "  the reserve is " + idle.reserve + " px; pinned to it the strip showed",
+      "  " + emptyPerSide + " px of nothing on each side -- the measured 88 px",
       "vertical bar, with / without a title     : " + upright.width + " / " + uprightIdle.width + " px",
       "card anchor offset, with / without title : " + playing.anchor + " / " + idle.anchor + " px",
-      "expected: 196 px while a title is there, exactly the content width without"
+      "expected: content + 10 px in every horizontal state -- the reserve no longer",
+      "decides the width, it only tells the hover card where to centre"
     ].concat(actualRule ? [] : [
       "note: this source has no `stripActual` -- the width expression is read",
       "directly, and it answers " + idle.width + " px with no title"
