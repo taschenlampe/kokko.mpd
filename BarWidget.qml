@@ -655,7 +655,14 @@ Panel {
         Item {
           id: stateIndicator
           visible: root.showStateIcon
-          implicitWidth: Math.max(stateIconText.implicitWidth, miniBars.width)
+          // Only as wide as what is actually drawn. The spectrum and the glyph share this
+          // slot and only one of them is visible at a time, so `Math.max(...)` of the two
+          // kept the *hidden* one's width in the row: measured live, the row accounted for
+          // 239 px while the title took 144 -- 83 px of nothing between the spectrum and
+          // the title, which is the hole the eye sees between the title and the clock.
+          // Invisible means zero here, exactly as the cover slot above does it.
+          implicitWidth: !visible ? 0
+            : (miniBars.visible ? miniBars.width : stateIconText.implicitWidth)
           implicitHeight: root.barSize
 
           // A plate behind it while the pointer is on it, so the thing that answers a
@@ -904,13 +911,17 @@ Panel {
       item.anchorItem = strip
       // The widget's right edge is the point that does not move (the bar makes the
       // widget grow to the left), so the card is centred on a fixed offset back from
-      // it. The offset is half the width the strip *actually* has -- not half the
-      // reserve: with no title the strip is only as wide as its content, and an
-      // anchor on the reserve would hang the card ~88 px off to the right.
+      // it. That offset must not follow the title: the widget's width does, and a card
+      // that does too jumps by the difference between two titles (measured: 43 px for a
+      // ten-character change). While a title is there, the stable number is the reserve.
+      // With nothing playing the strip is as wide as its text, and there the actual
+      // width is the honest one -- an anchor on the reserve would hang the card ~88 px
+      // off to the right. So: reserve while a title stands, actual when none does.
       // Mapped *here*, in the widget's own window: mapping from inside the card's
       // surface (a different layer window) returned nonsense.
       item.cardCenterX = Qt.binding(function() {
-        return root.mapToItem(null, root.width, 0).x - root.stripActual / 2
+        return root.mapToItem(null, root.width, 0).x
+          - (root.hasSong ? root.stripReserve : root.stripActual) / 2
       })
       item.open = Qt.binding(function() { return root.miniOpen })
       item.hoveredChanged.connect(function() { root.syncMini() })
