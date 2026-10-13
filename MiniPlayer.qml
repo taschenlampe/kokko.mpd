@@ -309,15 +309,23 @@ PanelWindow {
       spacing: Style.space(24)
       height: Style.space(34)
 
+      // Hover feedback on the card's own controls: the glyph takes the accent
+      // while the pointer is on it -- the band marks its transport the same way,
+      // so a click reads the same on both surfaces.
       Text {
         text: "󰒮"
-        color: mini.fg
+        color: prevArea.containsMouse ? Color.accent : mini.fg
         font.family: mini.fontFamily
         font.pixelSize: Style.font.title
         height: controls.height
         verticalAlignment: Text.AlignVCenter
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: if (mini.service) mini.service.previousTrack() }
+        MouseArea {
+          id: prevArea
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: if (mini.service) mini.service.previousTrack()
+        }
       }
 
       // The same filled disc the band and the desktop card show, at 30 px:
@@ -331,15 +339,23 @@ PanelWindow {
         fontFamily: mini.fontFamily
       }
 
+      // Hover feedback on the card's own controls: the glyph takes the accent
+      // while the pointer is on it -- the band marks its transport the same way,
+      // so a click reads the same on both surfaces.
       Text {
         text: "󰒭"
-        color: mini.fg
+        color: nextArea.containsMouse ? Color.accent : mini.fg
         font.family: mini.fontFamily
         font.pixelSize: Style.font.title
         height: controls.height
         verticalAlignment: Text.AlignVCenter
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: if (mini.service) mini.service.nextTrack() }
+        MouseArea {
+          id: nextArea
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: if (mini.service) mini.service.nextTrack()
+        }
       }
 
       Text {
