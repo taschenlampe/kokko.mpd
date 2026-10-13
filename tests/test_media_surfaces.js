@@ -162,6 +162,24 @@ function blockAt(text, re, what) {
   return mkPiece(text, open, matchBraces(text, open) + 1, what)
 }
 
+// The block whose opening `{` stands before a match -- the item that encloses
+// the anchored line. This is how an *anonymous* item (a MouseArea with only
+// `acceptedButtons: ...`) is pulled out: there is no id to name it by.
+function enclosingBlock(text, re, what) {
+  const m = re.exec(text)
+  if (!m) return null
+  const open = text.lastIndexOf("{", m.index)
+  if (open < 0) return null
+  return mkPiece(text, open, matchBraces(text, open) + 1, what)
+}
+
+// `id: name` -- the same, anchored on the id instead: the one stable name of a
+// hover area. In the unfixed source the id does not exist and the piece is
+// absent, which is what makes the check fail there.
+function blockAtId(text, idName, what) {
+  return enclosingBlock(text, new RegExp("id:\\s*" + idName + "\\b"), what)
+}
+
 // An expression that sits right after `prop:` inside the item with `id: name`.
 // Anchored on the id, which is stable across the two versions.
 function propIn(text, idName, prop, what) {
@@ -591,12 +609,131 @@ function caseAlbumRepeatsTitle() {
     ])
 }
 
+// --- 7: the transport glyphs answer the pointer -----------------------------
+// The band and the hover card mark prev/next the same way: the MouseArea under
+// the glyph listens for the pointer (`hoverEnabled`) and the glyph's colour
+// hangs on that area's own `containsMouse` -- a fixed colour would leave the
+// pointer unanswered. In the band the hover also carries the footer hint that
+// names the click. The pieces come from the id (the glyph's one stable name) and
+// from the binding that reads it, and the binding is *run* in both hover states:
+// the unfixed source -- no id, a fixed colour, no hint -- fails on the value,
+// not merely on a property name.
+function caseTransportHover() {
+  const surfaces = [
+    { label: "BandChrome.qml", text: src.band, hint: true },
+    { label: "MiniPlayer.qml", text: src.mini, hint: false }
+  ]
+  const glyphs = [
+    { id: "prevArea", target: "Previous track" },
+    { id: "nextArea", target: "Next track" }
+  ]
+  const names = ["prevArea", "nextArea", "band", "mini", "Color", "Style"]
+  const lines = []
+  let ok = true
+
+  for (const s of surfaces) {
+    for (const g of glyphs) {
+      const area = blockAtId(s.text, g.id, g.id)
+      const tint = exprAt(s.text,
+        new RegExp("(?:color|opacity):(?=\\s*" + g.id + "\\s*\\.\\s*containsMouse)"),
+        g.id + ".tint")
+
+      const hoverOn = !!area && /hoverEnabled\s*:\s*true/.test(area.body)
+      const readsMouse = !!tint
+        && new RegExp("\\b" + g.id + "\\s*\\.\\s*containsMouse\\b").test(tint.body)
+
+      // Run the colour binding with the pointer off and on: a value that does
+      // not move between the two is a fixed colour wearing the id's name.
+      const band = { accent: "accent", fg: "fg", dim: "dim" }
+      const mini = { fg: "fg", dim: "dim" }
+      const Color = { accent: "accent" }
+      const Style = { font: { subtitle: 1, title: 1 } }
+      const vals = function (on) {
+        return [{ containsMouse: on }, { containsMouse: on }, band, mini, Color, Style]
+      }
+      const offVal = tint ? evalPiece(tint, "expr", names, vals(false), g.id) : "<absent>"
+      const onVal = tint ? evalPiece(tint, "expr", names, vals(true), g.id) : "<absent>"
+      const varied = !!tint && !/^</.test(String(offVal)) && !/^</.test(String(onVal))
+        && offVal !== onVal
+
+      // The band's hover names the click in the footer, like the clear/keep pair.
+      let hintTarget = null
+      if (s.hint && area) {
+        const m = /onEntered\s*:\s*band\.hint\s*\(\s*"([^"]*)"\s*\)/.exec(area.body)
+        hintTarget = m ? m[1] : null
+      }
+      const namesTarget = !s.hint
+        || (hintTarget !== null && hintTarget.indexOf(g.target) >= 0)
+
+      if (!(hoverOn && readsMouse && varied && namesTarget)) ok = false
+
+      lines.push(s.label + " " + g.id + ":")
+      lines.push("    MouseArea " + (area ? "lines " + area.first + "-" + area.last
+        + " sha256:" + area.hash : "absent")
+        + "   hoverEnabled: " + hoverOn)
+      lines.push("    tint      " + (tint ? "lines " + tint.first + "-" + tint.last
+        + " sha256:" + tint.hash + "  " + JSON.stringify(tint.body)
+        : "absent (a fixed colour names no id)")
+        + "   containsMouse: " + readsMouse
+        + ", off/on -> " + JSON.stringify(offVal) + " / " + JSON.stringify(onVal))
+      if (s.hint) {
+        lines.push("    hint      onEntered: " + (hintTarget === null ? "not found"
+          : JSON.stringify(hintTarget)) + "   names \"" + g.target + "\": " + namesTarget)
+      }
+    }
+  }
+  lines.push("expected: on both surfaces prevArea/nextArea carry hoverEnabled and a colour"
+    + " that reads its own containsMouse and moves between the two states; the band's"
+    + " hover names \"Previous track\" / \"Next track\" in the footer hint")
+  report("7", "the prev/next glyphs answer the pointer on both surfaces", ok, lines)
+}
+
+// --- 8: the hover card keeps its own pointer, not the click area's ----------
+// Tinting prev/next made those two areas `hoverEnabled`, and a child that takes
+// the pointer makes its *sibling* click area report `containsMouse: false` --
+// the widget then read the card as left and closed it 280 ms later. The card's
+// hover state has to come from a HoverHandler on the card itself (it counts the
+// pointer anywhere on the card, children included), and the click area has to
+// stop deciding it in onEntered/onExited.
+function caseCardHoverOwnership() {
+  const handler = blockAt(src.mini, /HoverHandler\s*\{/, "cardHover")
+  const setsHover = !!handler
+    && /mini\.hovered\s*=\s*(?:[A-Za-z_]\w*\s*\.\s*)?hovered\b/.test(handler.body)
+
+  // The click area: the one MouseArea that takes every button.
+  const click = enclosingBlock(src.mini, /acceptedButtons\s*:\s*Qt\.AllButtons/, "clickArea")
+  const stillSets = !!click && /mini\.hovered/.test(click.body)
+  const handlerInClick = !!click && /HoverHandler/.test(click.body)
+
+  const ok = !!handler && setsHover && !!click && !stillSets && !handlerInClick
+
+  report("8", "the card's hover state comes from the card, not the click area",
+    ok,
+    [
+      "HoverHandler " + (handler ? "lines " + handler.first + "-" + handler.last
+        + " sha256:" + handler.hash : "absent")
+        + ", id: " + (handler ? /id:\s*cardHover\b/.test(handler.body) : "n/a"),
+      "    body: " + (handler ? JSON.stringify(handler.body.replace(/\s+/g, " ").trim())
+        : "absent")
+        + "   sets mini.hovered from its own `hovered`: " + setsHover,
+      "click area  " + (click ? "lines " + click.first + "-" + click.last
+        + " sha256:" + click.hash : "absent")
+        + ", still sets mini.hovered in onEntered/onExited: " + stillSets
+        + ", HoverHandler nested in it: " + handlerInClick,
+      "expected: one HoverHandler on the card whose `hovered` drives mini.hovered, and a"
+        + " click area that no longer touches the hover state -- that is exactly what the"
+        + " sibling transport areas broke"
+    ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
 caseDerived()
 caseTexts()
 caseAlbumRepeatsTitle()
+caseTransportHover()
+caseCardHoverOwnership()
 
 console.log(failures === 0
   ? "all media-surface checks passed"
