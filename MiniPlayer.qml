@@ -143,14 +143,25 @@ PanelWindow {
       anchors.fill: parent
       hoverEnabled: true
       acceptedButtons: Qt.AllButtons
-      onEntered: mini.hovered = true
-      onExited: mini.hovered = false
       // Clicking the card (not a button) opens the panel; the wheel changes the
       // volume -- the readout that used to sit here is gone, the function stays.
       onClicked: if (mini.service) mini.service.toggle()
       onWheel: function(wheel) {
         if (mini.service) mini.service.nudgeVolume(wheel.angleDelta.y > 0 ? 5 : -5)
       }
+    }
+
+    // The card's hover state comes from a handler on the card itself, not from the
+    // click area above: the transport buttons bring hover areas of their own (the
+    // tint on next/prev needs `hoverEnabled`), and a child that takes the pointer
+    // makes its *sibling* click area report `containsMouse: false` -- the widget then
+    // read the card as left and closed it 280 ms later. Measured on the row of
+    // buttons: exactly the two x positions of prev and next closed the card, play
+    // (no hover area of its own) was fine. The handler is attached to the card, so
+    // the pointer being anywhere on it counts, children included.
+    HoverHandler {
+      id: cardHover
+      onHoveredChanged: mini.hovered = hovered
     }
 
     // ------------------------------------------------------------- cover + text
