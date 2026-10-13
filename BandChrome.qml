@@ -423,15 +423,25 @@ Item {
     // how these buttons disappeared once.
     height: Style.space(30)
 
+    // The glyph brightens while the pointer is on it -- the same feedback the
+    // clear/keep pair at the right end of this row already gives -- and the footer
+    // hint names what the click does, like theirs does.
     Text {
       text: "󰒮"
-      color: band.fg
+      color: prevArea.containsMouse ? band.accent : band.fg
       font.family: band.fontFamily
       font.pixelSize: Style.font.subtitle
       height: parent.height
       verticalAlignment: Text.AlignVCenter
-      MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                  onClicked: if (band.host) band.host.previousTrack() }
+      MouseArea {
+        id: prevArea
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onEntered: band.hint("Previous track (<)")
+        onExited: band.hint("")
+        onClicked: if (band.host) band.host.previousTrack()
+      }
     }
 
     // Play/pause keeps the one filled shape in this row (26 px inside the
@@ -447,15 +457,25 @@ anchors.verticalCenter: parent.verticalCenter
       fontFamily: band.fontFamily
     }
 
+    // The glyph brightens while the pointer is on it -- the same feedback the
+    // clear/keep pair at the right end of this row already gives -- and the footer
+    // hint names what the click does, like theirs does.
     Text {
       text: "󰒭"
-      color: band.fg
+      color: nextArea.containsMouse ? band.accent : band.fg
       font.family: band.fontFamily
       font.pixelSize: Style.font.subtitle
       height: parent.height
       verticalAlignment: Text.AlignVCenter
-      MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                  onClicked: if (band.host) band.host.nextTrack() }
+      MouseArea {
+        id: nextArea
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onEntered: band.hint("Next track (>)")
+        onExited: band.hint("")
+        onClicked: if (band.host) band.host.nextTrack()
+      }
     }
 
     // The same two playback options the hover card offers, in the same colours:

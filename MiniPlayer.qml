@@ -143,14 +143,25 @@ PanelWindow {
       anchors.fill: parent
       hoverEnabled: true
       acceptedButtons: Qt.AllButtons
-      onEntered: mini.hovered = true
-      onExited: mini.hovered = false
       // Clicking the card (not a button) opens the panel; the wheel changes the
       // volume -- the readout that used to sit here is gone, the function stays.
       onClicked: if (mini.service) mini.service.toggle()
       onWheel: function(wheel) {
         if (mini.service) mini.service.nudgeVolume(wheel.angleDelta.y > 0 ? 5 : -5)
       }
+    }
+
+    // The card's hover state comes from a handler on the card itself, not from the
+    // click area above: the transport buttons bring hover areas of their own (the
+    // tint on next/prev needs `hoverEnabled`), and a child that takes the pointer
+    // makes its *sibling* click area report `containsMouse: false` -- the widget then
+    // read the card as left and closed it 280 ms later. Measured on the row of
+    // buttons: exactly the two x positions of prev and next closed the card, play
+    // (no hover area of its own) was fine. The handler is attached to the card, so
+    // the pointer being anywhere on it counts, children included.
+    HoverHandler {
+      id: cardHover
+      onHoveredChanged: mini.hovered = hovered
     }
 
     // ------------------------------------------------------------- cover + text
@@ -309,15 +320,23 @@ PanelWindow {
       spacing: Style.space(24)
       height: Style.space(34)
 
+      // Hover feedback on the card's own controls: the glyph takes the accent
+      // while the pointer is on it -- the band marks its transport the same way,
+      // so a click reads the same on both surfaces.
       Text {
         text: "󰒮"
-        color: mini.fg
+        color: prevArea.containsMouse ? Color.accent : mini.fg
         font.family: mini.fontFamily
         font.pixelSize: Style.font.title
         height: controls.height
         verticalAlignment: Text.AlignVCenter
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: if (mini.service) mini.service.previousTrack() }
+        MouseArea {
+          id: prevArea
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: if (mini.service) mini.service.previousTrack()
+        }
       }
 
       // The same filled disc the band and the desktop card show, at 30 px:
@@ -331,15 +350,23 @@ PanelWindow {
         fontFamily: mini.fontFamily
       }
 
+      // Hover feedback on the card's own controls: the glyph takes the accent
+      // while the pointer is on it -- the band marks its transport the same way,
+      // so a click reads the same on both surfaces.
       Text {
         text: "󰒭"
-        color: mini.fg
+        color: nextArea.containsMouse ? Color.accent : mini.fg
         font.family: mini.fontFamily
         font.pixelSize: Style.font.title
         height: controls.height
         verticalAlignment: Text.AlignVCenter
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: if (mini.service) mini.service.nextTrack() }
+        MouseArea {
+          id: nextArea
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: if (mini.service) mini.service.nextTrack()
+        }
       }
 
       Text {
