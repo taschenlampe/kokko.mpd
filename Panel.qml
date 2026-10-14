@@ -2083,28 +2083,6 @@ Panel {
                 onClicked: root.setTab(modelData.key)
               }
             }
-            // The digits alone do not say where they lead -- nine chips, no
-            // words. The active tab names itself behind the chips, from the one
-            // source that owns the tab order and the titles (rootFrameFor), so
-            // a renamed tab can never disagree with the body.
-            //
-            // The name gets a slot of its own, and that slot has a fixed width.
-            // The row is anchored right, so ANY change in its total width moves
-            // every chip left of it: a name of its natural width would pull the
-            // nine digits 14 px left and right on every tab change, because the
-            // titles run from 35 px ("Radio") to 49 px ("Playlists") at caption
-            // size. 52 px measured (widest title, rounded up), so the widest one
-            // has room and a longer name elides instead of pushing the chips.
-            Text {
-              text: rootFrameFor(root.tab).title
-              width: Style.space(52)
-              horizontalAlignment: Text.AlignLeft
-              elide: Text.ElideRight
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              verticalAlignment: Text.AlignVCenter
-            }
           }
         }
       }
