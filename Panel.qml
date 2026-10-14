@@ -2083,6 +2083,20 @@ Panel {
                 onClicked: root.setTab(modelData.key)
               }
             }
+            // The digits alone do not say where they lead -- nine chips, no
+            // words. The active tab names itself behind the chips, from the one
+            // source that owns the tab order and the titles (rootFrameFor), so
+            // a renamed tab can never disagree with the body. Behind the
+            // repeater, not in front of it: appended to the right-anchored row
+            // the digits keep their x, the name just extends the row.
+            Text {
+              text: rootFrameFor(root.tab).title
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              verticalAlignment: Text.AlignVCenter
+              leftPadding: Style.space(12)
+            }
           }
         }
       }

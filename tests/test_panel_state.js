@@ -1623,7 +1623,66 @@ group("case 17: the queue names the album, the album view does not repeat it");
         R.root.rowSub(OTHER) === "Dopplereffekt", R.root.rowSub(OTHER));
 }
 
-// --------------------------------------------------------------- report
+// The digits alone do not say where they lead -- nine chips, no words. The
+// header names the active tab, and the one rule that matters for it is where
+// the words come from: `rootFrameFor` owns the tab order and the titles
+// (queue->'Queue', radio->'Radio', ...), and the header must read them from
+// there. A second list of tab words in the header would be free to drift from
+// it -- a renamed tab would then name itself in the body while the header still
+// said the old word -- so these checks fail on both the missing text AND on a
+// hardcoded duplicate.
+//
+// The other rule is position: the digits must not move. The name sits BEHIND
+// the chips, appended to the row that is anchored right -- the chips keep their
+// x, the name extends the row.
+//
+// Read from the source, not measured: there is no QML engine here. The
+// extraction is deliberately form tolerant -- multi-line expressions come with
+// their continuation lines, and the regexes allow for spacing -- two checks in
+// this project already died on fixed line windows.
+group("the header names the active tab behind the chips");
+{
+  // (a) a Text bound to the frame title, i.e. the words come from rootFrameFor.
+  // The binding is matched form tolerantly and anywhere in the file; position
+  // is checked separately below.
+  const titleRe = /text\s*:\s*rootFrameFor\s*\(\s*root\s*\.\s*tab\s*\)\s*\.\s*title/;
+  const titleAt = SRC.search(titleRe);
+  check("the header names the active tab: a text bound to rootFrameFor(root.tab).title",
+        titleAt >= 0, "binding at " + (titleAt < 0 ? "nowhere" : lineOf(titleAt)));
+
+  // Behind the chips, not in front of them: the binding sits after the last
+  // chip (settings=9), so the digits keep their x. A text in front of the row
+  // would move every digit.
+  const chip9 = SRC.indexOf("key: \"settings\", label: \"9\"");
+  check("the name sits behind the chips",
+        titleAt >= 0 && chip9 >= 0 && titleAt > chip9,
+        "name at " + (titleAt < 0 ? "nowhere" : lineOf(titleAt))
+          + ", last chip at " + (chip9 < 0 ? "nowhere" : lineOf(chip9)));
+
+  // (b) single source: the words come from the binding, and no second list of
+  // tab words sits next to the chips. The titles rootFrameFor returns must not
+  // reappear as literals in the header slice -- they would be a duplicate free
+  // to drift. Tied to the binding above so that this check fails on a revision
+  // that has neither (it is about WHERE the name's words come from, and a
+  // revision without the name has no words to trace).
+  const headerSlice = chip9 >= 0 ? SRC.slice(chip9, chip9 + 400) : "";
+  const dupWords = ["Playlists", "Radio", "Settings", "Albums", "Library"]
+    .filter(function (w) { return headerSlice.indexOf("\"" + w + "\"") >= 0; });
+  check("the name comes from the one source, no second list of tab words",
+        titleAt >= 0 && dupWords.length === 0,
+        titleAt < 0 ? "no name binding"
+          : (dupWords.length ? "hardcoded: " + dupWords.join(", ") : "clean"));
+
+  // (c) the chips stay digits: exactly nine entries, labels "1".."9", nothing
+  // else -- the fix adds words, it does not touch the chip model.
+  const labels = [];
+  const modelRe = /\{\s*key\s*:\s*"([a-z]+)"\s*,\s*label\s*:\s*"([0-9])"\s*\}/g;
+  let m;
+  while ((m = modelRe.exec(SRC)) !== null) labels.push(m[2]);
+  check("the chip model carries exactly the nine digits 1..9",
+        labels.length === 9 && labels.join("") === "123456789",
+        "labels: " + labels.join(""));
+}
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {
   if (f.text === "") return;
