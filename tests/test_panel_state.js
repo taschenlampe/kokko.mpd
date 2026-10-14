@@ -1632,9 +1632,14 @@ group("case 17: the queue names the album, the album view does not repeat it");
 // said the old word -- so these checks fail on both the missing text AND on a
 // hardcoded duplicate.
 //
-// The other rule is position: the digits must not move. The name sits BEHIND
-// the chips, appended to the row that is anchored right -- the chips keep their
-// x, the name extends the row.
+// The other rule is position, and it is subtler than "behind the chips": the
+// name sits in the row that is anchored to the RIGHT. Appending it there
+// changes the row's total width, and a right-anchored row moves its left edge
+// with it -- so the digits DO move unless the name's own width is fixed. The
+// titles run from 35 px ("Radio") to 49 px ("Playlists") at caption size, so a
+// name that simply grows pulls the nine chips up to 14 px left and right on
+// every tab change. The name therefore sits in a slot of a fixed width, wide
+// enough for the widest title; check (d) holds that down.
 //
 // Read from the source, not measured: there is no QML engine here. The
 // extraction is deliberately form tolerant -- multi-line expressions come with
@@ -1672,6 +1677,37 @@ group("the header names the active tab behind the chips");
         titleAt >= 0 && dupWords.length === 0,
         titleAt < 0 ? "no name binding"
           : (dupWords.length ? "hardcoded: " + dupWords.join(", ") : "clean"));
+
+  // (d) the slot's width must be fixed. Without it the right-anchored row takes
+  // the name's natural width into its total, and every chip left of the name
+  // moves by the difference between two titles. The block is taken from the
+  // binding by indentation (no fixed line window -- that is the failure this
+  // project already had twice), and a width derived from the text counts as
+  // no fixed width: it would move the chips just the same.
+  function blockFrom(at) {
+    // From the START of the line the binding sits on: starting at the binding
+    // itself would make its indentation zero and the block would run to the end
+    // of the file (measured: it then reads `width: list.width` from a later
+    // element and reports a width that belongs to someone else).
+    const from = SRC.lastIndexOf("\n", at) + 1;
+    const lines = SRC.slice(from).split("\n");
+    const indent = (lines[0].match(/^\s*/) || [""])[0].length;
+    const out = [lines[0]];
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i].trim() === "") { out.push(lines[i]); continue; }
+      if ((lines[i].match(/^\s*/) || [""])[0].length < indent) break;
+      out.push(lines[i]);
+    }
+    return out.join("\n");
+  }
+  const nameBlock = titleAt >= 0 ? blockFrom(titleAt) : "";
+  const slotM = /^\s*width\s*:\s*([^;\n]+)/m.exec(nameBlock);
+  const derived = /implicitWidth|contentWidth|paintedWidth|TextMetrics|advanceWidth/.test(nameBlock);
+  check("the name sits in a slot of fixed width, so the chips cannot move",
+        slotM !== null && !derived,
+        titleAt < 0 ? "no name binding"
+          : (slotM === null ? "no width on the name: the row follows the title"
+            : (derived ? "width from the text: " + slotM[1].trim() : "fixed: " + slotM[1].trim())));
 
   // (c) the chips stay digits: exactly nine entries, labels "1".."9", nothing
   // else -- the fix adds words, it does not touch the chip model.
