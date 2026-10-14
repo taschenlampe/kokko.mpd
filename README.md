@@ -77,7 +77,7 @@ no seek bar.
 
 [![Settings](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/einstellungen.png)](docs/einstellungen.png)
 
-**A new track starts** — the brief card that shows up under the bar (it can also
+**A new track starts** — the brief card at the bottom of the screen (it can also
 send a desktop notification).
 
 [![Card on track change](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/titelwechsel.png)](docs/titelwechsel.png)
