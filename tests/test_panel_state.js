@@ -1623,7 +1623,102 @@ group("case 17: the queue names the album, the album view does not repeat it");
         R.root.rowSub(OTHER) === "Dopplereffekt", R.root.rowSub(OTHER));
 }
 
-// --------------------------------------------------------------- report
+// The digits alone do not say where they lead -- nine chips, no words. The
+// header names the active tab, and the one rule that matters for it is where
+// the words come from: `rootFrameFor` owns the tab order and the titles
+// (queue->'Queue', radio->'Radio', ...), and the header must read them from
+// there. A second list of tab words in the header would be free to drift from
+// it -- a renamed tab would then name itself in the body while the header still
+// said the old word -- so these checks fail on both the missing text AND on a
+// hardcoded duplicate.
+//
+// The other rule is position, and it is subtler than "behind the chips": the
+// name sits in the row that is anchored to the RIGHT. Appending it there
+// changes the row's total width, and a right-anchored row moves its left edge
+// with it -- so the digits DO move unless the name's own width is fixed. The
+// titles run from 35 px ("Radio") to 49 px ("Playlists") at caption size, so a
+// name that simply grows pulls the nine chips up to 14 px left and right on
+// every tab change. The name therefore sits in a slot of a fixed width, wide
+// enough for the widest title; check (d) holds that down.
+//
+// Read from the source, not measured: there is no QML engine here. The
+// extraction is deliberately form tolerant -- multi-line expressions come with
+// their continuation lines, and the regexes allow for spacing -- two checks in
+// this project already died on fixed line windows.
+group("the header names the active tab behind the chips");
+{
+  // (a) a Text bound to the frame title, i.e. the words come from rootFrameFor.
+  // The binding is matched form tolerantly and anywhere in the file; position
+  // is checked separately below.
+  const titleRe = /text\s*:\s*rootFrameFor\s*\(\s*root\s*\.\s*tab\s*\)\s*\.\s*title/;
+  const titleAt = SRC.search(titleRe);
+  check("the header names the active tab: a text bound to rootFrameFor(root.tab).title",
+        titleAt >= 0, "binding at " + (titleAt < 0 ? "nowhere" : lineOf(titleAt)));
+
+  // Behind the chips, not in front of them: the binding sits after the last
+  // chip (settings=9), so the digits keep their x. A text in front of the row
+  // would move every digit.
+  const chip9 = SRC.indexOf("key: \"settings\", label: \"9\"");
+  check("the name sits behind the chips",
+        titleAt >= 0 && chip9 >= 0 && titleAt > chip9,
+        "name at " + (titleAt < 0 ? "nowhere" : lineOf(titleAt))
+          + ", last chip at " + (chip9 < 0 ? "nowhere" : lineOf(chip9)));
+
+  // (b) single source: the words come from the binding, and no second list of
+  // tab words sits next to the chips. The titles rootFrameFor returns must not
+  // reappear as literals in the header slice -- they would be a duplicate free
+  // to drift. Tied to the binding above so that this check fails on a revision
+  // that has neither (it is about WHERE the name's words come from, and a
+  // revision without the name has no words to trace).
+  const headerSlice = chip9 >= 0 ? SRC.slice(chip9, chip9 + 400) : "";
+  const dupWords = ["Playlists", "Radio", "Settings", "Albums", "Library"]
+    .filter(function (w) { return headerSlice.indexOf("\"" + w + "\"") >= 0; });
+  check("the name comes from the one source, no second list of tab words",
+        titleAt >= 0 && dupWords.length === 0,
+        titleAt < 0 ? "no name binding"
+          : (dupWords.length ? "hardcoded: " + dupWords.join(", ") : "clean"));
+
+  // (d) the slot's width must be fixed. Without it the right-anchored row takes
+  // the name's natural width into its total, and every chip left of the name
+  // moves by the difference between two titles. The block is taken from the
+  // binding by indentation (no fixed line window -- that is the failure this
+  // project already had twice), and a width derived from the text counts as
+  // no fixed width: it would move the chips just the same.
+  function blockFrom(at) {
+    // From the START of the line the binding sits on: starting at the binding
+    // itself would make its indentation zero and the block would run to the end
+    // of the file (measured: it then reads `width: list.width` from a later
+    // element and reports a width that belongs to someone else).
+    const from = SRC.lastIndexOf("\n", at) + 1;
+    const lines = SRC.slice(from).split("\n");
+    const indent = (lines[0].match(/^\s*/) || [""])[0].length;
+    const out = [lines[0]];
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i].trim() === "") { out.push(lines[i]); continue; }
+      if ((lines[i].match(/^\s*/) || [""])[0].length < indent) break;
+      out.push(lines[i]);
+    }
+    return out.join("\n");
+  }
+  const nameBlock = titleAt >= 0 ? blockFrom(titleAt) : "";
+  const slotM = /^\s*width\s*:\s*([^;\n]+)/m.exec(nameBlock);
+  const derived = /implicitWidth|contentWidth|paintedWidth|TextMetrics|advanceWidth/.test(nameBlock);
+  check("the name sits in a slot of fixed width, so the chips cannot move",
+        slotM !== null && !derived,
+        titleAt < 0 ? "no name binding"
+          : (slotM === null ? "no width on the name: the row follows the title"
+            : (derived ? "width from the text: " + slotM[1].trim() : "fixed: " + slotM[1].trim())));
+
+  // (c) the chips stay digits: exactly nine entries, labels "1".."9", nothing
+  // else -- the fix adds words, it does not touch the chip model.
+  const labels = [];
+  const modelRe = /\{\s*key\s*:\s*"([a-z]+)"\s*,\s*label\s*:\s*"([0-9])"\s*\}/g;
+  let m;
+  while ((m = modelRe.exec(SRC)) !== null) labels.push(m[2]);
+  check("the chip model carries exactly the nine digits 1..9",
+        labels.length === 9 && labels.join("") === "123456789",
+        "labels: " + labels.join(""));
+}
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {
   if (f.text === "") return;
