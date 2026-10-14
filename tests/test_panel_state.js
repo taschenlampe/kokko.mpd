@@ -41,6 +41,18 @@ const PANEL = process.env.PANEL_QML
   : path.join(__dirname, "..", "Panel.qml");
 const SRC = fs.readFileSync(PANEL, "utf8");
 
+// The tab table, verbatim from Panel.qml: the chips, the digits and the tab ring
+// all read this one array, so the test reads it too instead of keeping a copy
+// that could agree with itself and disagree with the panel.
+const TAB_ORDER = (function () {
+  const m = /^  readonly property var tabOrder: \[([\s\S]*?)\n  \]$/m.exec(SRC);
+  if (!m) throw new Error("Panel.qml has no tabOrder table");
+  return new Function("return [" + m[1] + "];")();
+})();
+function freshTabOrder() {
+  return TAB_ORDER.map(function (t) { return { key: t.key, label: t.label }; });
+}
+
 // --------------------------------------------------------------- extraction
 // Verbatim: the text between the opening and the matching closing brace, with
 // strings and line comments skipped while counting.
@@ -129,7 +141,8 @@ function grabRowBinding(name) {
 }
 
 const FUNCTIONS = [
-  "rootFrameFor", "tabForNumber", "setTab", "pushFrame", "popFrame", "topFrame", "loadFrame",
+  "rootFrameFor", "tabEntry", "tabForNumber", "setTab", "pushFrame", "popFrame", "topFrame", "loadFrame",
+  "breadcrumb",
   "infoFor", "groupHits", "isSelectable", "firstSelectable", "lastSelectable",
   "rowIsSong", "activate", "addRow", "addOne", "addAll", "openPrompt",
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
@@ -236,6 +249,8 @@ function makePanel(opts) {
 
   const root = {
     tab: "queue",
+    // The panel's one table of root tabs, read from Panel.qml (see TAB_ORDER).
+    tabOrder: freshTabOrder(),
     sel: 0,
     infoText: "",
     loading: false,
@@ -1015,9 +1030,21 @@ function case10RadioTab() {
         }).join(", "));
 
   // The chips are the mouse way in; a tab the keyboard has and the header does
-  // not is a tab half the users cannot reach.
-  check("the header chips carry the eighth tab (the mouse way in)",
-        /\{ key: "radio", label: "8" \}/.test(SRC), "chip row in Panel.qml");
+  // not is a tab half the users cannot reach. They are drawn from the same table
+  // the digits are (TAB_ORDER), so what is checked is the agreement, not a copy
+  // of the row: the Repeater reads the table, and the chips name their tabs.
+  check("the header chips are drawn from the tab table (the mouse way in)",
+        /Repeater \{\s*\n\s*model: root\.tabOrder/.test(SRC), "chip row in Panel.qml");
+  check("every chip names its tab instead of numbering it",
+        TAB_ORDER.every(function (t) {
+          return String(t.label) !== "" && !/^[0-9]+$/.test(String(t.label));
+        }), TAB_ORDER.map(function (t) { return t.label; }).join(" · "));
+  // The names took the digits out of the header, so the chip has to say which key
+  // reaches it -- the footer's hint line has no room for another entry (that is
+  // what hintTruncated watches). The pointer is already on the chip it asks about.
+  check("a chip names its key while the pointer rests on it",
+        /hoverHint = chipHint/.test(SRC) && /index \+ 1/.test(SRC),
+        "hover hint in the chip delegate");
 
   // Control: with an empty search field the digit switches tabs instead of being
   // typed into it -- the rule case 9 established, now with the eighth digit.
@@ -1066,13 +1093,46 @@ group("the tab digits: 8 is the station directory, 9 the settings");
   check("the key code 9 opens the settings too",
         CODE9.root.tab === "settings", CODE9.root.tab);
 
-  // The header chips are the mouse way in. They carry the two digits in the same
-  // order the keys do: 8 (radio) before 9 (settings), right after the library.
-  const chip8 = SRC.indexOf('{ key: "radio", label: "8" }');
-  const chip9 = SRC.indexOf('{ key: "settings", label: "9" }');
-  check("the chips carry radio=8 and settings=9, radio first",
-        chip8 >= 0 && chip9 >= 0 && chip8 < chip9,
-        "radio chip at " + chip8 + ", settings chip at " + chip9 + " (Panel.qml)");
+  // The header chips are the mouse way in. They walk the same table in the same
+  // order the keys do -- 8 (radio) before 9 (settings), right after the library --
+  // so the two encodings of the order cannot drift apart unnoticed.
+  const chip8 = TAB_ORDER.findIndex(function (t) { return t.key === "radio"; });
+  const chip9 = TAB_ORDER.findIndex(function (t) { return t.key === "settings"; });
+  check("the table reaches radio at 8 and settings at 9, radio first",
+        chip8 === 7 && chip9 === 8 && chip8 < chip9,
+        "radio at index " + chip8 + ", settings at index " + chip9 + " (Panel.qml tabOrder)");
+  check("the chips are that table, so the mouse reaches them too",
+        /model: root\.tabOrder/.test(SRC), "chip row in Panel.qml");
+}
+
+// The header says where you are twice, and the two must not say the same word:
+// the chip names the root tab, the breadcrumb the way under it. A breadcrumb that
+// repeats the root was the first draft of the named chips, and it read as a stutter.
+group("the breadcrumb names the way under the root tab, not the tab");
+{
+  const P = makePanel();
+  P.key(0, "3");
+  check("on a root list the breadcrumb is empty",
+        P.root.breadcrumb() === "", JSON.stringify(P.root.breadcrumb()));
+  check("the chip is what names the tab there",
+        P.root.rootFrameFor("albums").title === "Albums",
+        P.root.rootFrameFor("albums").title);
+
+  P.root.pushFrame({ mode: "list", title: "Random Access Memories" });
+  check("one level down it is the album, with no tab name in front of it",
+        P.root.breadcrumb() === "Random Access Memories",
+        JSON.stringify(P.root.breadcrumb()));
+
+  P.root.pushFrame({ mode: "list", title: "1999" });
+  check("deeper it keeps the whole way under the root",
+        P.root.breadcrumb() === "Random Access Memories  ›  1999",
+        JSON.stringify(P.root.breadcrumb()));
+
+  // And the stack itself is untouched: what the breadcrumb shows is a display
+  // decision, `back` still walks all of it.
+  check("the root frame is still on the stack behind it",
+        P.root.stack.length === 3 && P.root.stack[0].title === "Albums",
+        JSON.stringify(P.root.stack.map(function (f) { return f.title; })));
 }
 
 function case11DedupeStations() {

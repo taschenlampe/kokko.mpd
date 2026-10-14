@@ -194,18 +194,46 @@ Panel {
   }
 
   // ----------------------------------------------------------------- frames
+  // The nine root tabs, in the order the digits and `tab` walk them: what a tab
+  // is called and which key reaches it (the key is the position, 1-based). One
+  // table, because four things read it -- the chips, the digits, the tab ring and
+  // the breadcrumb title -- and four copies of an order is how `8` stopped being
+  // the radio tab once already. Chip and breadcrumb say the same word on purpose:
+  // the chip is where the mouse is, the breadcrumb where the eye is after a jump.
+  readonly property var tabOrder: [
+    { key: "queue", label: "Queue" },
+    { key: "search", label: "Search" },
+    { key: "albums", label: "Albums" },
+    { key: "artists", label: "Artists" },
+    { key: "genres", label: "Genres" },
+    { key: "files", label: "Library" },
+    { key: "playlists", label: "Playlists" },
+    { key: "radio", label: "Radio" },
+    { key: "settings", label: "Settings" }
+  ]
+
+  // The table entry for a tab key, or null for anything the table does not know.
+  function tabEntry(key) {
+    var wanted = String(key)
+    for (var i = 0; i < root.tabOrder.length; i++)
+      if (root.tabOrder[i].key === wanted) return root.tabOrder[i]
+    return null
+  }
+
   function rootFrameFor(tab) {
-    if (tab === "queue") return { mode: "queue", title: "Queue" }
-    if (tab === "search") return { mode: "search", title: "Search" }
-    if (tab === "albums") return { mode: "list", tag: "album", filter: [], title: "Albums" }
-    if (tab === "artists") return { mode: "list", tag: "artist", filter: [], title: "Artists" }
-    if (tab === "genres") return { mode: "list", tag: "genre", filter: [], title: "Genres" }
-    if (tab === "files") return { mode: "files", path: "", title: "Library" }
-    if (tab === "settings") return { mode: "settings", title: "Settings" }
+    var entry = root.tabEntry(tab)
+    var title = entry ? String(entry.label) : ""
+    if (tab === "queue") return { mode: "queue", title: title }
+    if (tab === "search") return { mode: "search", title: title }
+    if (tab === "albums") return { mode: "list", tag: "album", filter: [], title: title }
+    if (tab === "artists") return { mode: "list", tag: "artist", filter: [], title: title }
+    if (tab === "genres") return { mode: "list", tag: "genre", filter: [], title: title }
+    if (tab === "files") return { mode: "files", path: "", title: title }
+    if (tab === "settings") return { mode: "settings", title: title }
     // The station directory: a browse root like the others, but nothing under it
     // comes from MPD (see loadFrame).
-    if (tab === "radio") return { mode: "radio", title: "Radio" }
-    return { mode: "playlists", title: "Playlists" }
+    if (tab === "radio") return { mode: "radio", title: title }
+    return { mode: "playlists", title: title }
   }
 
   function setTab(name, explicit) {
@@ -243,9 +271,12 @@ Panel {
     return true
   }
 
+  // The stack *under* the root tab. The root is named by its chip in the header,
+  // so repeating it here would put the same word twice in one line -- and it is
+  // the chip that stays visible when a deep list pushes the title around.
   function breadcrumb() {
     var bits = []
-    for (var i = 0; i < root.stack.length; i++) bits.push(String(root.stack[i].title || ""))
+    for (var i = 1; i < root.stack.length; i++) bits.push(String(root.stack[i].title || ""))
     return bits.join("  ›  ")
   }
 
@@ -1426,12 +1457,10 @@ Panel {
     if (focus) Qt.callLater(function() { promptFocusTimer.restart() })
   }
 
-  // 1..9 -> tab name, so the number keys can be read in one place.
+  // 1..9 -> tab key, out of the one table the chips and the ring read too.
   function tabForNumber(value) {
-    var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists",
-                 "radio", "settings"]
     var index = Number(value) - 1
-    return (index >= 0 && index < order.length) ? order[index] : ""
+    return (index >= 0 && index < root.tabOrder.length) ? String(root.tabOrder[index].key) : ""
   }
 
   function closePrompt() {
@@ -1726,11 +1755,11 @@ Panel {
       // Numbers stay tab switches while the field is empty and was not asked for
       // with `/`: pressing 2 to peek at the search and then 3 to move on used to
       // end up as the search term "23". A term that begins with a digit goes
-      // through `/` -- the explicit "I want to type" gesture. The range is the
-      // one tabForNumber knows and the hint promises: `9` is the settings tab,
-      // and it was typed into the field here instead of opening it.
+      // through `/` -- the explicit "I want to type" gesture. What counts as a
+      // tab number is not spelled out here but asked of the table: `9` is the
+      // settings tab, and it was typed into the field here instead of opening it.
       if (!root.promptExplicit && root.promptText === "" && text.length === 1
-          && text >= "1" && text <= "9") {
+          && root.tabForNumber(text) !== "") {
         root.closePrompt()
         root.setTab(root.tabForNumber(text))
         event.accepted = true
@@ -1782,15 +1811,18 @@ Panel {
       return
     }
     if (key === Qt.Key_Tab) { root.cycleTab(shift ? -1 : 1); event.accepted = true; return }
-    if (text === "1" || key === Qt.Key_1) { root.setTab("queue"); event.accepted = true; return }
-    if (text === "2" || key === Qt.Key_2) { root.setTab("search"); event.accepted = true; return }
-    if (text === "3" || key === Qt.Key_3) { root.setTab("albums"); event.accepted = true; return }
-    if (text === "4" || key === Qt.Key_4) { root.setTab("artists"); event.accepted = true; return }
-    if (text === "5" || key === Qt.Key_5) { root.setTab("genres"); event.accepted = true; return }
-    if (text === "6" || key === Qt.Key_6) { root.setTab("files"); event.accepted = true; return }
-    if (text === "7" || key === Qt.Key_7) { root.setTab("playlists"); event.accepted = true; return }
-    if (text === "8" || key === Qt.Key_8) { root.setTab("radio"); event.accepted = true; return }
-    if (text === "9" || key === Qt.Key_9) { root.setTab("settings"); event.accepted = true; return }
+    // The digits reach a tab through the same table the chips are drawn from, so
+    // a tab cannot be reachable by mouse and not by key. Both spellings count: the
+    // character (a top row digit) and the key code (the numeric keypad), and the
+    // table decides how far the range goes instead of a `9` written out here.
+    var tabDigit = (text.length === 1 ? Number(text) : 0)
+    if (!(tabDigit >= 1 && tabDigit <= root.tabOrder.length) && key >= Qt.Key_1
+        && key <= Qt.Key_1 + root.tabOrder.length - 1)
+      tabDigit = key - Qt.Key_1 + 1
+    if (tabDigit >= 1 && tabDigit <= root.tabOrder.length) {
+      var tabKey = root.tabForNumber(String(tabDigit))
+      if (tabKey !== "") { root.setTab(tabKey); event.accepted = true; return }
+    }
 
     // Settings tab: -/+ step a number, space flips a switch. Before the global
     // volume/play bindings, which own those keys everywhere else.
@@ -1932,11 +1964,12 @@ Panel {
     // Every tab the digits reach, in the same order -- radio and settings included.
     // A ring of seven sent `tab` from radio straight back to the queue (`indexOf`
     // found nothing, so -1 + 1 became 0) and made the README's `1`…`9`, `tab` cell
-    // a lie.
-    var order = ["queue", "search", "albums", "artists", "genres", "files", "playlists",
-                 "radio", "settings"]
-    var at = order.indexOf(root.tab)
-    root.setTab(order[(at + delta + order.length) % order.length])
+    // a lie. The ring reads the same table as the digits and the chips do, so the
+    // two encodings of the order cannot drift apart again.
+    var keys = []
+    for (var i = 0; i < root.tabOrder.length; i++) keys.push(String(root.tabOrder[i].key))
+    var at = keys.indexOf(root.tab)
+    root.setTab(keys[(at + delta + keys.length) % keys.length])
   }
 
   // The band shows what is playing; the header thumbnail what is selected.
@@ -2042,21 +2075,19 @@ Panel {
           anchors { right: parent.right; verticalCenter: parent.verticalCenter }
           spacing: Style.space(8)
 
+          // The chips carry the tab names, not the digits: a row of nine bare
+          // numbers says nothing about what any of them opens. The nine digits
+          // still switch tabs -- that is what the table above is for -- and the
+          // chip says which one it is while the pointer rests on it, because the
+          // footer's key hints have no room for another entry.
           Repeater {
-            model: [
-              { key: "queue", label: "1" },
-              { key: "search", label: "2" },
-              { key: "albums", label: "3" },
-              { key: "artists", label: "4" },
-              { key: "genres", label: "5" },
-              { key: "files", label: "6" },
-              { key: "playlists", label: "7" },
-              { key: "radio", label: "8" },
-              { key: "settings", label: "9" }
-            ]
+            model: root.tabOrder
 
             delegate: Item {
               required property var modelData
+              required property int index
+              readonly property string chipKey: modelData.key
+              readonly property string chipHint: modelData.label + " — key " + (index + 1)
               implicitWidth: chipText.implicitWidth + Style.space(16)
               implicitHeight: Style.space(24)
 
@@ -2080,7 +2111,13 @@ Panel {
               MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.setTab(modelData.key)
+                hoverEnabled: true
+                onClicked: root.setTab(chipKey)
+                // The glyph buttons in the band do the same: the footer explains
+                // what the pointer is on. Cleared only while the hint is still
+                // this chip's, so moving on to a band button cannot wipe its text.
+                onEntered: root.hoverHint = chipHint
+                onExited: if (root.hoverHint === chipHint) root.hoverHint = ""
               }
             }
           }
