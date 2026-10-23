@@ -717,11 +717,25 @@ Panel {
           id: labelBox
           visible: root.vertical ? root.label !== "" : true
           clip: true
-          implicitWidth: root.label === "" ? 0 : Math.min(labelText.implicitWidth, root.maxWidth)
+          // The natural width is measured by TextMetrics, never read off
+          // labelText.implicitWidth: that number is what this box feeds back into,
+          // and `labelText.width` reads the box in turn, so with `elide` set the two
+          // chased each other around a cycle (box <- text <- box). Live symptom
+          // before this: the strip painted the spectrum with no text at all, once
+          // an elided "So…" about 28 px wide, while `state` reported boxW 240,
+          // textW 467 and trunc false -- and a plugin reload healed it. Now the
+          // natural width has one source and the text's own width no longer feeds
+          // back into it.
+          implicitWidth: root.label === "" ? 0 : Math.min(labelMetrics.advanceWidth, root.maxWidth)
           implicitHeight: root.barSize
-          // Against the *reserved* width, not the current one: the text's own width
-          // changes with the marquee, and asking it about itself would be a loop.
-          readonly property bool overflowing: labelText.implicitWidth > implicitWidth
+          // Against the natural width, not against the text's current one.
+          readonly property bool overflowing: labelMetrics.advanceWidth > implicitWidth
+
+          TextMetrics {
+            id: labelMetrics
+            font: labelText.font
+            text: root.label
+          }
 
           Text {
             id: labelText
@@ -734,9 +748,17 @@ Panel {
             font.pixelSize: Style.font.body
             // While the marquee runs the text must keep its natural width (it walks through
             // the clipped box); as soon as it stands still it is bound to the box, so a long
-            // title ends in an ellipsis instead of being cut mid-word.
-            width: labelBox.scrolling ? implicitWidth : labelBox.width
+            // title ends in an ellipsis instead of being cut mid-word. The natural width
+            // comes from `labelMetrics`: `implicitWidth` here would depend on this width.
+            width: labelBox.scrolling ? labelMetrics.advanceWidth : labelBox.width
             elide: (root.overflow === "elide" || !labelBox.scrolling) ? Text.ElideRight : Text.ElideNone
+            // A new title starts at the beginning. Without this the marquee keeps an
+            // offset that belongs to the previous title, and a shorter one can sit
+            // entirely left of the box until the cycle happens to walk back to 0.
+            onTextChanged: {
+              x = 0
+              if (labelBox.scrolling) marquee.restart()
+            }
           }
 
           // Only while something really plays. A title that keeps walking while the
@@ -746,14 +768,15 @@ Panel {
             && width > 0 && root.isPlaying
 
           SequentialAnimation {
+            id: marquee
             running: labelBox.scrolling
             loops: Animation.Infinite
             PauseAnimation { duration: 2000 }
             NumberAnimation {
               target: labelText
               property: "x"
-              to: -(labelText.implicitWidth - labelBox.width)
-              duration: Math.max(600, (labelText.implicitWidth - labelBox.width) * 24)
+              to: -(labelMetrics.advanceWidth - labelBox.width)
+              duration: Math.max(600, (labelMetrics.advanceWidth - labelBox.width) * 24)
             }
             PauseAnimation { duration: 1400 }
             NumberAnimation { target: labelText; property: "x"; to: 0; duration: 240 }
@@ -1302,7 +1325,7 @@ Panel {
           // number, not a screenshot. `boxW` is the label box, `textW` the text,
           // `contentRight` the right edge of the row.
           boxW: Math.round(labelBox.width),
-          textW: Math.round(labelText.implicitWidth),
+          textW: Math.round(labelMetrics.advanceWidth),
           contentRight: Math.round(info.x + info.width),
           // and content -> the strip's right edge, which is now the only edge there
           // is: the reserve no longer decides any width.

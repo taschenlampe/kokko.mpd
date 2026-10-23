@@ -680,6 +680,84 @@ function caseIndicatorWidth() {
      "expected: never the hidden glyph's width -- that was 83 px of nothing in the row"])
 }
 
+// --- 16: the label box's width has exactly one source -----------------------
+// The box was sized from `labelText.implicitWidth` while the text's own width
+// read the box back (`width: labelBox.scrolling ? implicitWidth : labelBox.width`),
+// and with `elide` set the two numbers chased each other around a cycle. Live
+// symptom on the running desktop: the strip painted the spectrum with no text at
+// all -- once an elided "So…" about 28 px wide -- while `state` reported boxW 240,
+// textW 467 and trunc false; a plugin reload healed it until the next time. The
+// natural width now comes from a TextMetrics fed by the label alone, so neither
+// the box nor the text reads the other's width for it. Run with a deliberately
+// small `labelText.implicitWidth` too: the box must not care what the text claims.
+function caseLabelWidthSource() {
+  const lines = src.split("\n")
+  const findId = (id) => lines.findIndex((l) => new RegExp("^\\s*id: " + id + "\\s*$").test(l))
+  // The rule is the first `key:` line after the id; a rule may run over several
+  // lines, so every following line indented deeper than the property belongs to it.
+  function ruleAfter(id, key) {
+    const at = findId(id)
+    if (at < 0) return null
+    for (let i = at; i < lines.length && i < at + 30; i++) {
+      const m = new RegExp("^(\\s*)" + key + ": (.*)$").exec(lines[i])
+      if (!m) continue
+      const indent = m[1].length
+      const parts = [m[2]]
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim() === "" || lines[j].match(/^\s*/)[0].length <= indent) break
+        parts.push(lines[j].trim())
+      }
+      return parts.join(" ")
+    }
+    return null
+  }
+  const boxRule = ruleAfter("labelBox", "implicitWidth")
+  const textRule = ruleAfter("labelText", "width")
+  const metricsAt = src.indexOf("TextMetrics {")
+  const marqueeAt = src.indexOf("id: marquee")
+
+  let boxLong = null, boxShort = null, boxWithLyingText = null, evalError = ""
+  try {
+    const evalBox = Function("root", "labelMetrics", "labelText",
+      "return (" + boxRule + ")")
+    boxLong = evalBox({ label: "a title", maxWidth: 240 }, { advanceWidth: 460 }, { implicitWidth: 460 })
+    boxShort = evalBox({ label: "a title", maxWidth: 240 }, { advanceWidth: 150 }, { implicitWidth: 150 })
+    // The poison: what the text claims about itself must not reach the box.
+    boxWithLyingText = evalBox({ label: "a title", maxWidth: 240 }, { advanceWidth: 460 }, { implicitWidth: 28 })
+  } catch (e) {
+    evalError = String(e.message || e)
+  }
+
+  const usesMetrics = /labelMetrics\.advanceWidth/.test(String(boxRule))
+  const noSelfReference = !/labelText\.implicitWidth/.test(String(boxRule))
+  const textUsesMetrics = /labelMetrics\.advanceWidth/.test(String(textRule))
+  const metricsFedByLabel = metricsAt >= 0
+    && /font:\s*labelText\.font/.test(src.slice(metricsAt, metricsAt + 160))
+    && /text:\s*root\.label/.test(src.slice(metricsAt, metricsAt + 160))
+  const marqueeUsesMetrics = marqueeAt >= 0
+    && /to:\s*-\(labelMetrics\.advanceWidth - labelBox\.width\)/.test(src.slice(marqueeAt, marqueeAt + 400))
+  const restartsOnText = /onTextChanged:/.test(src.slice(
+    Math.max(0, src.indexOf("id: labelText")), src.indexOf("id: labelText") + 1600))
+
+  report("16", "the label box's width has exactly one source",
+    usesMetrics && noSelfReference && textUsesMetrics && metricsFedByLabel
+      && marqueeUsesMetrics && restartsOnText
+      && boxLong === 240 && boxShort === 150 && boxWithLyingText === 240,
+    ["box rule                          : " + boxRule,
+     "  long title, maxWidth 240        : " + boxLong + " px (want 240)",
+     "  short title                     : " + boxShort + " px (want 150)",
+     "  text claiming 28 px about itself: " + boxWithLyingText + " px (want 240)",
+     "  reads labelMetrics.advanceWidth : " + usesMetrics,
+     "  still reads labelText.implicitWidth: " + !noSelfReference,
+     "text width rule                   : " + textRule,
+     "TextMetrics fed by font + root.label: " + metricsFedByLabel,
+     "marquee target distance from metrics: " + marqueeUsesMetrics,
+     "a new title restarts the marquee  : " + restartsOnText,
+     "expected: the natural width measured once from the label, never round-tripped",
+     "through the text's own width -- that cycle is what made the title disappear"
+    ].concat(evalError ? ["eval error: " + evalError] : []))
+}
+
   caseArtCache()
   caseOsdTimers()
   caseStripReserve()
@@ -688,8 +766,9 @@ function caseIndicatorWidth() {
   caseStreamLogo()
   caseStripAlignment()
   caseIndicatorWidth()
+  caseLabelWidthSource()
 
   console.log(failures === 0
     ? "all state checks passed"
-    : failures + " of 8 state checks failed")
+    : failures + " of 9 state checks failed")
 process.exit(failures === 0 ? 0 : 1)
