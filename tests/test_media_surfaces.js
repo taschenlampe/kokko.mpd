@@ -609,83 +609,101 @@ function caseAlbumRepeatsTitle() {
     ])
 }
 
-// --- 7: the transport glyphs answer the pointer -----------------------------
-// The band and the hover card mark prev/next the same way: the MouseArea under
-// the glyph listens for the pointer (`hoverEnabled`) and the glyph's colour
-// hangs on that area's own `containsMouse` -- a fixed colour would leave the
-// pointer unanswered. In the band the hover also carries the footer hint that
-// names the click. The pieces come from the id (the glyph's one stable name) and
-// from the binding that reads it, and the binding is *run* in both hover states:
-// the unfixed source -- no id, a fixed colour, no hint -- fails on the value,
-// not merely on a property name.
+// --- 7: the transport buttons answer the pointer on both surfaces -----------
+// The flat controls of the band and of the hover card used to be bare Text
+// items whose only pointer answer was a colour swap to the accent -- and on both
+// surfaces that is easy to miss, because the accent and the popup foreground sit
+// close together in the dark themes: side by side on the running desktop the two
+// states differ by a few percent of hue, and the pointer was the only real
+// feedback. The answer now lives in TransportButton.qml: a plate in the accent
+// under the glyph (16 %, 22 % while pressed), faded in over 120 ms, as big as
+// the button rather than as big as the glyph, so the aim point grew with it.
+// Both surfaces build every flat control from it, and the band keeps naming the
+// click in its footer hint. The pieces are read from the component and *run* in
+// both pointer states -- a source without it (a fixed colour, no plate) fails on
+// the value, not merely on a property name.
 function caseTransportHover() {
+  const buttonFile = path.join(root, "TransportButton.qml")
+  let component = ""
+  try { component = fs.readFileSync(buttonFile, "utf8") } catch (e) { component = "" }
+
   const surfaces = [
     { label: "BandChrome.qml", text: src.band, hint: true },
     { label: "MiniPlayer.qml", text: src.mini, hint: false }
   ]
-  const glyphs = [
-    { id: "prevArea", target: "Previous track" },
-    { id: "nextArea", target: "Next track" }
+  const targets = [
+    { call: "previousTrack", hint: "Previous track" },
+    { call: "nextTrack", hint: "Next track" }
   ]
-  const names = ["prevArea", "nextArea", "band", "mini", "Color", "Style"]
   const lines = []
-  let ok = true
+  let ok = component !== ""
+
+  // Every `TransportButton { ... }` block of a surface, braces matched.
+  function buttonBlocks(text) {
+    const out = []
+    const re = /TransportButton\s*\{/g
+    let m
+    while ((m = re.exec(text)) !== null) {
+      const open = text.indexOf("{", m.index)
+      out.push(mkPiece(text, open, matchBraces(text, open) + 1, "transportButton"))
+    }
+    return out
+  }
+
+  // The component's own answer: the plate under the glyph, and a glyph colour
+  // that moves between the two pointer states.
+  const plateOpacity = exprAt(component, /\n\s*opacity:(?=\s*button\.hot)/, "plateOpacity")
+  const plateColor = exprAt(component, /\n\s*color:(?=\s*Util\.alpha\(button\.activeColor)/, "plateColor")
+  const glyphColor = exprAt(component, /\n\s*color:(?=\s*!button\.enabled)/, "glyphColor")
+  const hoverOn = /hoverEnabled\s*:\s*true/.test(component)
+
+  function evalWith(piece, hot, enabled, on) {
+    const button = { hot: hot, enabled: enabled, on: on, glyphColor: "fg", activeColor: "accent" }
+    const Qt = { darker: function (c) { return c + "-dim" } }
+    return evalPiece(piece, "expr", ["button", "Qt"], [button, Qt], piece ? piece.what : "absent")
+  }
+  const opOff = evalWith(plateOpacity, false, true, false)
+  const opOn = evalWith(plateOpacity, true, true, false)
+  const colOff = evalWith(glyphColor, false, true, false)
+  const colOn = evalWith(glyphColor, true, true, false)
+  const moves = function (off, on) {
+    return !/^</.test(String(off)) && !/^</.test(String(on)) && String(off) !== String(on)
+  }
+  const plateAnswers = !!plateOpacity && !!plateColor && moves(opOff, opOn)
+  const glyphAnswers = !!glyphColor && moves(colOff, colOn)
+
+  lines.push("TransportButton.qml:")
+  lines.push("    plate opacity " + (plateOpacity ? "line " + plateOpacity.first
+    + " sha256:" + plateOpacity.hash + "  " + JSON.stringify(plateOpacity.body.trim())
+    : "absent") + "   off/on -> " + JSON.stringify(opOff) + " / " + JSON.stringify(opOn))
+  lines.push("    plate colour  " + (plateColor ? "line " + plateColor.first
+    + " sha256:" + plateColor.hash + "  " + JSON.stringify(plateColor.body.trim())
+    : "absent"))
+  lines.push("    glyph colour  " + (glyphColor ? "line " + glyphColor.first
+    + " sha256:" + glyphColor.hash + "  " + JSON.stringify(glyphColor.body.trim())
+    : "absent") + "   off/on -> " + JSON.stringify(colOff) + " / " + JSON.stringify(colOn))
+  lines.push("    hoverEnabled: " + hoverOn)
 
   for (const s of surfaces) {
-    for (const g of glyphs) {
-      const area = blockAtId(s.text, g.id, g.id)
-      const tint = exprAt(s.text,
-        new RegExp("(?:color|opacity):(?=\\s*" + g.id + "\\s*\\.\\s*containsMouse)"),
-        g.id + ".tint")
-
-      const hoverOn = !!area && /hoverEnabled\s*:\s*true/.test(area.body)
-      const readsMouse = !!tint
-        && new RegExp("\\b" + g.id + "\\s*\\.\\s*containsMouse\\b").test(tint.body)
-
-      // Run the colour binding with the pointer off and on: a value that does
-      // not move between the two is a fixed colour wearing the id's name.
-      const band = { accent: "accent", fg: "fg", dim: "dim" }
-      const mini = { fg: "fg", dim: "dim" }
-      const Color = { accent: "accent" }
-      const Style = { font: { subtitle: 1, title: 1 } }
-      const vals = function (on) {
-        return [{ containsMouse: on }, { containsMouse: on }, band, mini, Color, Style]
-      }
-      const offVal = tint ? evalPiece(tint, "expr", names, vals(false), g.id) : "<absent>"
-      const onVal = tint ? evalPiece(tint, "expr", names, vals(true), g.id) : "<absent>"
-      const varied = !!tint && !/^</.test(String(offVal)) && !/^</.test(String(onVal))
-        && offVal !== onVal
-
-      // The band's hover names the click in the footer, like the clear/keep pair.
-      let hintTarget = null
-      if (s.hint && area) {
-        const m = /onEntered\s*:\s*band\.hint\s*\(\s*"([^"]*)"\s*\)/.exec(area.body)
-        hintTarget = m ? m[1] : null
-      }
-      const namesTarget = !s.hint
-        || (hintTarget !== null && hintTarget.indexOf(g.target) >= 0)
-
-      if (!(hoverOn && readsMouse && varied && namesTarget)) ok = false
-
-      lines.push(s.label + " " + g.id + ":")
-      lines.push("    MouseArea " + (area ? "lines " + area.first + "-" + area.last
-        + " sha256:" + area.hash : "absent")
-        + "   hoverEnabled: " + hoverOn)
-      lines.push("    tint      " + (tint ? "lines " + tint.first + "-" + tint.last
-        + " sha256:" + tint.hash + "  " + JSON.stringify(tint.body)
-        : "absent (a fixed colour names no id)")
-        + "   containsMouse: " + readsMouse
-        + ", off/on -> " + JSON.stringify(offVal) + " / " + JSON.stringify(onVal))
-      if (s.hint) {
-        lines.push("    hint      onEntered: " + (hintTarget === null ? "not found"
-          : JSON.stringify(hintTarget)) + "   names \"" + g.target + "\": " + namesTarget)
-      }
+    const blocks = buttonBlocks(s.text)
+    lines.push("    " + s.label + ": " + blocks.length + " TransportButton(s)")
+    for (const t of targets) {
+      const hit = blocks.find(function (b) { return new RegExp("\\b" + t.call + "\\s*\\(").test(b.body) })
+      const hint = hit && /onEntered\s*:\s*band\.hint\s*\(\s*"([^"]*)"\s*\)/.exec(hit.body)
+      const namesTarget = !s.hint || (!!hint && hint[1].indexOf(t.hint) >= 0)
+      if (!hit || !namesTarget) ok = false
+      lines.push("        " + t.call + ": " + (hit ? "lines " + hit.first + "-" + hit.last
+        + " sha256:" + hit.hash : "absent")
+        + (s.hint ? "   hint: " + JSON.stringify(hint ? hint[1] : null) : ""))
     }
   }
-  lines.push("expected: on both surfaces prevArea/nextArea carry hoverEnabled and a colour"
-    + " that reads its own containsMouse and moves between the two states; the band's"
-    + " hover names \"Previous track\" / \"Next track\" in the footer hint")
-  report("7", "the prev/next glyphs answer the pointer on both surfaces", ok, lines)
+
+  if (!plateAnswers || !glyphAnswers || !hoverOn) ok = false
+  lines.push("expected: a plate in the accent under the glyph whose opacity follows the")
+  lines.push("pointer (0 / 1) and a glyph colour that moves between the two states; both")
+  lines.push("surfaces build prev/next from that component, and the band names the click")
+  lines.push("in its footer hint")
+  report("7", "the transport buttons answer the pointer on both surfaces", ok, lines)
 }
 
 // --- 8: the hover card keeps its own pointer, not the click area's ----------

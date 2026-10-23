@@ -417,31 +417,30 @@ Item {
   Row {
     id: buttons
     anchors { right: parent.right; rightMargin: Style.space(10); verticalCenter: parent.verticalCenter }
-    spacing: Style.space(16)
+    // The plates under the glyphs are the pointer feedback (TransportButton):
+    // the accent alone, with no background, was too close to the foreground to
+    // read as a highlight on this surface -- measured on the running band, the
+    // two states differed by a few percent of hue and the pointer was the only
+    // real feedback. 30 px buttons with 6 px between them keep the row about as
+    // wide as the 16 px spacing of the 14 px glyphs it replaces.
+    spacing: Style.space(6)
     // Explicit height: the children say `height: parent.height`, and a Row whose
     // height comes from its children would resolve that to 0 -- which is exactly
     // how these buttons disappeared once.
     height: Style.space(30)
 
-    // The glyph brightens while the pointer is on it -- the same feedback the
-    // clear/keep pair at the right end of this row already gives -- and the footer
-    // hint names what the click does, like theirs does.
-    Text {
-      text: "󰒮"
-      color: prevArea.containsMouse ? band.accent : band.fg
-      font.family: band.fontFamily
-      font.pixelSize: Style.font.subtitle
+    // The footer hint names what the click does, like the clear/keep pair does;
+    // the plate under the glyph says where the pointer is.
+    TransportButton {
+      glyph: "󰒮"
       height: parent.height
-      verticalAlignment: Text.AlignVCenter
-      MouseArea {
-        id: prevArea
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onEntered: band.hint("Previous track (<)")
-        onExited: band.hint("")
-        onClicked: if (band.host) band.host.previousTrack()
-      }
+      glyphSize: Style.font.subtitle
+      fontFamily: band.fontFamily
+      glyphColor: band.fg
+      activeColor: band.accent
+      onEntered: band.hint("Previous track (<)")
+      onExited: band.hint("")
+      onClicked: if (band.host) band.host.previousTrack()
     }
 
     // Play/pause keeps the one filled shape in this row (26 px inside the
@@ -449,136 +448,102 @@ Item {
     // accent and says which of the two the click does, and it is the same
     // component the hover card and the desktop card use.
     PlayButton {
-            glyphColor: Color.popups.background
-anchors.verticalCenter: parent.verticalCenter
+      glyphColor: Color.popups.background
+      anchors.verticalCenter: parent.verticalCenter
       size: Style.space(26)
       host: band.host
       accentColor: band.accent
       fontFamily: band.fontFamily
     }
 
-    // The glyph brightens while the pointer is on it -- the same feedback the
-    // clear/keep pair at the right end of this row already gives -- and the footer
-    // hint names what the click does, like theirs does.
-    Text {
-      text: "󰒭"
-      color: nextArea.containsMouse ? band.accent : band.fg
-      font.family: band.fontFamily
-      font.pixelSize: Style.font.subtitle
+    // The footer hint names what the click does, like the clear/keep pair does;
+    // the plate under the glyph says where the pointer is.
+    TransportButton {
+      glyph: "󰒭"
       height: parent.height
-      verticalAlignment: Text.AlignVCenter
-      MouseArea {
-        id: nextArea
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onEntered: band.hint("Next track (>)")
-        onExited: band.hint("")
-        onClicked: if (band.host) band.host.nextTrack()
-      }
+      glyphSize: Style.font.subtitle
+      fontFamily: band.fontFamily
+      glyphColor: band.fg
+      activeColor: band.accent
+      onEntered: band.hint("Next track (>)")
+      onExited: band.hint("")
+      onClicked: if (band.host) band.host.nextTrack()
     }
 
     // The same two playback options the hover card offers, in the same colours:
-    // accent while on, dim while off. Not on the thin line: a line built to be thin
-    // should not grow a second block of controls to fit them back in -- they are
-    // one tap away in the hover card and the settings tab.
-    Text {
+    // accent while on, dim while off, and now the same plate while the pointer
+    // rests on them. Not on the thin line: a line built to be thin should not
+    // grow a second block of controls to fit them back in -- they are one tap
+    // away in the hover card and the settings tab.
+    TransportButton {
       visible: !band.oneLine
-      text: band.host && band.host.randomOn ? "󰒝" : "󰒞"
-      color: band.host && band.host.randomOn ? band.accent : band.dim
-      font.family: band.fontFamily
-      font.pixelSize: Style.font.subtitle
+      glyph: band.host && band.host.randomOn ? "󰒝" : "󰒞"
+      on: band.host && band.host.randomOn
       height: parent.height
-      verticalAlignment: Text.AlignVCenter
-      MouseArea {
-        anchors.fill: parent
-        cursorShape: Qt.PointingHandCursor
-        onClicked: {
-          if (!band.host) return
-          var on = !band.host.randomOn
-          band.host.toggleOption("random")
-          band.message(on ? "Shuffle on" : "Shuffle off")
-        }
+      glyphSize: Style.font.subtitle
+      fontFamily: band.fontFamily
+      glyphColor: band.dim
+      activeColor: band.accent
+      onClicked: {
+        if (!band.host) return
+        var on = !band.host.randomOn
+        band.host.toggleOption("random")
+        band.message(on ? "Shuffle on" : "Shuffle off")
       }
     }
 
-    Text {
+    TransportButton {
       visible: !band.oneLine
-      text: band.host && band.host.repeatOn
+      glyph: band.host && band.host.repeatOn
         ? (band.host.singleMode !== "0" ? "󰑘" : "󰑖") : "󰑗"
-      color: band.host && band.host.repeatOn ? band.accent : band.dim
-      font.family: band.fontFamily
-      font.pixelSize: Style.font.subtitle
+      on: band.host && band.host.repeatOn
       height: parent.height
-      verticalAlignment: Text.AlignVCenter
-      MouseArea {
-        anchors.fill: parent
-        cursorShape: Qt.PointingHandCursor
-        onClicked: {
-          if (!band.host) return
-          var on = !band.host.repeatOn
-          band.host.toggleOption("repeat")
-          band.message(on ? "Repeat on" : "Repeat off")
-        }
+      glyphSize: Style.font.subtitle
+      fontFamily: band.fontFamily
+      glyphColor: band.dim
+      activeColor: band.accent
+      onClicked: {
+        if (!band.host) return
+        var on = !band.host.repeatOn
+        band.host.toggleOption("repeat")
+        band.message(on ? "Repeat on" : "Repeat off")
       }
     }
 
     // Queue: icons instead of the words -- two glyphs that are distinct from the
     // per-row bin, with the full wording in the footer while the pointer rests on
     // them.
-    Item {
+    TransportButton {
       visible: !band.oneLine
-      width: Style.space(26)
+      glyph: "󰗩"                     // delete_sweep: everything out
       height: parent.height
-
-      Text {
-        anchors.centerIn: parent
-        text: "󰗩"                     // delete_sweep: everything out
-        color: clearArea.containsMouse ? band.accent : band.dim
-        font.family: band.fontFamily
-        font.pixelSize: Style.font.subtitle
-      }
-
-      MouseArea {
-        id: clearArea
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onEntered: band.hint("Clear the queue — remove every track (D)")
-        onExited: band.hint("")
-        onClicked: {
-          if (!band.host) return
-          band.host.clearQueue()
-          band.message("Queue cleared")
-        }
+      glyphSize: Style.font.subtitle
+      fontFamily: band.fontFamily
+      glyphColor: band.dim
+      activeColor: band.accent
+      onEntered: band.hint("Clear the queue — remove every track (D)")
+      onExited: band.hint("")
+      onClicked: {
+        if (!band.host) return
+        band.host.clearQueue()
+        band.message("Queue cleared")
       }
     }
 
-    Item {
+    TransportButton {
       visible: !band.oneLine
-      width: Style.space(26)
+      glyph: "󰆐"                     // content_cut: cut the rest away
       height: parent.height
-
-      Text {
-        anchors.centerIn: parent
-        text: "󰆐"                     // content_cut: cut the rest away
-        color: keepArea.containsMouse ? band.accent : band.dim
-        font.family: band.fontFamily
-        font.pixelSize: Style.font.subtitle
-      }
-
-      MouseArea {
-        id: keepArea
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onEntered: band.hint("Keep only the playing track — drop the rest (C)")
-        onExited: band.hint("")
-        onClicked: {
-          if (!band.host) return
-          band.host.cropQueue()
-          band.message("everything except the playing track removed")
-        }
+      glyphSize: Style.font.subtitle
+      fontFamily: band.fontFamily
+      glyphColor: band.dim
+      activeColor: band.accent
+      onEntered: band.hint("Keep only the playing track — drop the rest (C)")
+      onExited: band.hint("")
+      onClicked: {
+        if (!band.host) return
+        band.host.cropQueue()
+        band.message("everything except the playing track removed")
       }
     }
   }

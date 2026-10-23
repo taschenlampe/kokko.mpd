@@ -317,26 +317,25 @@ PanelWindow {
       id: controls
       anchors { left: cover.right; leftMargin: Style.space(12)
                 bottom: parent.bottom; bottomMargin: Style.space(12) }
-      spacing: Style.space(24)
-      height: Style.space(34)
+      // 6 px between 26 px buttons: the plates need a box of their own, and this
+      // row shares the card's width with the clock on its right -- 30 px buttons
+      // at 10 px pushed "6:50 / 17:07" out past the card's edge (seen on the
+      // running card). At 26/6 the row ends 20 px inside the frame.
+      spacing: Style.space(6)
+      height: Style.space(30)
 
-      // Hover feedback on the card's own controls: the glyph takes the accent
-      // while the pointer is on it -- the band marks its transport the same way,
-      // so a click reads the same on both surfaces.
-      Text {
-        text: "󰒮"
-        color: prevArea.containsMouse ? Color.accent : mini.fg
-        font.family: mini.fontFamily
-        font.pixelSize: Style.font.title
+      // The plate under the glyph is the pointer feedback (TransportButton) --
+      // the colour swap alone was too close to the foreground to read on the
+      // card, and the band marks its transport the same way now.
+      TransportButton {
+        glyph: "󰒮"
+        size: Style.space(26)
         height: controls.height
-        verticalAlignment: Text.AlignVCenter
-        MouseArea {
-          id: prevArea
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onClicked: if (mini.service) mini.service.previousTrack()
-        }
+        glyphSize: Style.font.title
+        fontFamily: mini.fontFamily
+        glyphColor: mini.fg
+        activeColor: Color.accent
+        onClicked: if (mini.service) mini.service.previousTrack()
       }
 
       // The same filled disc the band and the desktop card show, at 30 px:
@@ -350,60 +349,62 @@ PanelWindow {
         fontFamily: mini.fontFamily
       }
 
-      // Hover feedback on the card's own controls: the glyph takes the accent
-      // while the pointer is on it -- the band marks its transport the same way,
-      // so a click reads the same on both surfaces.
-      Text {
-        text: "󰒭"
-        color: nextArea.containsMouse ? Color.accent : mini.fg
-        font.family: mini.fontFamily
-        font.pixelSize: Style.font.title
+      TransportButton {
+        glyph: "󰒭"
+        size: Style.space(26)
         height: controls.height
-        verticalAlignment: Text.AlignVCenter
-        MouseArea {
-          id: nextArea
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onClicked: if (mini.service) mini.service.nextTrack()
-        }
+        glyphSize: Style.font.title
+        fontFamily: mini.fontFamily
+        glyphColor: mini.fg
+        activeColor: Color.accent
+        onClicked: if (mini.service) mini.service.nextTrack()
       }
 
-      Text {
-        text: mini.service && mini.service.randomOn ? "󰒝" : "󰒞"
-        color: mini.service && mini.service.randomOn ? Color.accent : mini.dim
-        font.family: mini.fontFamily
-        font.pixelSize: Style.font.title
+      TransportButton {
+        glyph: mini.service && mini.service.randomOn ? "󰒝" : "󰒞"
+        on: mini.service && mini.service.randomOn
+        size: Style.space(26)
         height: controls.height
-        verticalAlignment: Text.AlignVCenter
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: if (mini.service) mini.service.toggleOption("random") }
+        glyphSize: Style.font.title
+        fontFamily: mini.fontFamily
+        glyphColor: mini.dim
+        activeColor: Color.accent
+        onClicked: if (mini.service) mini.service.toggleOption("random")
       }
 
-      Text {
-        text: mini.service && mini.service.repeatOn
+      TransportButton {
+        glyph: mini.service && mini.service.repeatOn
           ? (mini.service.singleMode !== "0" ? "󰑘" : "󰑖") : "󰑗"
-        color: mini.service && mini.service.repeatOn ? Color.accent : mini.dim
-        font.family: mini.fontFamily
-        font.pixelSize: Style.font.title
+        on: mini.service && mini.service.repeatOn
+        size: Style.space(26)
         height: controls.height
-        verticalAlignment: Text.AlignVCenter
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                    onClicked: if (mini.service) mini.service.toggleOption("repeat") }
+        glyphSize: Style.font.title
+        fontFamily: mini.fontFamily
+        glyphColor: mini.dim
+        activeColor: Color.accent
+        onClicked: if (mini.service) mini.service.toggleOption("repeat")
       }
 
-      Text {
-        // A stream has no clock: `0:37 / --:--` says nothing about a live stream,
-        // so the readout is left out rather than shown half empty -- and the same
-        // goes while the daemon is wedged, where the number stopped moving.
-        visible: !mini.streaming && !mini.stale
-        text: mini.fmt(mini.playPos) + " / " + (mini.durNow > 0 ? mini.fmt(mini.durNow) : "--:--")
-        color: mini.dim
-        font.family: mini.fontFamily
-        font.pixelSize: Style.font.caption
-        height: controls.height
-        verticalAlignment: Text.AlignVCenter
-      }
+    }
+
+    // The clock keeps the progress line's right edge instead of trailing the
+    // buttons: inside the row it was pushed out past the card's frame as soon as
+    // the transport grew its plates (seen on the running card: "6:50 / 17:07" ran
+    // about 20 px over the border). Anchored here it stays flush with the bar
+    // above, whatever the transport does -- and a long duration only grows it to
+    // the left, into the gap the buttons leave.
+    Text {
+      id: clockText
+      // A stream has no clock: `0:37 / --:--` says nothing about a live stream,
+      // so the readout is left out rather than shown half empty -- and the same
+      // goes while the daemon is wedged, where the number stopped moving.
+      visible: !mini.streaming && !mini.stale
+      anchors { right: parent.right; rightMargin: Style.space(10)
+                verticalCenter: controls.verticalCenter }
+      text: mini.fmt(mini.playPos) + " / " + (mini.durNow > 0 ? mini.fmt(mini.durNow) : "--:--")
+      color: mini.dim
+      font.family: mini.fontFamily
+      font.pixelSize: Style.font.caption
     }
 
   }

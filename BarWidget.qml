@@ -1287,6 +1287,11 @@ Panel {
           promptText: panelLoader.item.promptText,
           preview: panelLoader.item.promptMode === "format" ? panelLoader.item.formatPreview : "",
           hint: panelLoader.item.hint,
+          // What the footer is showing *right now*: the pointer's own line while it
+          // rests on a band button or a chip, the list hint otherwise. Published
+          // because it is the one to check when a hover looks dead, and because
+          // this is the state the footer picks between.
+          hoverHint: panelLoader.item.hoverHint,
           flash: panelLoader.item.flashText,
           peek: panelLoader.item.peek(8),
           hintTruncated: panelLoader.item.hintTruncated,

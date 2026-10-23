@@ -50,6 +50,20 @@ Item {
   implicitWidth: size
   implicitHeight: size
 
+  // Hover feedback, because the disc is the one control with no plate of its
+  // own: a soft accent ring behind it, 10 px wider than the disc, so "the
+  // pointer is on play" reads the same way the plates under the flat transport
+  // glyphs do (TransportButton).
+  Rectangle {
+    anchors.centerIn: parent
+    width: play.size + Style.space(10)
+    height: width
+    radius: width / 2
+    color: Util.alpha(play.accentColor, play.pressed ? 0.28 : 0.18)
+    opacity: play.hovered || play.pressed ? 1 : 0
+    Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+  }
+
   Rectangle {
     anchors.fill: parent
     radius: width / 2
@@ -71,8 +85,13 @@ Item {
   // click to itself. Where no such area exists (the desktop card) nothing about
   // this button changes.
   MouseArea {
+    id: area
     anchors.fill: parent
+    hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
     onClicked: if (play.host) play.host.toggleTrack()
   }
+
+  readonly property bool hovered: area.containsMouse
+  readonly property bool pressed: area.pressed && area.containsMouse
 }
