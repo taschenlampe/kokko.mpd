@@ -69,7 +69,10 @@ QUERIES (the "kind" key of `query`):
     lsinfo {path}             one directory of the music tree
     list {tag,filter}         distinct values of a tag, optionally filtered
     find {filter,sort}        songs matching an exact-match filter
-    search {term}             songs matching a substring of any tag
+    search {term}             songs matching a substring of any tag, ranked by
+                              where the term matched (title first)
+    counts {filters}          how many tracks each filter stands for -- what
+                              `a` on a search group appends
     songinfo {file}           every tag MPD holds for one song
     art {uri}                 the cover for one song, cached
     listplaylists             stored playlists
@@ -189,6 +192,37 @@ SONG_FIELDS = (
 
 # The keys that start a new entry in a multi-entry response.
 ENTRY_MARKERS = ("file", "directory", "playlist")
+
+# A search answer carries two tags the browse lists do not: the two that make
+# "why is this in my results?" a question at all. `search any` is every tag there
+# is, and `Label: Southbound` (the Stax imprint) is why sixteen Millie Jackson
+# tracks answer a search for the Thin Lizzy song "Southbound".
+SEARCH_FIELDS = SONG_FIELDS + ("label", "comment")
+
+# Where a hit's match counts, best first. A title match is the song somebody
+# typed; a label or comment match is a coincidence of the pressing, and it once
+# buried the title match under sixteen others. Hits MPD matched on a tag this
+# answer does not carry (a MusicBrainz id, a sort name) are kept and go last:
+# MPD found them, the pane just cannot say why.
+MATCH_RANK = {
+    "title": 0,
+    "artist": 1,
+    "albumartist": 1,
+    "album": 2,
+    "name": 2,
+    "genre": 3,
+    "composer": 3,
+    "performer": 3,
+    "date": 3,
+    "label": 4,
+    "comment": 4,
+}
+UNMATCHED_RANK = 5
+
+# How many filters one `counts` query may ask about. The panel sends one per
+# artist and album group it draws -- thirty each at most -- so this only refuses
+# a request that went wrong, never one that is merely large.
+COUNT_FILTER_LIMIT = 120
 
 # Subsystems worth waking for. `database` and `update` are included so the
 # panel's rescan button shows progress; `message` and `sticker` are not.
@@ -625,6 +659,37 @@ def version_at_least(version: str, major: int, minor: int) -> bool:
         return (int(parts[0]), int(parts[1])) >= (major, minor)
     except (IndexError, ValueError):
         return False
+
+
+def rank_search_hits(rows: list, term: str) -> list:
+    """Sort a search answer by where the term matched, and say where that was.
+
+    A search is `(any contains 'term')`, and "any" is every tag there is -- which
+    is the whole answer to "why is this in my results?". Measured on this library:
+    "southbound" (a Thin Lizzy song) returned seventeen hits, sixteen of them
+    Millie Jackson tracks whose records carry `Label: Southbound`, the Stax
+    imprint. MPD answered in library order, so the one title match sat on the
+    last row of twenty-seven, under every coincidence of a pressing.
+
+    Each row leaves with two added fields: `match`, the tag that made it a hit
+    ("" when it matched a tag this answer does not carry), and `rank`, where that
+    tag stands in MATCH_RANK. The pane draws the tag on rows whose match is not
+    already visible there. The sort is stable, so hits of equal strength keep
+    MPD's order.
+    """
+    needle = str(term).casefold()
+    for row in rows:
+        best = ""
+        if needle:
+            for tag, place in MATCH_RANK.items():
+                if needle not in str(row.get(tag) or "").casefold():
+                    continue
+                if best == "" or place < MATCH_RANK[best]:
+                    best = tag
+        row["match"] = best
+        row["rank"] = MATCH_RANK.get(best, UNMATCHED_RANK)
+    rows.sort(key=lambda r: r["rank"])
+    return rows
 
 
 # ------------------------------------------------------------------- album art
@@ -2097,6 +2162,52 @@ class Bridge:
         body = http_get(radio_url(search, country, tag, limit), RADIO_TIMEOUT)
         return radio_stations(body, limit)
 
+    def count_filters(self, conn: CommandConn, request: dict) -> list:
+        """How many tracks each filter stands for.
+
+        The search pane draws an artist or an album as one row and appends the
+        whole thing with `a`, so the number beside that row has to be the size of
+        the append. It used to be the number of hits that put the row there: a
+        search for "southbound" showed "Thin Lizzy 1 tracks" and appended all
+        137. `count` takes the same filter `findadd` will take, so the number and
+        the append cannot describe different things.
+
+        One command per filter, and the pane asks only about the rows it draws --
+        thirty artists and thirty albums at most. A filter MPD refuses (an old
+        server, a value the filter parser dislikes) answers null rather than
+        failing the whole request: the pane then keeps its own hit number instead
+        of showing a wrong one.
+        """
+        filters = request.get("filters") or []
+        if not isinstance(filters, list):
+            return []
+        out = []
+        for item in filters[:COUNT_FILTER_LIMIT]:
+            if not isinstance(item, dict):
+                out.append(None)
+                continue
+            tag = str(item.get("tag") or "").strip()
+            value = str(item.get("value") or "")
+            if tag == "" or value == "":
+                out.append(None)
+                continue
+            try:
+                pairs = conn.command("count", tag, value)[0]
+            except MPDCommandError:
+                # The server understood the command and refused this filter; the
+                # connection is fine and the other counts are worth having.
+                out.append(None)
+                continue
+            songs = None
+            for key, count in pairs:
+                if key.lower() == "songs":
+                    try:
+                        songs = int(count)
+                    except ValueError:
+                        songs = None
+            out.append(songs)
+        return out
+
     def filter_args(self, conn: CommandConn, filters) -> list:
         """The tail of a find/list/search command for a set of tag conditions.
 
@@ -2209,8 +2320,17 @@ class Bridge:
                 args = ["(any contains '%s')" % quote_filter_value(term)]
             else:
                 args = ["any", term]
-            return split_entries(conn.command("search", *args)[0],
-                                 markers=("file",), fields=SONG_FIELDS, limit=limit)
+            # Ranked, not as MPD hands them over: the server answers in library
+            # order, which is no order a person recognises, and the one hit that
+            # matched on the title can be the last of twenty-seven (see
+            # rank_search_hits).
+            return rank_search_hits(
+                split_entries(conn.command("search", *args)[0],
+                              markers=("file",), fields=SEARCH_FIELDS, limit=limit),
+                term)
+
+        if kind == "counts":
+            return self.count_filters(conn, request)
 
         if kind == "songinfo":
             # One song, every tag it has. The browsing queries whitelist fields

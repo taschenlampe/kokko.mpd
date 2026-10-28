@@ -27,6 +27,33 @@ playlist names are not tags); there the field filters the loaded list on the spo
 the info line says "4 of 19", and `esc` shows everything again. On MPD 0.20 (NAS)
 that becomes an exact match instead of a partial one.
 
+**The global search** (tab 2) asks MPD `search "(any contains 'term')"` — that is
+every tag there is, in library order. Both halves of that answer have surprised
+somebody: searching for the Thin Lizzy song *Southbound* returned seventeen hits,
+sixteen of them Millie Jackson tracks whose records carry `Label: Southbound`
+(the Stax imprint), and MPD's order put the one title match on the last of the
+twenty-seven rows the panel draws. So the bridge ranks the hits by *where* the
+term matched (`rank_search_hits`): `title`, then `artist`/`albumartist`, then
+`album`/`name`, then `genre`/`composer`/`performer`/`date`, then
+`label`/`comment`, and last everything it matched on a tag the answer does not
+carry. The sort is stable, so hits of one strength keep MPD's order. A search
+answer therefore carries `label` and `comment` (`SEARCH_FIELDS`; the browse lists
+still do not) and adds `match` (the tag) and `rank` (its place in `MATCH_RANK`) to
+every row. The panel names the tag on any row whose match is not already visible
+there — `Label: Southbound` — and orders the artist and album groups by their
+**strongest** hit, so the artist you searched for sits above the coincidence
+whatever the hit counts say.
+
+**How much `a` appends.** A group row is an artist or an album, and `a` appends
+all of it with one `findadd`. The number beside the row used to be the hits that
+produced it, so "Thin Lizzy 1 tracks" appended 137. It is now MPD's own `count`
+with the same filter `findadd` takes, one command per group the panel draws (at
+most thirty artists and thirty albums), asked as one `counts` query. The rows are
+painted when the numbers are back, so no number changes under the pointer; a
+filter the server refuses answers `null` and that row keeps saying how many hits
+it stands for. The counts ride on their own channel (`counts`), and an answer to a
+search that has been replaced is dropped like any other stale answer.
+
 **Cover files.** Over `albumart`, MPD only hands out image files whose names it
 knows — in MPD 0.24 that is `cover.*`. A `folder.jpg` next to it is ignored
 (measured: `albumart` answers "No file exists" for `folder.jpg`, `album.jpg` or

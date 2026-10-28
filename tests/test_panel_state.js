@@ -141,9 +141,11 @@ function grabRowBinding(name) {
 }
 
 const FUNCTIONS = [
-  "rootFrameFor", "tabEntry", "tabForNumber", "setTab", "pushFrame", "popFrame", "topFrame", "loadFrame",
+  "rootFrameFor", "tabEntry", "tabForNumber", "setTab", "pushFrame", "popFrame", "topFrame",
+  "loadFrame", "loadSearch", "presentRows",
   "breadcrumb",
-  "infoFor", "groupHits", "isSelectable", "firstSelectable", "lastSelectable",
+  "infoFor", "groupHits", "matchName", "matchNote", "isSelectable",
+  "firstSelectable", "lastSelectable",
   "rowIsSong", "activate", "addRow", "addOne", "addAll", "openPrompt",
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
   "searchWhileTyping", "searchNow", "applySearch",
@@ -329,6 +331,7 @@ function makePanel(opts) {
 
   const host = {
     connected: true,
+    __pending: [],
     song: {},
     songFile: "",
     format: "%artist% - %title%",
@@ -337,7 +340,10 @@ function makePanel(opts) {
     elapsed: 0,
     query: function (kind, args, channel, cb) {
       queries.push({ kind: kind, args: args, channel: channel });
-      if (cb) host.__pending = cb;
+      // A search asks twice -- the hits, then one `count` per group -- so the
+      // answers are a queue, not a slot: each `answer()` delivers the oldest
+      // question still open, in the order the panel asked.
+      if (cb) host.__pending.push(cb);
     },
     mutation: function (op, args) { mutations.push({ op: op, args: args }); },
     addUri: function (uri) { mutations.push({ op: "add", args: { uri: uri } }); },
@@ -450,10 +456,20 @@ function makePanel(opts) {
       return true;
     },
     answer: function (list, error) {
-      const cb = host.__pending;
-      host.__pending = null;
+      const cb = host.__pending.shift();
       if (!cb) throw new Error("nothing was asked");
       cb(list || [], error === undefined ? "" : error);
+    },
+    // The counts answer a search waits for: one total per group row it drew,
+    // in order. A number the test cares about is passed in; the rest get a
+    // made-up but stable count, so a test about something else is not about
+    // group numbers by accident.
+    counts: function (totals) {
+      const asked = queries[queries.length - 1];
+      const want = asked && asked.kind === "counts" ? asked.args.filters.length : 0;
+      const out = [];
+      for (let i = 0; i < want; i++) out.push(totals && totals[i] !== undefined ? totals[i] : 1);
+      return this.answer(out);
     },
     callsReset: function () { calls.length = 0; },
     rowItem: function (index) { return rowItemAt(root.rows[index], index); },
@@ -776,13 +792,22 @@ group("case 8: the mark only shows while the list really has the keys");
       title: "We Will Rock You" }
   ];
 
+  // The bridge answers a search in two steps: the hits, then one `count` per
+  // group the pane will draw (the number that `a` appends). Both answers belong
+  // to every search the tests below trigger.
+  function deliver(P) {
+    P.answer(HITS);
+    P.counts([12, 10, 11]);          // artist Queen, the two albums
+    return P;
+  }
+
   // `/` is not the only way in: `2` opens the search tab with its field up.
   function typing() {
     const P = makePanel();
     P.key(0, "2");                   // the `2` key: the search tab
     P.type("queen");
     P.fire("promptDebounce");        // 250 ms: the hits are queried
-    P.answer(HITS);                  // and they arrive while the field is up
+    deliver(P);                      // and they arrive while the field is up
     return P;
   }
 
@@ -813,7 +838,7 @@ group("case 8: the mark only shows while the list really has the keys");
   P.key(P.Qt.Key_Down, "");
   check("↓ took the keys out of the field", P.root.promptMode === "",
         JSON.stringify(P.root.promptMode));
-  P.answer(HITS);
+  deliver(P);
   check("(b) the first hit wears the mark once the list has the keys",
         P.markedRows().length === 1 && P.marked(P.root.sel) === true
           && P.root.sel === P.root.firstSelectable(0),
@@ -833,7 +858,7 @@ group("case 8: the mark only shows while the list really has the keys");
   P.press("/");
   check("`/` brings the field back with the term", P.root.promptMode === "search"
         && P.root.promptText === "queen", P.root.promptMode + " / " + P.root.promptText);
-  P.answer(HITS);
+  deliver(P);
   check("(c) no row is marked again while the field is back",
         P.markedRows().length === 0,
         "marked: " + JSON.stringify(P.markedRows()) + "  sel=" + P.root.sel);
@@ -892,6 +917,105 @@ group("case 8: the mark only shows while the list really has the keys");
   check("control: with no prompt the loaded list keeps its mark",
         S.root.promptMode === "" && S.root.sel === 0 && S.markedRows().join(",") === "0",
         "marked: " + JSON.stringify(S.markedRows()));
+}
+
+group("the search ranks by where the term matched, and says why");
+{
+  // The report: searching "southbound" (a Thin Lizzy song) put sixteen Millie
+  // Jackson tracks above it -- their records carry `Label: Southbound` (the Stax
+  // imprint) -- and the artist row said "1 tracks" while `a` appended 137. The
+  // bridge ranks the hits and marks the match (bin/mpd-bridge: rank_search_hits);
+  // what is judged here is the pane: keeps that order, puts the searched artist
+  // above the coincidence, names the tag, and says how much `a` appends.
+  function hit(file, artist, album, title, match, rank, label) {
+    var row = { type: "file", file: file, artist: artist, album: album, title: title,
+                match: match, rank: rank };
+    if (label !== undefined) row.label = label;
+    return row;
+  }
+  const MILLIE = hit("Pop/MJ/01.mp3", "Millie Jackson", "A Moment's Pleasure",
+                     "Never Change Lovers in the Middle of the Night", "label", 4, "Southbound");
+  const MILLIE2 = hit("Pop/MJ/02.mp3", "Millie Jackson", "A Moment's Pleasure",
+                      "Seeing You Again", "label", 4, "Southbound");
+  const LIZZY = hit("Rock/TL/04.mp3", "Thin Lizzy", "Bad Reputation",
+                    "Southbound", "title", 0);
+
+  const P = makePanel();
+  P.root.tab = "search";
+  P.root.stack = [{ mode: "search", term: "southbound", title: "Search: southbound" }];
+  // MPD's order, ranks attached by the bridge: Millie's hits come first.
+  const ROWS = P.root.groupHits([MILLIE, MILLIE2, LIZZY]);
+  const artists = ROWS.filter(function (r) { return r.kind === "artist"; });
+  check("the searched artist outranks the label coincidence, though it has fewer hits",
+        artists.map(function (r) { return r.value; }).join(", "),
+        "Thin Lizzy, Millie Jackson");
+  check("the label group carries the tag that put it there",
+        artists[1].why === "Label: Southbound", artists[1].why);
+  check("the title group needs no line",
+        artists[0].why === "", artists[0].why);
+  check("a label hit's row says why it is here",
+        P.root.rowSub(MILLIE).indexOf("Label: Southbound") >= 0, P.root.rowSub(MILLIE));
+  check("the title hit's row does not",
+        P.root.rowSub(LIZZY).indexOf("Label:") < 0, P.root.rowSub(LIZZY));
+  const albums = ROWS.filter(function (r) { return r.kind === "album"; });
+  check("the album of the title match leads the albums",
+        albums.map(function (r) { return r.value; }).join(", "),
+        "Bad Reputation, A Moment's Pleasure");
+  check("an album group says why too",
+        albums[1].why === "Label: Southbound", albums[1].why);
+
+  // The number beside a group is what `a` appends, and it arrives in a second
+  // answer: the pane must not paint a number it is about to replace.
+  const L = makePanel();
+  L.key(0, "2");
+  L.type("southbound");
+  L.fire("promptDebounce");
+  L.answer([LIZZY, MILLIE, MILLIE2]);
+  check("nothing is painted before the counts are back",
+        L.root.rows.length === 0, "rows: " + L.root.rows.length);
+  const asked = L.queries.filter(function (q) { return q.kind === "counts"; })[0];
+  const wanted = "artist=Thin Lizzy | artist=Millie Jackson | album=Bad Reputation | album=A Moment's Pleasure";
+  check("the counts ask about the groups on screen, one filter each",
+        !!asked && asked.channel === "counts"
+          && (asked.args.filters || []).map(function (f) { return f.tag + "=" + f.value; }).join(" | ") === wanted,
+        asked ? asked.args.filters.map(function (f) { return f.tag + "=" + f.value; }).join(" | ") : "(not asked)");
+  L.counts([137, 125, 8, 9]);
+  const said = L.root.rows.filter(function (r) { return r.type === "group"; })
+    .map(function (r) { return L.root.rowRight(r); }).join(", ");
+  check("the painted rows say what `a` appends",
+        said === "137 tracks, 125 tracks, 8 tracks, 9 tracks", said);
+  check("the title hit is the first row of the list",
+        L.root.rowTitle(L.root.rows[L.root.rows.length - 3]) === "Southbound",
+        L.rowsTitles().join(", "));
+
+  // A count MPD refused (or has not been asked) leaves the row saying how many
+  // hits it stands for -- true, if less useful, and never a wrong track number.
+  const alone = P.root.groupHits([MILLIE]);
+  check("a group without a count says hits, not tracks",
+        P.root.rowRight(alone[1]) === "1 hit", P.root.rowRight(alone[1]));
+  check("a counted group says tracks, in the right number",
+        P.root.rowRight({ type: "group", kind: "artist", value: "X", count: 1, total: 1 }) === "1 track",
+        "1 track");
+
+  // A counts answer that arrives after a newer search belongs to a list that is
+  // no longer on screen; painting it would replace the rows that are.
+  const S = makePanel();
+  S.key(0, "2");
+  S.type("southbound");
+  S.fire("promptDebounce");
+  S.answer([LIZZY, MILLIE]);            // the old hits; their counts are in flight
+  S.type("x");                          // a newer search, before the counts land
+  S.fire("promptDebounce");
+  S.answer([137, 125, 8, 9]);           // the old counts come back first
+  check("a stale counts answer paints nothing",
+        S.root.rows.length === 0 && S.root.staleAnswers === 1,
+        "rows: " + S.root.rows.length + " stale: " + S.root.staleAnswers);
+  S.answer([LIZZY]);                    // the newer hits
+  S.counts([137, 8]);
+  check("the newer search paints its own rows",
+        S.root.rows.filter(function (r) { return r.type === "group"; }).length === 2
+          && S.root.rows[1].value === "Thin Lizzy",
+        S.rowsTitles().join(", "));
 }
 
 group("case 9: the ninth tab is reachable from an open, empty search field");

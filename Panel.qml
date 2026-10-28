@@ -576,56 +576,25 @@ Panel {
     function answer(list, error) {
       if (gen !== root.loadGeneration) { root.staleAnswers++; return }
       root.answeredLoads++
-      root.loading = false
-      if (error !== "") { root.setInfo(error); return }
-      // A search is grouped into artists and albums first, so the first thing on
-      // screen is something to add wholesale rather than 1309 loose tracks. A
-      // station list is merged the same way -- one row per station, not one per
-      // relay (dedupeStations) -- and it comes back as station rows already
+      if (error !== "") {
+        root.loading = false
+        root.setInfo(error)
+        return
+      }
+      // A search takes three steps, not one: the hits, then one `count` per
+      // artist and album group, then the paint. The number beside a group is the
+      // size of what `a` appends, and that is a different number from the hits
+      // that put the group there -- a search for "southbound" showed "Thin Lizzy
+      // 1 tracks" and appended all 137 (see loadSearch).
+      if (mode === "search") { root.loadSearch(list || [], gen, f); return }
+      // A station list is merged -- one row per station, not one per relay
+      // (dedupeStations) -- and it comes back as station rows already
       // (`stationRow`), typed, because the list draws a row by its type: the
       // directory's own answer carried none, so the rows stayed blank while the
       // count said "50 stations".
-      root.allRows = (mode === "search") ? root.groupHits(list)
-        : (mode === "radioStations") ? root.dedupeStations(list)
+      root.allRows = (mode === "radioStations") ? root.dedupeStations(list)
         : (list || [])
-      root.rows = root.allRows
-      // A filter that is still set (Dateien/Playlists) applies to the list that just
-      // arrived -- and then shows its own count instead of the frame's.
-      if (root.filterText !== "") root.refreshFilteredRows()
-      // Leaving the field with ↑ lands at the bottom of the list, with ↓ at the
-      // top; the load itself only knows "first hit", so the wish rides along here.
-      if (root.pendingSelect === "last") { root.sel = root.lastSelectable(); root.pendingSelect = "" }
-      else {
-        root.sel = root.firstSelectable(0)
-        if (root.pendingSelect === "first") root.pendingSelect = ""
-      }
-      // The radio answer is counted from the rows the list actually shows:
-      // `dedupeStations` merges a station's relays into one row, so the directory's
-      // own count said "3 stations" over two rows. Every other mode counts the
-      // answer itself, as before.
-      if (root.filterText === "")
-        root.setInfo(root.infoFor(mode, f, mode === "radioStations" ? root.rows : list))
-
-      // Opened on a long queue: put the selection on what is playing and scroll
-      // there, so the list does not start somewhere the music is not.
-      if (mode === "queue" && root.jumpToCurrent) {
-        root.jumpToCurrent = false
-        var here = root.currentIndex()
-        if (here >= 0) {
-          root.sel = here
-          root.centerOn(here)
-        }
-      }
-
-      // An artist (or genre) whose tracks carry no album tag has no album list to
-      // show. Rather than leaving an empty frame -- a dead end right where the
-      // user was looking for something to play -- fall back to the tracks.
-      if (mode === "list" && root.rows.length === 0 && !f.search && (f.filter || []).length > 0) {
-        var fallback = { mode: "find", title: String(f.title || "") + " — tracks",
-                         sort: "track", filter: f.filter }
-        root.stack = root.stack.slice(0, root.stack.length - 1).concat([fallback])
-        return                      // the stack change loads the new frame
-      }
+      root.presentRows(mode, f, list)
     }
 
     root.sentQueries++
@@ -665,6 +634,95 @@ Panel {
     root.setInfo("unknown view: " + mode)
   }
 
+  // The hits of a search, painted once their group counts are back.
+  //
+  // The groups are what a search actually offers -- "that artist", "that album",
+  // added in one go -- so the number on a group row has to be the size of the
+  // append `a` performs, not the number of hits that produced the row. `count`
+  // costs a few milliseconds and the pane asks only about the groups it draws
+  // (thirty artists and thirty albums at most), so the list arrives complete
+  // instead of growing a second number a moment later.
+  function loadSearch(hits, gen, f) {
+    var rows = root.groupHits(hits)
+    var filters = []
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].type) !== "group") continue
+      filters.push({ tag: String(rows[i].kind || ""), value: String(rows[i].value || "") })
+    }
+
+    function paint() {
+      root.allRows = rows
+      root.presentRows("search", f, hits)
+    }
+
+    // Nothing to count: no hits, or hits whose artist/album tags are empty. The
+    // tracks are the whole answer then, and they can go on screen at once.
+    if (filters.length === 0) { paint(); return }
+
+    host.query("counts", { filters: filters }, "counts", function(totals, error) {
+      // A newer search has taken the screen: these numbers belong to a list
+      // nobody is looking at any more, and painting them would replace the rows
+      // that are. Same rule as every other answer.
+      if (gen !== root.loadGeneration) { root.staleAnswers++; return }
+      var counts = (error === "" && totals) ? totals : []
+      var at = 0
+      for (var r = 0; r < rows.length; r++) {
+        if (String(rows[r].type) !== "group") continue
+        var total = Number(counts[at])
+        at++
+        // A refused count stays absent, and rowRight then says how many hits the
+        // row stands for -- which is true -- instead of a wrong track number.
+        if (isFinite(total) && total > 0) rows[r].total = total
+      }
+      paint()
+    })
+  }
+
+  // The last step of every load: the rows go on screen, the selection lands
+  // where it was told to, and the footer says what is on screen. Its own
+  // function because a search paints a step later than it loads (loadSearch).
+  function presentRows(mode, f, list) {
+    root.loading = false
+    root.rows = root.allRows
+    // A filter that is still set (Dateien/Playlists) applies to the list that just
+    // arrived -- and then shows its own count instead of the frame's.
+    if (root.filterText !== "") root.refreshFilteredRows()
+    // Leaving the field with ↑ lands at the bottom of the list, with ↓ at the
+    // top; the load itself only knows "first hit", so the wish rides along here.
+    if (root.pendingSelect === "last") { root.sel = root.lastSelectable(); root.pendingSelect = "" }
+    else {
+      root.sel = root.firstSelectable(0)
+      if (root.pendingSelect === "first") root.pendingSelect = ""
+    }
+    // The radio answer is counted from the rows the list actually shows:
+    // `dedupeStations` merges a station's relays into one row, so the directory's
+    // own count said "3 stations" over two rows. Every other mode counts the
+    // answer itself, as before.
+    if (root.filterText === "")
+      root.setInfo(root.infoFor(mode, f, mode === "radioStations" ? root.rows : list))
+
+    // Opened on a long queue: put the selection on what is playing and scroll
+    // there, so the list does not start somewhere the music is not.
+    if (mode === "queue" && root.jumpToCurrent) {
+      root.jumpToCurrent = false
+      var here = root.currentIndex()
+      if (here >= 0) {
+        root.sel = here
+        root.centerOn(here)
+      }
+    }
+
+    // An artist (or genre) whose tracks carry no album tag has no album list to
+    // show. Rather than leaving an empty frame -- a dead end right where the
+    // user was looking for something to play -- fall back to the tracks.
+    if (mode === "list" && root.rows.length === 0 && !f.search && (f.filter || []).length > 0) {
+      var fallback = { mode: "find", title: String(f.title || "") + " — tracks",
+                       sort: "track", filter: f.filter }
+      root.stack = root.stack.slice(0, root.stack.length - 1).concat([fallback])
+      return                        // the stack change loads the new frame
+    }
+  }
+
   function infoFor(mode, f, list) {
     var n = (list || []).length
     if (mode === "queue") return n + " entries"
@@ -684,8 +742,12 @@ Panel {
   //
   // The flat hit list is what MPD answers; what a person wants from a search is
   // "that artist", "that album" -- something they can add in one go. So the
-  // hits are tallied into artists and albums (most hits first), and the loose
-  // songs come last.
+  // hits are tallied into artists and albums, and the loose songs come last.
+  //
+  // The tally carries the strongest match behind each group, and that decides
+  // the group's place: a search for "southbound" is one Thin Lizzy title match
+  // and sixteen Millie Jackson label matches, and the artist someone searched
+  // for belongs above the coincidence of a pressing, whatever the hit counts say.
   function groupHits(list) {
     var songs = list || []
     var rows = []
@@ -694,25 +756,38 @@ Panel {
     function tally(key) {
       var order = []
       var counts = ({})
+      var best = ({})       // strongest match behind each value: { rank, why }
       for (var i = 0; i < songs.length; i++) {
-        var value = String(songs[i][key] || "")
+        var song = songs[i]
+        var value = String(song[key] || "")
         if (value === "") continue
         if (counts[value] === undefined) { counts[value] = 0; order.push(value) }
         counts[value] = counts[value] + 1
+        // A hit without a rank came from a bridge that does not rank (an
+        // older one, or a row the bridge could not place): it sorts last
+        // instead of jumping the queue it knows nothing about.
+        var rank = Number(song.rank === undefined ? 9 : song.rank)
+        var seen = best[value]
+        if (seen === undefined || rank < seen.rank)
+          best[value] = { rank: rank, why: root.matchNote(song) }
       }
       order.sort(function(a, b) {
+        if (best[a].rank !== best[b].rank) return best[a].rank - best[b].rank
         if (counts[b] !== counts[a]) return counts[b] - counts[a]
         return a.toLowerCase() < b.toLowerCase() ? -1 : 1
       })
-      return { order: order, counts: counts }
+      return { order: order, counts: counts, best: best }
     }
 
     var artists = tally("artist")
     if (artists.order.length > 0) {
       rows.push({ type: "header", title: "Artists" })
-      for (var a = 0; a < artists.order.length && a < 30; a++)
-        rows.push({ type: "group", kind: "artist", value: artists.order[a],
-                    count: artists.counts[artists.order[a]] })
+      for (var a = 0; a < artists.order.length && a < 30; a++) {
+        var name = artists.order[a]
+        rows.push({ type: "group", kind: "artist", value: name,
+                    count: artists.counts[name], rank: artists.best[name].rank,
+                    why: artists.best[name].why })
+      }
     }
 
     var albums = tally("album")
@@ -736,7 +811,8 @@ Panel {
           seen++
         }
         rows.push({ type: "group", kind: "album", value: album, artist: artist,
-                    count: albums.counts[album] })
+                    count: albums.counts[album], rank: albums.best[album].rank,
+                    why: albums.best[album].why })
       }
     }
 
@@ -744,6 +820,32 @@ Panel {
       + (songs.length >= 800 ? "+" : "") + " hits" })
     for (var t = 0; t < songs.length && t < 300; t++) rows.push(songs[t])
     return rows
+  }
+
+  // The tag that made a hit a hit, spelled the way MPD spells it.
+  function matchName(tag) {
+    var names = ({ title: "Title", artist: "Artist", albumartist: "Album artist",
+                   album: "Album", name: "Name", genre: "Genre",
+                   composer: "Composer", performer: "Performer", date: "Date",
+                   label: "Label", comment: "Comment" })
+    return String(names[tag] || tag)
+  }
+
+  // Why a row is in the results, when the reason is not on the row already.
+  //
+  // A search matches every tag there is, and the row shows title, artist and
+  // album. "Southbound" on the Thin Lizzy track is the title and says itself;
+  // the sixteen Millie Jackson tracks matched on `Label: Southbound` and read as
+  // mistakes without that line -- their titles have nothing to do with the word
+  // that was typed.
+  function matchNote(row) {
+    if (!row) return ""
+    var tag = String(row.match || "")
+    if (tag === "" || tag === "title" || tag === "artist" || tag === "album"
+        || tag === "albumartist") return ""
+    var value = String(row[tag] || "")
+    if (value === "") return ""
+    return root.matchName(tag) + ": " + value
   }
 
   function isSelectable(row) {
@@ -1012,7 +1114,16 @@ Panel {
     // A stream's second line is what is running on it -- MPD carries that in
     // `Title` from the ICY metadata. Never the URL it comes from.
     if (root.isStream(row)) return String(row.title || "")
-    if (row.type === "group") return row.kind === "album" ? String(row.artist || "") : ""
+    if (row.type === "group") {
+      // The album's artist, then the tag that put the group here -- an artist
+      // listed because its records carry `Label: Southbound` says so on its own
+      // row, instead of looking like a mistake (matchNote).
+      var why = String(row.why || "")
+      var bits = []
+      if (row.kind === "album" && String(row.artist || "") !== "") bits.push(String(row.artist))
+      if (why !== "") bits.push(why)
+      return bits.join("  ·  ")
+    }
     if (row.type === "value" || row.type === "playlist") return ""
     if (row.type === "directory") return "Folder"
     var bits = []
@@ -1023,6 +1134,10 @@ Panel {
     // that album (root.frameTitle), so repeating it on each line would be noise.
     if (row.album && root.frameTitle !== String(row.album)) bits.push(String(row.album))
     if (row.genre && root.frameMode === "find") bits.push(String(row.genre))
+    // A hit that matched on a tag the row does not show gets that tag named:
+    // without it, the row answers a word that appears nowhere on it.
+    var because = root.matchNote(row)
+    if (because !== "") bits.push(because)
     // No track number here: the list is already in track order and the number
     // usually leads the title anyway -- it was noise on every single row.
     return bits.join("  ·  ")
@@ -1036,7 +1151,16 @@ Panel {
       if (row.kind === "int") return String(row.value) + String(row.suffix || "")
       return String(row.value || "")
     }
-    if (row.type === "group") return String(row.count || 0) + " tracks"
+    if (row.type === "group") {
+      // What `a` appends, from MPD's own count -- the hits that put the row there
+      // are a different number, and it was the one that misled: "Thin Lizzy
+      // 1 tracks" appended all 137. Before the counts are back (or when MPD
+      // refused one) the row says hits, which is what it is.
+      var total = Number(row.total === undefined ? 0 : row.total)
+      if (total > 0) return total + (total === 1 ? " track" : " tracks")
+      var hits = Number(row.count || 0)
+      return hits + (hits === 1 ? " hit" : " hits")
+    }
     if (row.type === "radioStation") {
       // What the directory knows about the row: the votes decide the order and
       // they are the one number worth showing.

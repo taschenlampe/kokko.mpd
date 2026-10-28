@@ -353,6 +353,111 @@ check("a regex-less build still answers",
       list_args("0.23.5", {"tag": "album", "search": "New"}, reject_regex=True),
       ["album", "(album contains 'New')"])
 
+print("=== search: the hits are ranked by where the term matched ===")
+# The report behind this: searching for the Thin Lizzy song "Southbound" put
+# sixteen Millie Jackson tracks above it, because their records carry
+# `Label: Southbound` (the Stax imprint). MPD answers `search any` in library
+# order, so "Pop/..." came before "Rock/..." and the one title match sat last.
+# The ranks live in MATCH_RANK; the pane only draws them.
+SEARCH_PAIRS = [
+    ("file", "Pop/Millie Jackson-12 cd-/Millie Jackson-A Moments Pleasure/01-x.mp3"),
+    ("Artist", "Millie Jackson"), ("AlbumArtist", "Millie Jackson"),
+    ("Title", "Never Change Lovers in the Middle of the Night"),
+    ("Album", "A Moment's Pleasure"), ("Label", "Southbound"),
+    ("file", "Rock/Thin Lizzy/1978 - Bad reputation/04 - Southbound.mp3"),
+    ("Artist", "Thin Lizzy"), ("AlbumArtist", "Thin Lizzy"),
+    ("Title", "Southbound"), ("Album", "Bad Reputation"), ("Label", "Vertigo"),
+]
+search_conn = CannedConn("0.24.0", pairs=SEARCH_PAIRS)
+search_rows = B.Bridge().execute_query(search_conn, "search", {"term": "southbound"})
+check("the term still goes out as one `any` filter",
+      search_conn.calls[-1], ("search", ["(any contains 'southbound')"]))
+check("the title match comes first, though MPD answered it last",
+      [r.get("title") for r in search_rows],
+      ["Southbound", "Never Change Lovers in the Middle of the Night"])
+check("the row says the title matched", search_rows[0].get("match"), "title")
+check("the title match is rank 0", search_rows[0].get("rank"), B.MATCH_RANK["title"])
+check("the label hit says Label", search_rows[1].get("match"), "label")
+check("... and ranks behind the title",
+      search_rows[1].get("rank"), B.MATCH_RANK["label"])
+# The tag is only worth naming because it travels: the pane draws `Label` from
+# the row, and the browse lists are not made to carry it.
+check("`label` travels with a search answer", search_rows[1].get("label"), "Southbound")
+check("a plain list still leaves `label` out",
+      "label" in B.SONG_FIELDS, False)
+# A hit MPD matched on a tag the answer does not carry (a sort name, a
+# MusicBrainz id) is kept and ranked last rather than dropped or guessed at.
+other = CannedConn("0.24.0", pairs=[
+    ("file", "x/01.mp3"), ("Artist", "IAM"), ("ArtistSort", "IAM, The"), ("Title", "Nouveau"),
+])
+other_rows = B.Bridge().execute_query(other, "search", {"term": "iam, the"})
+check("a hit on an untravelled tag is kept",
+      len(other_rows), 1)
+check("... marked as unmatched", other_rows[0].get("match"), "")
+check("... and ranked last", other_rows[0].get("rank"), B.UNMATCHED_RANK)
+# No term, no search: the pane clears the list instead of asking.
+check("an empty term asks MPD nothing",
+      CannedConn("0.24.0").calls, [])
+
+print("=== counts: how much `a` appends ===")
+# The number beside a search group used to be the hits that put it there: a
+# search for "southbound" showed "Thin Lizzy 1 tracks" and appended 137. `count`
+# takes the same filter `findadd` will take, so the two cannot describe different
+# things.
+
+
+class CountConn(CannedConn):
+    """Answers each `count` with its own song number, in the order asked."""
+
+    def __init__(self, answers, fail_at=()):
+        CannedConn.__init__(self, "0.24.0")
+        self.answers = list(answers)
+        self.fail_at = set(fail_at)
+
+    def command(self, name, *args):
+        self.calls.append((name, list(args)))
+        if name != "count":
+            return [], None
+        if len(self.calls) - 1 in self.fail_at:
+            raise B.MPDCommandError("unknown filter")
+        n = self.answers.pop(0) if self.answers else 0
+        return [("songs", str(n)), ("playtime", "1")], None
+
+
+count_conn = CountConn([137, 8])
+counts = B.Bridge().execute_query(count_conn, "counts", {"filters": [
+    {"tag": "artist", "value": "Thin Lizzy"},
+    {"tag": "album", "value": "Bad Reputation"},
+]})
+check("one count per filter, in order", counts, [137, 8])
+check("the filter is the one `findadd` would use",
+      count_conn.calls[0], ("count", ["artist", "Thin Lizzy"]))
+check("... and so is the album's",
+      count_conn.calls[1], ("count", ["album", "Bad Reputation"]))
+# A filter MPD refuses is null; the other numbers still come back.
+check("a refused filter answers null",
+      B.Bridge().execute_query(CountConn([137, 8], fail_at=(1,)), "counts",
+                               {"filters": [{"tag": "artist", "value": "Thin Lizzy"},
+                                            {"tag": "album", "value": "Nope"}]}),
+      [137, None])
+check("a filter without a tag or a value is not sent",
+      B.Bridge().execute_query(CountConn([1]), "counts",
+                               {"filters": [{"tag": "", "value": "x"},
+                                            {"tag": "artist", "value": ""}]}),
+      [None, None])
+check("nothing asked, nothing counted",
+      B.Bridge().execute_query(CountConn([1]), "counts", {}), [])
+# One bad row in the list must not take the others with it.
+check("a malformed filter is null, not a crash",
+      B.Bridge().execute_query(CountConn([5]), "counts",
+                               {"filters": ["Thin Lizzy", {"tag": "artist", "value": "X"}]}),
+      [None, 5])
+# The pane asks about the groups it draws (30 + 30); a runaway request is capped.
+big = [{"tag": "artist", "value": "a%d" % i} for i in range(B.COUNT_FILTER_LIMIT + 10)]
+check("a request beyond the cap is cut",
+      len(B.Bridge().execute_query(CountConn([1] * 999), "counts", {"filters": big})),
+      B.COUNT_FILTER_LIMIT)
+
 print("=== cache key (art_key) ===")
 a = B.art_key({"file": "Rock/X/01.mp3", "album": "X", "albumartist": "Y"})
 b = B.art_key({"file": "Rock/X/02.mp3", "album": "X", "albumartist": "Y"})
