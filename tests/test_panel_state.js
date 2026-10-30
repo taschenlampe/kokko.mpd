@@ -1765,10 +1765,13 @@ group("language: the panel's strings are English");
 // The queue row and the album view. The user's decision: a queue row names the
 // track's album even when it is the same word as the track -- the repetition is
 // wanted there. The one place it must stay away is the album's own view, where
-// every row already sits under that album (root.frameTitle): repeating it on
-// each line would be noise, and that guard stays. The old guard against the tab
-// title is gone -- it was the bug this fixes, the album was compared against the
-// wrong string, so the rule never fired where it should.
+// every row already sits under that album: repeating it on each line would be
+// noise, and that guard stays.
+//
+// The frame is built the way `activate()` builds it -- a label in `title`, the
+// album in `album`. The first version of this case wrote the bare album name as
+// the title, which no code path produces, so the guard looked green while the
+// real view repeated the album on every row (Panel.qml, rowSub).
 group("case 17: the queue names the album, the album view does not repeat it");
 {
   const SINGLE = { type: "file", file: "d/01.flac", artist: "Dopplereffekt",
@@ -1777,6 +1780,8 @@ group("case 17: the queue names the album, the album view does not repeat it");
                   album: "Tetrahymena", title: "Cellular" };
   const NOALBUM = { type: "file", file: "d/03.flac", artist: "Dopplereffekt",
                     title: "Untitled" };
+  const TAGGED = { type: "file", file: "d/04.flac", artist: "Dopplereffekt",
+                   album: "Athanatos", genre: "Electro", title: "Delta" };
 
   // In the queue the frame's title is "Queue": the album is not it, so the album
   // stands -- the same word as the track included.
@@ -1791,20 +1796,34 @@ group("case 17: the queue names the album, the album view does not repeat it");
 
   // Inside the album's own view (`find` under that album) every row already
   // stands under it: the second line has to leave the album out -- the one place
-  // it is suppressed, and the guard that must survive the change.
+  // it is suppressed.
   const Q = makePanel();
-  Q.root.stack = [{ mode: "find", title: "Athanatos",
-                    filter: [["album", "Athanatos"]] }];
+  Q.root.stack = [{ mode: "find", title: "Athanatos — tracks", album: "Athanatos",
+                    sort: "track", filter: [["album", "Athanatos"]] }];
   check("the album view does not repeat the album on every row",
         Q.root.rowSub(SINGLE) === "Dopplereffekt", Q.root.rowSub(SINGLE));
+  check("... and it does not repeat the genre either",
+        Q.root.rowSub(TAGGED) === "Dopplereffekt", Q.root.rowSub(TAGGED));
 
-  // The same rule for a second album view: the guard keys on the frame's title,
-  // not on the track, so it holds for whatever album is open.
+  // The same rule for a second album view: the guard keys on what the frame
+  // stands for, not on the track, so it holds for whatever album is open.
   const R = makePanel();
-  R.root.stack = [{ mode: "find", title: "Tetrahymena",
-                    filter: [["album", "Tetrahymena"]] }];
+  R.root.stack = [{ mode: "find", title: "Tetrahymena — tracks", album: "Tetrahymena",
+                    sort: "track", filter: [["album", "Tetrahymena"]] }];
   check("... and it holds for another album's view as well",
         R.root.rowSub(OTHER) === "Dopplereffekt", R.root.rowSub(OTHER));
+  check("control: the other album is not suppressed by the open one",
+        R.root.rowSub(SINGLE) === "Dopplereffekt  ·  Athanatos", R.root.rowSub(SINGLE));
+
+  // A frame that only falls back to tracks -- an artist or a genre whose albums
+  // carry no tag -- stands for no album, so the album and the genre stay on the
+  // row: there they are the answer, not the repetition.
+  const F = makePanel();
+  F.root.stack = [{ mode: "find", title: "Dopplereffekt — tracks", sort: "track",
+                    filter: [["artist", "Dopplereffekt"]] }];
+  check("a fallback track list still names album and genre per row",
+        F.root.rowSub(TAGGED) === "Dopplereffekt  ·  Athanatos  ·  Electro",
+        F.root.rowSub(TAGGED));
 }
 
 // --------------------------------------------------------------- report

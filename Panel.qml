@@ -1131,9 +1131,16 @@ Panel {
     // The album is named on the row -- also when it is the same word as the track
     // (a single or an untagged rip), where the repetition is wanted. The one place
     // it stays away is the album's own view: every row there already stands under
-    // that album (root.frameTitle), so repeating it on each line would be noise.
-    if (row.album && root.frameTitle !== String(row.album)) bits.push(String(row.album))
-    if (row.genre && root.frameMode === "find") bits.push(String(row.genre))
+    // that album, so repeating it on each line would be noise. What the frame
+    // stands for is `frame.album`; its `title` is a label ("… — tracks"), and
+    // comparing against the title was why the guard never fired outside a frame
+    // that was built by hand.
+    var frameAlbum = root.frame ? String(root.frame.album || "") : ""
+    if (row.album && String(row.album) !== frameAlbum) bits.push(String(row.album))
+    // In a frame that stands for one album the genre is the same on every row and
+    // explains nothing. In a list that fell back to tracks (an artist or a genre
+    // whose albums carry no tag) the frame has no album and the genre stays.
+    if (row.genre && root.frameMode === "find" && frameAlbum === "") bits.push(String(row.genre))
     // A hit that matched on a tag the row does not show gets that tag named:
     // without it, the row answers a word that appears nowhere on it.
     var because = root.matchNote(row)
@@ -1290,6 +1297,7 @@ Panel {
         root.stack = root.stack.concat([
           { mode: "list", tag: "album", title: byArtist, filter: [["artist", byArtist]] },
           { mode: "find", title: albumName + " — tracks", sort: "track",
+            album: albumName,
             filter: [["artist", byArtist], ["album", albumName]] }
         ])
         root.sel = 0
@@ -1297,7 +1305,7 @@ Panel {
         return
       }
       root.pushFrame({ mode: "find", title: albumName + " — tracks", sort: "track",
-                       filter: [["album", albumName]] })
+                       album: albumName, filter: [["album", albumName]] })
       return
     }
     if (row.type === "value") {
@@ -1309,7 +1317,7 @@ Panel {
       var base = root.frame.filter || []
       if (tag === "album") {
         root.pushFrame({ mode: "find", title: value + " — tracks", sort: "track",
-                         filter: base.concat([["album", value]]) })
+                         album: value, filter: base.concat([["album", value]]) })
         return
       }
       root.pushFrame({ mode: "list", tag: "album", title: value,
