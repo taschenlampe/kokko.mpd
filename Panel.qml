@@ -1106,7 +1106,23 @@ Panel {
     return out === "" ? "(no playing track)" : out
   }
 
-  function rowSub(row) {
+  // Two queue rows belong to the same run when both name an album and it is the
+  // same album by the same artist. The artist is part of it: two records can
+  // share a title, and the queue can put them next to each other.
+  function sameQueueAlbum(a, b) {
+    if (!a || !b) return false
+    var album = String(b.album || "")
+    if (album === "") return false
+    return String(a.album || "") === album
+      && String(a.artist || "") === String(b.artist || "")
+  }
+
+  // `prev` is the row above. The queue names artist and album once at the top of
+  // a run and leaves the column empty under it -- the row above already said it.
+  // Every other view passes nothing and gets the old answer: in a search the
+  // repeated string is the only place the album is named, and in the album's own
+  // view the frame says it (see frame.album below).
+  function rowSub(row, prev) {
     if (!row) return ""
     if (row.type === "setting") return String(row.hint || "")
     if (row.type === "radio") return String(row.hint || "")
@@ -1126,6 +1142,7 @@ Panel {
     }
     if (row.type === "value" || row.type === "playlist") return ""
     if (row.type === "directory") return "Folder"
+    if (root.frameMode === "queue" && root.sameQueueAlbum(prev, row)) return ""
     var bits = []
     if (row.artist) bits.push(String(row.artist))
     // The album is named on the row -- also when it is the same word as the track
@@ -2345,10 +2362,39 @@ Panel {
           readonly property bool selected: index === root.sel && !rowItem.isHeader
             && root.promptMode === ""
 
+          // The queue's runs get a bracket (see sameQueueAlbum): a thin line
+          // along the rows of one album, so a row whose second column is empty
+          // still says which album it belongs to once that album's first row has
+          // scrolled away. Only the queue: everywhere else the column is the
+          // information, so nothing is being spanned.
+          readonly property bool runAbove: root.frameMode === "queue"
+            && root.sameQueueAlbum(rowItem.index > 0 ? root.rows[rowItem.index - 1] : null,
+                                   rowItem.modelData)
+          readonly property bool runBelow: root.frameMode === "queue"
+            && root.sameQueueAlbum(rowItem.modelData,
+                                   rowItem.index < root.rows.length - 1
+                                     ? root.rows[rowItem.index + 1] : null)
+
           Rectangle {
             anchors.fill: parent
             color: rowItem.selected ? root.selBg : "transparent"
             radius: Style.cornerRadius
+          }
+
+          // The bracket itself. It reaches one spacing beyond its own row at
+          // every end that continues (-/+ list.spacing), because the list leaves
+          // a pixel between rows and a bracket with holes in it is not a
+          // bracket; and it stops short at the ends of the run.
+          Rectangle {
+            readonly property real inset: Style.space(6)
+            visible: rowItem.runAbove || rowItem.runBelow
+            x: Style.space(4)
+            width: Math.max(1, Style.space(1.5))
+            y: rowItem.runAbove ? -list.spacing : inset
+            height: rowItem.height + list.spacing
+              - (rowItem.runAbove ? 0 : inset)
+              - (rowItem.runBelow ? 0 : inset)
+            color: Util.alpha(root.fg, 0.28)
           }
 
           // The row that is playing right now. The colour + bold on the title
@@ -2432,7 +2478,8 @@ Panel {
             }
 
             Text {
-              text: root.rowSub(rowItem.modelData)
+              text: root.rowSub(rowItem.modelData,
+                                rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
               color: rowItem.selected ? root.selFg : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

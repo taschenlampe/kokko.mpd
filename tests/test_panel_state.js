@@ -150,7 +150,8 @@ const FUNCTIONS = [
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
   "searchWhileTyping", "searchNow", "applySearch",
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
-  "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "rowRight", "mutateAndReload",
+  "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "sameQueueAlbum", "rowRight",
+  "mutateAndReload",
   "handleKey",
   // The tab ring: the digits and `tab` are two encodings of one order, and the
   // ring once held seven of the nine tabs.
@@ -1814,6 +1815,40 @@ group("case 17: the queue names the album, the album view does not repeat it");
         R.root.rowSub(OTHER) === "Dopplereffekt", R.root.rowSub(OTHER));
   check("control: the other album is not suppressed by the open one",
         R.root.rowSub(SINGLE) === "Dopplereffekt  ·  Athanatos", R.root.rowSub(SINGLE));
+
+  // The queue in runs: the top row of an album run says who and what, the rows
+  // under it leave the column empty -- and the bracket in the delegate spans
+  // them. Only the queue does this; a search keeps the string on every hit,
+  // because there it is the only place the album is named.
+  const RUN1 = { type: "file", file: "q/01.flac", artist: "ADULT.",
+                 album: "The Way Things Fall", title: "Heartbreak" };
+  const RUN2 = { type: "file", file: "q/02.flac", artist: "ADULT.",
+                 album: "The Way Things Fall", title: "Idle (Second Thoughts)" };
+  const NEXTALBUM = { type: "file", file: "q/03.flac", artist: "ADULT.",
+                      album: "Anxiety Always", title: "The Cold Call" };
+  const SAMEALBUM = { type: "file", file: "q/04.flac", artist: "Ladytron",
+                      album: "The Way Things Fall", title: "Mu-Tron" };
+  const LOOSE1 = { type: "file", file: "q/05.flac", artist: "ADULT.", title: "One" };
+  const LOOSE2 = { type: "file", file: "q/06.flac", artist: "ADULT.", title: "Two" };
+
+  check("the queue names artist and album once per run",
+        P.root.rowSub(RUN1, null) === "ADULT.  ·  The Way Things Fall"
+          && P.root.rowSub(RUN2, RUN1) === "",
+        [P.root.rowSub(RUN1, null), P.root.rowSub(RUN2, RUN1)]);
+  check("a new album inside the same artist starts the line again",
+        P.root.rowSub(NEXTALBUM, RUN2) === "ADULT.  ·  Anxiety Always",
+        P.root.rowSub(NEXTALBUM, RUN2));
+  check("the same album title by another artist is not one run",
+        P.root.rowSub(SAMEALBUM, RUN2) === "Ladytron  ·  The Way Things Fall",
+        P.root.rowSub(SAMEALBUM, RUN2));
+  check("rows without an album tag keep their artist on every line",
+        P.root.rowSub(LOOSE2, LOOSE1) === "ADULT.", P.root.rowSub(LOOSE2, LOOSE1));
+
+  const SEARCH = makePanel();
+  SEARCH.root.stack = [{ mode: "search", title: "Search" }];
+  check("a search keeps artist and album on every hit",
+        SEARCH.root.rowSub(RUN2, RUN1) === "ADULT.  ·  The Way Things Fall",
+        SEARCH.root.rowSub(RUN2, RUN1));
 
   // A frame that only falls back to tracks -- an artist or a genre whose albums
   // carry no tag -- stands for no album, so the album and the genre stay on the
