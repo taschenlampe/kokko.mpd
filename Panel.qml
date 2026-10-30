@@ -142,6 +142,33 @@ Panel {
   readonly property real listY: list.y
   readonly property string frameMode: frame ? String(frame.mode || "") : ""
   readonly property string frameTitle: frame ? String(frame.title || "") : ""
+  // The album a frame stands for. A track list's `title` is a label ("… —
+  // tracks"), so the row guard cannot compare against it.
+  readonly property string frameAlbum: frame ? String(frame.album || "") : ""
+  // An album's own view goes quiet when every track on it credits one artist:
+  // the frame says the album, the footer says the artist, so a second column per
+  // row would repeat what is already on screen. A compilation names a different
+  // artist per row and keeps its column -- there it is the answer.
+  function albumQuietFor(rows) {
+    if (root.frameMode !== "find" || root.frameAlbum === "") return false
+    var list = rows || []
+    if (list.length === 0) return false
+    var artist = ""
+    for (var i = 0; i < list.length; i++) {
+      var a = String(list[i].artist || "")
+      if (a === "") return false
+      if (i === 0) artist = a
+      else if (a !== artist) return false
+    }
+    return true
+  }
+  function albumArtistFor(rows) {
+    var list = rows || []
+    if (!root.albumQuietFor(list)) return ""
+    return String((list[0] || {}).artist || "")
+  }
+  readonly property bool albumFrameQuiet: root.albumQuietFor(root.rows)
+  readonly property string albumFrameArtist: root.albumArtistFor(root.rows)
   readonly property string promptLabel: promptMode === "save" ? "Save queue as:"
     : (promptMode === "rename" ? "Rename playlist:"
     : (promptMode === "format" ? "Label-Format:"
@@ -730,7 +757,24 @@ Panel {
       ? "no hits for “" + String(f.term || "") + "” — try fewer words"
       : n + (n >= 800 ? "+" : "") + " hits for “" + String(f.term || "") + "”"
     if (mode === "list") return n + " entries"
-    if (mode === "find") return n + " tracks"
+    if (mode === "find") {
+      // An album's own view says what it is: who made it, how much of it there
+      // is, how long it runs. Every other track list just counts.
+      if (f && String(f.album || "") !== "") {
+        var bits = []
+        var artist = root.albumFrameArtist
+        if (artist !== "") bits.push(artist)
+        bits.push(n + (n === 1 ? " track" : " tracks"))
+        var total = 0
+        for (var i = 0; i < n; i++) {
+          var t = Number((list || [])[i].time || 0)
+          if (isFinite(t) && t > 0) total += t
+        }
+        if (total > 0 && root.host) bits.push(root.host.formatTime(Math.round(total)))
+        return bits.join("  ·  ")
+      }
+      return n + " tracks"
+    }
     if (mode === "files") return String(f.path || "") === "" ? "Library — " + n + " entries" : String(f.path) + " — " + n
     if (mode === "playlists") return n + " Playlists"
     if (mode === "plist") return n + " tracks"
@@ -1143,21 +1187,20 @@ Panel {
     if (row.type === "value" || row.type === "playlist") return ""
     if (row.type === "directory") return "Folder"
     if (root.frameMode === "queue" && root.sameQueueAlbum(prev, row)) return ""
+    // The album's own view, when every track on it credits one artist: the
+    // number and the title say the rest, and the footer says the artist.
+    if (root.albumFrameQuiet) return ""
     var bits = []
     if (row.artist) bits.push(String(row.artist))
     // The album is named on the row -- also when it is the same word as the track
     // (a single or an untagged rip), where the repetition is wanted. The one place
-    // it stays away is the album's own view: every row there already stands under
-    // that album, so repeating it on each line would be noise. What the frame
-    // stands for is `frame.album`; its `title` is a label ("… — tracks"), and
-    // comparing against the title was why the guard never fired outside a frame
-    // that was built by hand.
-    var frameAlbum = root.frame ? String(root.frame.album || "") : ""
-    if (row.album && String(row.album) !== frameAlbum) bits.push(String(row.album))
+    // it stays away is the album's own view: the frame says which album it is, so
+    // repeating it on each line would be noise.
+    if (row.album && String(row.album) !== root.frameAlbum) bits.push(String(row.album))
     // In a frame that stands for one album the genre is the same on every row and
     // explains nothing. In a list that fell back to tracks (an artist or a genre
     // whose albums carry no tag) the frame has no album and the genre stays.
-    if (row.genre && root.frameMode === "find" && frameAlbum === "") bits.push(String(row.genre))
+    if (row.genre && root.frameMode === "find" && root.frameAlbum === "") bits.push(String(row.genre))
     // A hit that matched on a tag the row does not show gets that tag named:
     // without it, the row answers a word that appears nowhere on it.
     var because = root.matchNote(row)
@@ -1197,6 +1240,14 @@ Panel {
     if (row.time) return host.formatTime(row.time)
     if (row.type === "value" || row.type === "directory" || row.type === "playlist") return "›"
     return ""
+  }
+
+  // The number on the record, two digits, or "" for a rip without the tag.
+  function trackNo(row) {
+    var raw = String(row && row.track !== undefined ? row.track : "")
+    var n = raw.split("/")[0].trim()
+    if (n === "" || isNaN(Number(n))) return ""
+    return n.length < 2 ? "0" + n : n
   }
 
   function isActiveRow(row) {
@@ -2465,6 +2516,20 @@ Panel {
                       rightMargin: Style.space(8)
                       verticalCenter: parent.verticalCenter }
             spacing: Style.space(10)
+
+            // The number on the record, where the row *is* a track of the album
+            // the frame stands for -- there it is information. Anywhere else it
+            // leads the title already or lies about the order.
+            Text {
+              readonly property string no: root.frameAlbum === ""
+                ? "" : root.trackNo(rowItem.modelData)
+              visible: no !== ""
+              text: no
+              color: rowItem.selected ? root.selFg : root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              width: visible ? Style.space(18) : 0
+            }
 
             Text {
               text: root.rowTitle(rowItem.modelData)

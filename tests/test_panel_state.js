@@ -151,6 +151,7 @@ const FUNCTIONS = [
   "searchWhileTyping", "searchNow", "applySearch",
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "sameQueueAlbum", "rowRight",
+  "albumQuietFor", "albumArtistFor", "trackNo",
   "mutateAndReload",
   "handleKey",
   // The tab ring: the digits and `tab` are two encodings of one order, and the
@@ -325,6 +326,16 @@ function makePanel(opts) {
   Object.defineProperty(root, "frameTitle", {
     get: function () { return root.frame ? String(root.frame.title || "") : ""; }
   });
+  Object.defineProperty(root, "frameAlbum", {
+    get: function () { return root.frame ? String(root.frame.album || "") : ""; }
+  });
+  // Panel.qml: readonly property bool albumFrameQuiet: root.albumQuietFor(root.rows)
+  Object.defineProperty(root, "albumFrameQuiet", {
+    get: function () { return root.albumQuietFor(root.rows); }
+  });
+  Object.defineProperty(root, "albumFrameArtist", {
+    get: function () { return root.albumArtistFor(root.rows); }
+  });
   // Panel.qml: readonly property bool up: !!host && host.connected === true
   Object.defineProperty(root, "up", {
     get: function () { return host.connected === true; }
@@ -350,7 +361,12 @@ function makePanel(opts) {
     addUri: function (uri) { mutations.push({ op: "add", args: { uri: uri } }); },
     addAndPlay: function (uri) { mutations.push({ op: "addplay", args: { uri: uri } }); },
     basename: function (p) { return String(p).split("/").pop(); },
-    formatTime: function (t) { return String(t); },
+    formatTime: function (t) {
+      // BarWidget.qml:174 -- m:ss, floored, never negative.
+      var total = Math.max(0, Math.floor(Number(t) || 0));
+      var m = Math.floor(total / 60), sec = total % 60;
+      return m + ":" + (sec < 10 ? "0" + sec : String(sec));
+    },
     previewLabel: function () { return ""; },
     showOsd: function () {},
     setSetting: function () {},
@@ -1583,7 +1599,7 @@ function case14StreamDisplay() {
         P.root.rowRight(STREAM) === "", JSON.stringify(P.root.rowRight(STREAM)));
   check("control: an ordinary file row is unchanged",
         P.root.rowTitle(FILE) === "One" && P.root.rowSub(FILE) === "Alice  ·  Solo"
-          && P.root.rowRight(FILE) === "212", [P.root.rowTitle(FILE), P.root.rowSub(FILE),
+          && P.root.rowRight(FILE) === "3:32", [P.root.rowTitle(FILE), P.root.rowSub(FILE),
           P.root.rowRight(FILE)].join(" | "));
 
   // Without ICY metadata the stream still has its name, and never the URL.
@@ -1849,6 +1865,47 @@ group("case 17: the queue names the album, the album view does not repeat it");
   check("a search keeps artist and album on every hit",
         SEARCH.root.rowSub(RUN2, RUN1) === "ADULT.  ·  The Way Things Fall",
         SEARCH.root.rowSub(RUN2, RUN1));
+
+  // An album's own view: the frame says the album, the footer says who and how
+  // long, so the row keeps number, title and time -- unless the tracks credit
+  // different artists, where the column is the only place the artist can be.
+  const ALBUM_ROWS = [
+    { type: "file", file: "a/01.flac", artist: "ADULT.", album: "The Way Things Fall",
+      track: "1", title: "Heartbreak", time: "240" },
+    { type: "file", file: "a/02.flac", artist: "ADULT.", album: "The Way Things Fall",
+      track: "2", title: "Idle (Second Thoughts)", time: "269" }
+  ];
+  const ALBUM = makePanel();
+  ALBUM.root.stack = [{ mode: "find", title: "The Way Things Fall — tracks",
+                        album: "The Way Things Fall", sort: "track",
+                        filter: [["album", "The Way Things Fall"]] }];
+  ALBUM.root.rows = ALBUM_ROWS;
+  check("an album by one artist leaves the second column empty",
+        ALBUM.root.rowSub(ALBUM_ROWS[0]) === "", JSON.stringify(ALBUM.root.rowSub(ALBUM_ROWS[0])));
+  check("its footer says artist, count and running time",
+        ALBUM.root.infoFor("find", ALBUM.root.frame, ALBUM_ROWS)
+          === "ADULT.  ·  2 tracks  ·  8:29",
+        ALBUM.root.infoFor("find", ALBUM.root.frame, ALBUM_ROWS));
+  check("the gutter carries the number on the record",
+        ALBUM.root.trackNo(ALBUM_ROWS[1]) === "02", ALBUM.root.trackNo(ALBUM_ROWS[1]));
+  check("a rip without a track tag grows no number",
+        ALBUM.root.trackNo({ title: "x" }) === "", JSON.stringify(ALBUM.root.trackNo({ title: "x" })));
+  check("a track tag of 4/12 is the number 4",
+        ALBUM.root.trackNo({ track: "4/12" }) === "04", ALBUM.root.trackNo({ track: "4/12" }));
+
+  const COMPILATION = makePanel();
+  COMPILATION.root.stack = [{ mode: "find", title: "Mixed — tracks", album: "Mixed",
+                              sort: "track", filter: [["album", "Mixed"]] }];
+  COMPILATION.root.rows = [ALBUM_ROWS[0],
+                           { type: "file", file: "a/03.flac", artist: "Ladytron",
+                             album: "Mixed", track: "3", title: "Mu-Tron", time: "177" }];
+  check("a compilation keeps the artist on the row",
+        COMPILATION.root.rowSub(COMPILATION.root.rows[1]) === "Ladytron",
+        COMPILATION.root.rowSub(COMPILATION.root.rows[1]));
+  check("... and its footer claims no single artist",
+        COMPILATION.root.infoFor("find", COMPILATION.root.frame, COMPILATION.root.rows)
+          === "2 tracks  ·  6:57",
+        COMPILATION.root.infoFor("find", COMPILATION.root.frame, COMPILATION.root.rows));
 
   // A frame that only falls back to tracks -- an artist or a genre whose albums
   // carry no tag -- stands for no album, so the album and the genre stay on the
