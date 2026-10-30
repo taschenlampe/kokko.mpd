@@ -1860,11 +1860,26 @@ group("case 17: the queue names the album, the album view does not repeat it");
   check("rows without an album tag keep their artist on every line",
         P.root.rowSub(LOOSE2, LOOSE1) === "ADULT.", P.root.rowSub(LOOSE2, LOOSE1));
 
+  // A search has its own rule: it says the album once and then only what
+  // changed -- never nothing, though, when the row is in the results for a
+  // reason the row cannot show (matchNote).
   const SEARCH = makePanel();
   SEARCH.root.stack = [{ mode: "search", title: "Search" }];
-  check("a search keeps artist and album on every hit",
-        SEARCH.root.rowSub(RUN2, RUN1) === "ADULT.  ·  The Way Things Fall",
-        SEARCH.root.rowSub(RUN2, RUN1));
+  const OTHERALBUM = { type: "file", file: "q/07.flac", artist: "ADULT.",
+                       album: "Anxiety Always", title: "The Cold Call" };
+  const LABELHIT = { type: "file", file: "q/08.flac", artist: "ADULT.",
+                     album: "The Way Things Fall", title: "Heartbreak",
+                     match: "label", label: "Stax" };
+  check("a search says the album once, then only what changed",
+        SEARCH.root.rowSub(RUN1, null) === "ADULT.  ·  The Way Things Fall"
+          && SEARCH.root.rowSub(RUN2, RUN1) === "",
+        [SEARCH.root.rowSub(RUN1, null), SEARCH.root.rowSub(RUN2, RUN1)]);
+  check("a hit on another album of the same artist keeps the album",
+        SEARCH.root.rowSub(OTHERALBUM, RUN1) === "Anxiety Always",
+        SEARCH.root.rowSub(OTHERALBUM, RUN1));
+  check("a hit whose reason is a tag keeps that reason",
+        SEARCH.root.rowSub(LABELHIT, RUN1) === "Label: Stax",
+        SEARCH.root.rowSub(LABELHIT, RUN1));
 
   // An album's own view: the frame says the album, the footer says who and how
   // long, so the row keeps number, title and time -- unless the tracks credit

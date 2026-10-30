@@ -1191,12 +1191,22 @@ Panel {
     // number and the title say the rest, and the footer says the artist.
     if (root.albumFrameQuiet) return ""
     var bits = []
-    if (row.artist) bits.push(String(row.artist))
+    var sayArtist = !!row.artist
     // The album is named on the row -- also when it is the same word as the track
     // (a single or an untagged rip), where the repetition is wanted. The one place
     // it stays away is the album's own view: the frame says which album it is, so
     // repeating it on each line would be noise.
-    if (row.album && String(row.album) !== root.frameAlbum) bits.push(String(row.album))
+    var sayAlbum = !!row.album && String(row.album) !== root.frameAlbum
+    // A search answers with the same album on every hit of it. The row under the
+    // one that said it is left with what changed, and a row that has nothing left
+    // to say still says why it is in the results (matchNote, below) -- that part
+    // is never dropped, it is the one thing the row cannot show twice.
+    if (root.frameMode === "search" && prev) {
+      if (String(row.artist || "") === String(prev.artist || "")) sayArtist = false
+      if (String(row.album || "") === String(prev.album || "")) sayAlbum = false
+    }
+    if (sayArtist) bits.push(String(row.artist))
+    if (sayAlbum) bits.push(String(row.album))
     // In a frame that stands for one album the genre is the same on every row and
     // explains nothing. In a list that fell back to tracks (an artist or a genre
     // whose albums carry no tag) the frame has no album and the genre stays.
@@ -2393,15 +2403,17 @@ Panel {
           required property var modelData
           required property int index
           width: list.width
-          height: rowItem.settingsHeader ? Style.space(29)
+          height: rowItem.sectionHeader ? Style.space(29)
             : (rowItem.isHeader ? Style.space(22) : Style.space(26))
 
           readonly property string rowType: String(rowItem.modelData.type || "")
           readonly property bool isHeader: rowItem.rowType === "header"
-          // A header in the settings tab is a heading over a group, not a divider
-          // between result groups -- so it is drawn as a quiet label with a rule
-          // above it, while the search tab keeps its accent labels.
-          readonly property bool settingsHeader: rowItem.isHeader && root.frameMode === "settings"
+          // A heading over a group of rows: the sections of the settings tab and
+          // the three the search builds (Artists / Albums / Tracks). It is drawn
+          // as a quiet label with a rule above it -- the accent belongs to what
+          // plays, not to structure.
+          readonly property bool sectionHeader: rowItem.isHeader
+            && (root.frameMode === "settings" || root.frameMode === "search")
           // The mark belongs to the list, so it only shows while the list really
           // holds the keyboard. With a prompt up the field owns it (see the head of
           // handleKey: `+`, `a` and `A` are letters there), and a marked row would
@@ -2465,7 +2477,7 @@ Panel {
           // band, and there is nothing above it to separate from.
           Rectangle {
             id: groupRule
-            visible: rowItem.settingsHeader && index > 0
+            visible: rowItem.sectionHeader && index > 0
             x: Style.space(8)
             y: Style.space(6)
             width: parent.width - Style.space(16)
@@ -2478,18 +2490,18 @@ Panel {
           Text {
             visible: rowItem.isHeader
             anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
-            anchors.verticalCenterOffset: rowItem.settingsHeader && index > 0 ? Style.space(3) : 0
+            anchors.verticalCenterOffset: rowItem.sectionHeader && index > 0 ? Style.space(3) : 0
             text: rowItem.isHeader ? String(rowItem.modelData.title || "") : ""
-            color: rowItem.settingsHeader ? root.dim : root.accent
-            opacity: rowItem.settingsHeader ? 1 : 0.9
+            color: rowItem.sectionHeader ? root.dim : root.accent
+            opacity: rowItem.sectionHeader ? 1 : 0.9
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-            font.bold: !rowItem.settingsHeader
+            font.bold: !rowItem.sectionHeader
             // Capitalisation is a display choice, not data: the row keeps "In the
             // bar" (so the README and the search tab stay untouched) and reads as
             // a heading here.
-            font.capitalization: rowItem.settingsHeader ? Font.AllUppercase : Font.MixedCase
-            font.letterSpacing: rowItem.settingsHeader ? 1.1 : 0
+            font.capitalization: rowItem.sectionHeader ? Font.AllUppercase : Font.MixedCase
+            font.letterSpacing: rowItem.sectionHeader ? 1.1 : 0
           }
 
           // The row's click target: declared before the `+` so the button keeps
