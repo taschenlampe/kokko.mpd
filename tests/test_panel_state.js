@@ -145,7 +145,7 @@ const FUNCTIONS = [
   "loadFrame", "loadSearch", "presentRows",
   "breadcrumb",
   "infoFor", "groupHits", "matchName", "matchNote", "isSelectable",
-  "firstSelectable", "lastSelectable",
+  "firstSelectable", "lastSelectable", "carriedSelection",
   "rowIsSong", "activate", "addRow", "addOne", "addAll", "openPrompt",
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
   "searchWhileTyping", "searchNow", "applySearch",
@@ -268,6 +268,8 @@ function makePanel(opts) {
     detailRow: null,
     jumpToCurrent: false,
     skipCarry: false,
+    carrySel: null,
+    loadedFrame: null,
     scanRequested: false,
     pendingSelect: "",
     pendingCenter: -1,
@@ -1931,6 +1933,68 @@ group("case 17: the queue names the album, the album view does not repeat it");
   check("a fallback track list still names album and genre per row",
         F.root.rowSub(TAGGED) === "Dopplereffekt  ·  Athanatos  ·  Electro",
         F.root.rowSub(TAGGED));
+}
+
+group("case 18: a queue reload keeps the cursor on its row");
+{
+  // The report behind this: the queue is open, a track at the very bottom is
+  // playing, `next` is pressed. With `consume` on MPD drops the played row, the
+  // queue's length moves, the panel re-reads it -- and the cursor sat on row one
+  // afterwards, because a load always landed on the first row and the skip timer had
+  // no playing row left to bring it back to.
+  const entry = function (n) {
+    return { type: "file", file: "q/" + n + ".mp3", id: 100 + n, pos: n - 1,
+             artist: "A", album: "X", title: "T" + n, time: "100" };
+  };
+  const ROWS = [1, 2, 3, 4, 5, 6].map(entry);
+  const opened = function () {
+    const P = makePanel();
+    P.root.stack = [P.root.rootFrameFor("queue")];
+    P.answer(ROWS);
+    return P;
+  };
+
+  // An append from somewhere else (a bind, another client) grows the queue: the
+  // cursor must stay on its song, not on row one.
+  const P = opened();
+  P.root.sel = 4;
+  P.root.loadFrame();                       // what onQueueLengthChanged starts
+  P.answer(ROWS.concat([entry(7)]));
+  check("an append leaves the cursor on the same song", P.root.sel === 4,
+        "sel=" + P.root.sel);
+  check("... still the row it was on", P.root.rows[P.root.sel].title === "T5",
+        P.root.rows[P.root.sel].title);
+
+  // The skip at the end of the queue: the row under the cursor is consumed, the
+  // list is one shorter, and nothing plays afterwards.
+  const Q = opened();
+  Q.root.sel = 5;                           // the last row, T6
+  Q.root.loadFrame();
+  Q.answer(ROWS.slice(0, 5));               // T6 played and was consumed
+  check("a consumed row does not throw the cursor to the top", Q.root.sel === 4,
+        "sel=" + Q.root.sel);
+  check("... the cursor sits where its row was",
+        Q.root.rows[Q.root.sel].title === "T5", Q.root.rows[Q.root.sel].title);
+
+  // The row keeps its place even when a row above it disappears: the cursor follows
+  // the song by id, not the index.
+  const R = opened();
+  R.root.sel = 4;                           // T5
+  R.root.loadFrame();
+  R.answer([ROWS[0]].concat(ROWS.slice(2)));   // T1, then T3..T6 -- T2 was consumed
+  check("a row removed above the cursor moves it along",
+        R.root.rows[R.root.sel].title === "T5",
+        "sel=" + R.root.sel + " " + R.root.rows[R.root.sel].title);
+
+  // Control: a queue frame the user has just opened is not a reload of the one on
+  // screen -- it lands on the first row, as it always did (and `t` is the way to
+  // the playing track).
+  const S = opened();
+  S.root.sel = 4;
+  S.root.loadFrame({ mode: "queue", title: "Queue" });   // a frame of its own
+  S.answer(ROWS);
+  check("control: opening the queue afresh still lands on row one", S.root.sel === 0,
+        "sel=" + S.root.sel);
 }
 
 // --------------------------------------------------------------- report

@@ -104,6 +104,15 @@ Panel {
   property bool jumpToCurrent: false
 
   property bool skipCarry: false
+  // What the cursor is standing on while a queue reload is in flight, and the frame
+  // the rows on screen were painted for. A queue is re-read whenever its length
+  // moves -- every skip with `consume` on, every append from a bind, another client
+  // -- and a load otherwise lands on row one. Mid-queue the skip timer brings the
+  // cursor back, because something keeps playing; at the end of the queue nothing
+  // plays afterwards, so that row was lost for good and the cursor sat on the first
+  // entry. A reload of the frame that is already showing carries the selection.
+  property var carrySel: null
+  property var loadedFrame: null
   // A skip with < or > leaves the row playing now in the middle of the list -- and only a
   // skip does that: a track change on its own never scrolls the list away from under
   // someone reading it. The new song arrives from MPD over the bridge, and waiting on the
@@ -548,6 +557,17 @@ Panel {
     if (!f) return
     var mode = String(f.mode || "")
 
+    // A reload of the queue that is on screen: remember the row under the cursor
+    // before the new list replaces it. By song id, because positions move as soon as
+    // `consume` takes a row out; the index is the fallback for a row that is gone.
+    if (mode === "queue" && root.loadedFrame === f && root.rows.length > 0) {
+      var under = root.rows[root.sel]
+      root.carrySel = {
+        id: (under && under.id !== undefined) ? Number(under.id) : -1,
+        index: root.sel
+      }
+    }
+
     // The settings tab needs no server: reachable even while MPD is down. The
     // generation goes up here too -- otherwise the answer to a query from the tab
     // the user just left lands afterwards and paints its rows over these.
@@ -717,10 +737,17 @@ Panel {
     // Leaving the field with ↑ lands at the bottom of the list, with ↓ at the
     // top; the load itself only knows "first hit", so the wish rides along here.
     if (root.pendingSelect === "last") { root.sel = root.lastSelectable(); root.pendingSelect = "" }
+    else if (root.carrySel !== null) {
+      // The list was re-read under the cursor (see carrySel): it stays on its row.
+      root.sel = root.carriedSelection()
+      root.carrySel = null
+      if (root.pendingSelect === "first") root.pendingSelect = ""
+    }
     else {
       root.sel = root.firstSelectable(0)
       if (root.pendingSelect === "first") root.pendingSelect = ""
     }
+    root.loadedFrame = f
     // The radio answer is counted from the rows the list actually shows:
     // `dedupeStations` merges a station's relays into one row, so the directory's
     // own count said "3 stations" over two rows. Every other mode counts the
@@ -932,6 +959,29 @@ Panel {
       if (row && row.id !== undefined && Number(row.id) === id) return i
     }
     return -1
+  }
+
+  // Where the cursor goes after a queue reload: back to the same song when it is
+  // still in the list, otherwise to the row that took its place (a consumed row is
+  // gone, and its neighbour slid up into that index), otherwise to the last row.
+  // The song is matched by id, never by index -- every skip with `consume` moves
+  // the ones below it.
+  function carriedSelection() {
+    var carry = root.carrySel
+    if (!carry) return root.firstSelectable(0)
+    var id = Number(carry.id)
+    if (id >= 0) {
+      for (var i = 0; i < root.rows.length; i++) {
+        var row = root.rows[i]
+        if (row && row.id !== undefined && Number(row.id) === id) return i
+      }
+    }
+    if (root.rows.length === 0) return 0
+    var at = Number(carry.index)
+    if (!isFinite(at) || at < 0) return root.firstSelectable(0)
+    var wanted = Math.min(Math.floor(at), root.rows.length - 1)
+    if (root.isSelectable(root.rows[wanted])) return wanted
+    return root.firstSelectable(wanted)
   }
 
   // t: go to the playing track. From another tab it switches to the queue first --
