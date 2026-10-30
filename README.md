@@ -47,10 +47,16 @@ runs along, left click = play/pause, middle click = next, scroll = volume.
 - **On hover** — a card with cover, draggable progress, big transport buttons.
 - **On the wallpaper** (optional) — the same card, sitting on your desktop.
 - **The full panel** — queue, search, library, playlists, all in one view.
+- **An album is a track list** — open one and the rows are number, title and
+duration, because the frame already says which album it is; the footer carries
+artist, track count and total time. A compilation keeps its second column, since
+there the artist is the answer.
 - **Search like on the web** — results ranked by what matched (a title before a
 Label or a Comment), grouped by artist/album as you type, one key appends a track,
 album, or artist. A row that only matched on a tag it does not show says which
-(`Label: Southbound`), and a group row says how many tracks `a` will append.
+(`Label: Southbound`), and a group row says how many tracks `a` will append. The
+section headers (Artists, Albums, Tracks) are quiet labels rather than another
+accent, and a run of hits from the same album names it once.
 - **Quick cleanup** — clear a row, clear the queue, or keep only what's playing.
 - **Track-change popup** — a brief card (and optional desktop notification) whenever
 a new song starts.
