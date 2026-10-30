@@ -151,7 +151,7 @@ const FUNCTIONS = [
   "searchWhileTyping", "searchNow", "applySearch",
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "sameQueueAlbum", "rowRight",
-  "albumQuietFor", "albumArtistFor", "trackNo", "keepViewOn", "centerOn",
+  "albumQuietFor", "albumArtistFor", "trackNo", "centerOn",
   "mutateAndReload",
   "handleKey",
   // The tab ring: the digits and `tab` are two encodings of one order, and the
@@ -1943,8 +1943,8 @@ group("case 17: the queue names the album, the album view does not repeat it");
   CARRY.root.presentRows("queue", CARRY.root.frame, CARRY.root.allRows);
   check("a re-read queue keeps the cursor on its song",
         CARRY.root.sel === 1, CARRY.root.sel);
-  check("... and asks the view to follow it there",
-        CARRY.root.pendingContain === 1, CARRY.root.pendingContain);
+  check("... and centres the view on it",
+        CARRY.root.pendingCenter === 1, CARRY.root.pendingCenter);
 
   // A frame that only falls back to tracks -- an artist or a genre whose albums
   // carry no tag -- stands for no album, so the album and the genre stay on the
