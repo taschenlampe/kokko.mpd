@@ -389,10 +389,18 @@ Panel {
     }
 
     if (name === "state") {
-      status = event.status || ({})
+      var next = event.status || ({})
+      status = next
       song = event.song || ({})
       elapsedAnchor = Number(status.elapsed) || 0
       anchorAt = Date.now()
+      // `consume` deletes what it moves past: a skip counts as played, and so
+      // does a track that ran out. With repeat on the queue is the thing meant to
+      // survive the loop, so the two options contradict each other and repeat
+      // wins -- consume goes off whenever both are on, rather than quietly eating
+      // the queue from under the loop.
+      if (String(next.repeat || "0") === "1" && String(next.consume || "0") === "1")
+        bare("setopt consume 0")
       return
     }
 
