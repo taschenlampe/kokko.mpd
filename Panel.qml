@@ -221,6 +221,15 @@ Panel {
     // The queue can change from anywhere (the bar, a bind, another client), so
     // re-read it when MPD says its length moved.
     function onQueueLengthChanged() { if (root.frameMode === "queue") reloadTimer.restart() }
+    // A new track. The bar on its row is the only mark of what plays, and a mark
+    // that is scrolled out of the window says nothing -- so the row is brought
+    // into view. The selection is not touched: browser and playback are two
+    // different cursors, and a skip must not pull the one out of the other.
+    function onSongChanged() {
+      var at = root.currentIndex()
+      if (at < 0) return
+      list.positionViewAtIndex(at, ListView.Contain)
+    }
     // MPD answers `findadd`/`searchadd` with a bare OK, so a filter that matches
     // nothing is silent there. The bridge turns that silence into an ack, and the
     // footer repeats it instead of leaving the optimistic "appended" standing.
