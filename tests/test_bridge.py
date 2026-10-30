@@ -399,6 +399,38 @@ check("... and ranked last", other_rows[0].get("rank"), B.UNMATCHED_RANK)
 check("an empty term asks MPD nothing",
       CannedConn("0.24.0").calls, [])
 
+print("=== find: an album's track order survives a missing Disc tag ===")
+# The report behind this: the album view of Mazzy Star's "Among My Swan" opened
+# on track 7 ("All Your Sisters"), then 1, 2, 3 … That file is the only one in
+# the album without a Disc tag, and the sort counted a missing disc as 0 -- so
+# the untagged row landed on "Disc 0" and ahead of every "Disc 1" row. A disc
+# tag that is simply not there means disc one; that is the only reading that
+# keeps a single-disc album in track order.
+ORDER_PAIRS = [("file", "Pop/Mazzy Star/Among My Swan/07. All You Sisters.mp3"),
+               ("Artist", "Mazzy Star"), ("Album", "Among My Swan"),
+               ("Title", "All Your Sisters"), ("Track", "7")]
+for _n in (1, 6, 8):
+    ORDER_PAIRS += [("file", "Pop/Mazzy Star/Among My Swan/%02d. T.mp3" % _n),
+                    ("Artist", "Mazzy Star"), ("Album", "Among My Swan"),
+                    ("Disc", "1"), ("Title", "T%d" % _n), ("Track", str(_n))]
+order_rows = B.Bridge().execute_query(
+    CannedConn("0.24.0", pairs=ORDER_PAIRS), "find",
+    {"filter": [["album", "Among My Swan"]], "sort": "track"})
+check("the one file without a Disc tag sorts where its track number says",
+      [r.get("track") for r in order_rows], ["1", "6", "7", "8"])
+check("... it does not come first any more",
+      order_rows[0].get("title"), "T1")
+# And a real multi-disc album keeps its disc order: the fix must not flatten
+# `Disc 2` into `Disc 1`.
+DISC_PAIRS = [("file", "d/2-01.mp3"), ("Disc", "2"), ("Track", "1"), ("Title", "second disc"),
+              ("file", "d/1-02.mp3"), ("Disc", "1"), ("Track", "2"), ("Title", "one two"),
+              ("file", "d/1-01.mp3"), ("Disc", "1"), ("Track", "1"), ("Title", "one one")]
+disc_rows = B.Bridge().execute_query(
+    CannedConn("0.24.0", pairs=DISC_PAIRS), "find",
+    {"filter": [["album", "Two Discs"]], "sort": "track"})
+check("a multi-disc album still runs disc by disc",
+      [r.get("title") for r in disc_rows], ["one one", "one two", "second disc"])
+
 print("=== counts: how much `a` appends ===")
 # The number beside a search group used to be the hits that put it there: a
 # search for "southbound" showed "Thin Lizzy 1 tracks" and appended 137. `count`

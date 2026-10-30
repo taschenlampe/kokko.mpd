@@ -2308,7 +2308,11 @@ class Bridge:
             rows = split_entries(conn.command("find", *args)[0],
                                  markers=("file",), fields=SONG_FIELDS, limit=limit)
             if request.get("sort") == "track":
-                rows.sort(key=lambda r: (number(r.get("disc")), number(r.get("track")),
+                # A missing disc tag is disc one, not disc zero: a tag that is not
+                # there means a single-disc album, and counting it as 0 lifted
+                # the one untagged file of "Among My Swan" (track 7) above
+                # everything that carries `Disc: 1`.
+                rows.sort(key=lambda r: (number(r.get("disc")) or 1, number(r.get("track")),
                                          r.get("file", "")))
             return rows
 
