@@ -151,7 +151,7 @@ const FUNCTIONS = [
   "searchWhileTyping", "searchNow", "applySearch",
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "sameQueueAlbum", "rowRight",
-  "albumQuietFor", "albumArtistFor", "trackNo",
+  "albumQuietFor", "albumArtistFor", "trackNo", "keepViewOn", "centerOn",
   "mutateAndReload",
   "handleKey",
   // The tab ring: the digits and `tab` are two encodings of one order, and the
@@ -187,7 +187,7 @@ const ROW_SELECTED = grabRowBinding("selected");
 
 const BUILD = new Function(
   "root", "host", "Qt", "settingRows", "timers", "promptDebounce",
-  "promptFocusTimer", "pendingSelectGuard", "reloadTimer",
+  "promptFocusTimer", "pendingSelectGuard", "reloadTimer", "centerTimer",
   EXTRACTED.map(function (f) { return f.text; }).filter(Boolean).join("\n\n")
     + "\nreturn { " + FUNCTIONS.filter(function (n) { return MISSING.indexOf(n) < 0; })
         .map(function (n) { return n + ": " + n; }).join(", ") + " };"
@@ -397,7 +397,7 @@ function makePanel(opts) {
 
   const panel = BUILD(root, host, Qt, settingRows, timers, timers.promptDebounce,
                       timers.promptFocusTimer, timers.pendingSelectGuard,
-                      timers.reloadTimer);
+                      timers.reloadTimer, timers.centerTimer);
   Object.keys(panel).forEach(function (k) { root[k] = panel[k]; });
 
   // Record what the panel asks for, without changing what it does.
@@ -1923,6 +1923,28 @@ group("case 17: the queue names the album, the album view does not repeat it");
         COMPILATION.root.infoFor("find", COMPILATION.root.frame, COMPILATION.root.rows)
           === "2 tracks  ·  6:57",
         COMPILATION.root.infoFor("find", COMPILATION.root.frame, COMPILATION.root.rows));
+
+  // A queue that was re-read under the cursor. Replacing the model array leaves
+  // the list at the top, so the cursor keeps its song but lands off screen --
+  // what looks like "the focus jumped somewhere" when a track ends.
+  const CARRY = makePanel();
+  CARRY.root.stack = [{ mode: "queue", title: "Queue" }];
+  const QUEUE_BEFORE = [
+    { id: 11, file: "c/01.flac", artist: "A", album: "One", title: "a" },
+    { id: 12, file: "c/02.flac", artist: "A", album: "One", title: "b" },
+    { id: 13, file: "c/03.flac", artist: "A", album: "One", title: "c" }
+  ];
+  CARRY.root.allRows = QUEUE_BEFORE;
+  CARRY.root.rows = QUEUE_BEFORE;
+  CARRY.root.sel = 2;
+  // `next` with consume took the row above: the cursor's song is still there.
+  CARRY.root.carrySel = { id: 13, index: 2 };
+  CARRY.root.allRows = [QUEUE_BEFORE[0], QUEUE_BEFORE[2]];
+  CARRY.root.presentRows("queue", CARRY.root.frame, CARRY.root.allRows);
+  check("a re-read queue keeps the cursor on its song",
+        CARRY.root.sel === 1, CARRY.root.sel);
+  check("... and asks the view to follow it there",
+        CARRY.root.pendingContain === 1, CARRY.root.pendingContain);
 
   // A frame that only falls back to tracks -- an artist or a genre whose albums
   // carry no tag -- stands for no album, so the album and the genre stay on the

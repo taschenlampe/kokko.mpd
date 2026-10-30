@@ -132,6 +132,7 @@ Panel {
   // after a model change does nothing (the rows are not measured yet), so it is
   // done a moment later -- the list is ~20 rows, 120 ms is plenty.
   property int pendingCenter: -1
+  property int pendingContain: -1
   property string pendingSelect: ""
   // Set while the pointer rests on a button that is only a glyph: the footer then
   // spells out what it does instead of the key hints.
@@ -738,9 +739,12 @@ Panel {
     // top; the load itself only knows "first hit", so the wish rides along here.
     if (root.pendingSelect === "last") { root.sel = root.lastSelectable(); root.pendingSelect = "" }
     else if (root.carrySel !== null) {
-      // The list was re-read under the cursor (see carrySel): it stays on its row.
+      // The list was re-read under the cursor (see carrySel): it stays on its row
+      // -- and the view follows it there, or the replacement of the model has
+      // left the list at the top with the cursor somewhere off screen.
       root.sel = root.carriedSelection()
       root.carrySel = null
+      root.keepViewOn(root.sel)
       if (root.pendingSelect === "first") root.pendingSelect = ""
     }
     else {
@@ -1011,9 +1015,21 @@ Panel {
     interval: 120
     repeat: false
     onTriggered: {
-      if (root.pendingCenter < 0) return
-      list.positionViewAtIndex(root.pendingCenter, ListView.Center)
-      root.pendingCenter = -1
+      // A reload that kept the cursor's row jumps the view back to the top when
+      // the model array is replaced: the selection is still right, it is just
+      // not on screen any more. Pulling it back in is the whole fix here --
+      // centred only when that was asked for (jumpToCurrent, `t`), otherwise
+      // just far enough to be visible, so the list does not get yanked.
+      if (root.pendingCenter >= 0) {
+        list.positionViewAtIndex(root.pendingCenter, ListView.Center)
+        root.pendingCenter = -1
+        root.pendingContain = -1
+        return
+      }
+      if (root.pendingContain >= 0) {
+        list.positionViewAtIndex(root.pendingContain, ListView.Contain)
+        root.pendingContain = -1
+      }
     }
   }
 
@@ -1021,6 +1037,14 @@ Panel {
     for (var i = root.rows.length - 1; i >= 0; i--)
       if (root.isSelectable(root.rows[i])) return i
     return Math.max(0, root.rows.length - 1)
+  }
+
+  // Put a row back in sight after a reload replaced the model, without moving
+  // the view further than it has to.
+  function keepViewOn(at) {
+    if (at === undefined || at === null || at < 0) return
+    root.pendingContain = at
+    centerTimer.restart()
   }
 
   // A mutation that changes what a list would show: send it, then re-read the
