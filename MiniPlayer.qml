@@ -28,7 +28,18 @@ PanelWindow {
   readonly property int gap: Style.space(7)
   readonly property string barPosition: (service && service.bar && service.bar.position)
     ? service.bar.position : "top"
-  readonly property real barH: anchorWindow ? anchorWindow.height : 0
+  // The height the card hangs from: the *strip's* bottom edge, not the window's.
+  // The bar's layer surface spans its whole screen since Omarchy's "Keep the bar
+  // surface full-size so drags survive empty workspaces" (e2d618ac), so
+  // `anchorWindow.height` is the screen height, not the bar's: measured 960
+  // against a 26 px strip, and the card was drawn at y = 960 + 7, one screen
+  // below the bar -- the surface was mapped 1536x1097 and nothing was on screen.
+  // The anchor item lives inside the bar's own window, so its bottom edge is the
+  // edge to hang from; the musify card measures the same way. Only a bar raised
+  // above the strip by a notch floor is thicker than this item, and there the
+  // card starts a few px inside the strip.
+  readonly property real barH: anchorItem
+    ? (anchorItem.mapToItem(null, 0, 0).y + anchorItem.height) : 0
   readonly property real barW: anchorWindow ? anchorWindow.width : 0
   readonly property real screenW: screen ? screen.width : 0
   // The bar is inset from the screen edge (a floating bar), and mapToItem gives

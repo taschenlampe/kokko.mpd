@@ -744,6 +744,36 @@ function caseCardHoverOwnership() {
     ])
 }
 
+// --- 9: the card hangs from the bar strip, not from the bar's window --------
+// The bar's layer surface spans the whole screen ("Keep the bar surface
+// full-size so drags survive empty workspaces", Omarchy e2d618ac), so the bar
+// *window* is as tall as the screen. A card positioned at `anchorWindow.height`
+// therefore lands at y = screen height + gap -- one screen below the bar: the
+// surface is mapped, the buttons are mapped, and nobody sees them (measured on
+// the running desktop: window 960, strip 26, card drawn at y=967, surface
+// mapped 1536x1097). The edge to hang from is the anchor item's own bottom edge
+// inside the bar window, which is what the musify card measures as well.
+function caseCardAnchoredToStrip() {
+  const piece = exprAt(src.mini, /readonly property real barH:/, "barH")
+  const strip = { height: 26, mapToItem: function () { return { x: 0, y: 0 } } }
+  const win = { height: 960, width: 1536 }
+  const barH = evalPiece(piece, "expr", ["anchorItem", "anchorWindow"], [strip, win], "barH")
+  const fromWindow = /barH:[\s\S]{0,120}?anchorWindow\.height/.test(src.mini)
+  const ok = piece !== null && barH === 26 && !fromWindow
+
+  report("9", "the card hangs from the bar's strip, not from its full-screen window",
+    ok,
+    [
+      "barH " + (piece ? "line " + piece.first + " sha256:" + piece.hash : "absent")
+        + "  " + (piece ? JSON.stringify(piece.body.replace(/\s+/g, " ").trim()) : ""),
+      "    evaluated with a 26 px strip in a 960 px bar window -> " + JSON.stringify(barH)
+        + "   (the screen height would be 960)",
+      "    the expression still reads anchorWindow.height: " + fromWindow,
+      "expected: the strip's bottom edge (26), so the card starts just under the bar"
+        + " -- a card at 960 sits a whole screen below it"
+    ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -752,6 +782,7 @@ caseTexts()
 caseAlbumRepeatsTitle()
 caseTransportHover()
 caseCardHoverOwnership()
+caseCardAnchoredToStrip()
 
 console.log(failures === 0
   ? "all media-surface checks passed"
