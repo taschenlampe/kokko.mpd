@@ -11,6 +11,10 @@ Changed compared to the original:
 * Two commands added: `playlistdelete {name,pos}` and `playlistclear {name}` —
   removing a single track from a saved playlist, or emptying it (MPD knows these,
   the original never wired them up).
+* Answers that grow with the library (queue, `find`, `search`, a stored playlist)
+  are read in windows of 1000 — the paging fix from upstream `4c26a94`
+  ("read big queues and results from a page at a time"), taken over after a
+  14 000 song library overflowed MPD's output buffer.
 * The caller is this plugin's `BarWidget.qml` instead of the shell plugin service.
 
 `Format.js` is taken from omajam as well (unchanged, MIT, same copyright holder).
