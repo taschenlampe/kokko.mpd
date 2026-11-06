@@ -137,6 +137,21 @@ REFRESH_MIN_GAP = 0.1
 # hand the shell a hundred megabytes of JSON on one line.
 QUERY_ROW_LIMIT = 20000
 
+# How much of an answer to ask for at a time.
+#
+# MPD's own output buffer is finite (max_output_buffer_size, 8192 KiB by
+# default) and a reply that does not fit in it is not truncated, it is fatal:
+# the server writes "Output buffer is full" to its log, closes the connection,
+# and every row of the answer is lost -- the retry asks again and loses it
+# again. One song costs about 770 bytes of protocol here (measured: `find Genre
+# "Electro"` answered 655 songs in 0.48 MiB), so the default buffer holds
+# roughly 11 000 of them while this database has 14 084: `search "(any contains
+# 'e')"` was closed by the server after 0 bytes, `search 'the'` came back in
+# 4.16 MiB. Every answer that grows with the library is therefore read a window
+# at a time. Taken over from omajam's bridge (bin/omajam-mpd, MIT, see
+# NOTICE.md), which fixed exactly this.
+QUERY_PAGE = 1000
+
 # The public station directory the radio search asks. No key, no account, and
 # the `all` host is the load-balanced one the project points clients at; the
 # plugin keeps no list of mirrors to go stale. radio-browser asks callers to
@@ -2230,6 +2245,47 @@ class Bridge:
             flat.extend([tag, value])
         return flat
 
+    def paged(self, conn: MPDConn, limit, fetch, fields=SONG_FIELDS) -> list:
+        """Collect a list of songs a window at a time.
+
+        `fetch(start, end)` runs one page and hands back its raw pairs; every
+        command that can answer with the whole library takes a window for
+        exactly this reason. Paging stops at `limit` -- the pane's own ceiling,
+        so `truncated` still means what it meant -- or when a page comes back
+        short, which is the server saying there was nothing after it. An answer
+        that fits in one page therefore costs the one command it always did.
+        """
+        rows = []
+        start = 0
+        while limit is None or start < limit:
+            size = QUERY_PAGE if limit is None else min(QUERY_PAGE, limit - start)
+            page = split_entries(fetch(start, start + size), markers=("file",),
+                                 fields=fields, limit=size)
+            rows.extend(page)
+            if len(page) < size:
+                break
+            start += size
+        return rows
+
+    def paged_filter(self, conn: MPDConn, limit, args, fields=SONG_FIELDS) -> list:
+        """`paged` for the filter commands: their window is `window START:END`.
+
+        The window has to be the last argument, so it is appended per page
+        rather than being part of `args`. `find`/`search` only learnt it in 0.21
+        -- on an older server the lot has to be asked for at once, which is what
+        every version did before.
+        """
+        if not version_at_least(conn.version, 0, 21):
+            return split_entries(conn.command(*args)[0], markers=("file",),
+                                 fields=fields, limit=limit)
+        return self.paged(conn, limit, lambda start, end: conn.command(
+            *(args + ["window", "%d:%d" % (start, end)]))[0], fields=fields)
+
+    def paged_range(self, conn: MPDConn, limit, args, fields=SONG_FIELDS) -> list:
+        """`paged` for the commands that take their window as `START:END`."""
+        return self.paged(conn, limit, lambda start, end: conn.command(
+            *(args + ["%d:%d" % (start, end)]))[0], fields=fields)
+
     def execute_query(self, conn: MPDConn, kind: str, request: dict) -> list:
         # `search a` on a ten thousand song library is a real thing to type, and
         # its answer is four megabytes of JSON on one line. The pane asking says
@@ -2241,8 +2297,10 @@ class Bridge:
         limit = max(1, min(QUERY_ROW_LIMIT, limit))
 
         if kind == "queue":
-            return split_entries(conn.command("playlistinfo")[0],
-                                 markers=("file",), fields=SONG_FIELDS, limit=limit)
+            # A queue of ten thousand is past the server's output buffer, and a
+            # reply that does not fit is fatal, not truncated -- so the queue is
+            # read in windows too. A short queue still costs one command.
+            return self.paged_range(conn, limit, ["playlistinfo"])
 
         if kind == "lsinfo":
             rows = split_entries(conn.command("lsinfo", request.get("path", ""))[0],
@@ -2305,8 +2363,7 @@ class Bridge:
             args = self.filter_args(conn, request.get("filter") or [])
             if not args:
                 return []
-            rows = split_entries(conn.command("find", *args)[0],
-                                 markers=("file",), fields=SONG_FIELDS, limit=limit)
+            rows = self.paged_filter(conn, limit, ["find"] + args)
             if request.get("sort") == "track":
                 # A missing disc tag is disc one, not disc zero: a tag that is not
                 # there means a single-disc album, and counting it as 0 lifted
@@ -2329,8 +2386,7 @@ class Bridge:
             # matched on the title can be the last of twenty-seven (see
             # rank_search_hits).
             return rank_search_hits(
-                split_entries(conn.command("search", *args)[0],
-                              markers=("file",), fields=SEARCH_FIELDS, limit=limit),
+                self.paged_filter(conn, limit, ["search"] + args, fields=SEARCH_FIELDS),
                 term)
 
         if kind == "counts":
@@ -2377,6 +2433,11 @@ class Bridge:
             name = str(request.get("name", ""))
             if not name:
                 return []
+            if version_at_least(conn.version, 0, 24):
+                return self.paged_range(conn, limit, ["listplaylistinfo", name])
+            # Ranges arrived in 0.24: an older server has to send the lot, and a
+            # stored playlist long enough to overflow its buffer cannot be read
+            # at all -- there is no other spelling of this question.
             return split_entries(conn.command("listplaylistinfo", name)[0],
                                  markers=("file",), fields=SONG_FIELDS, limit=limit)
 

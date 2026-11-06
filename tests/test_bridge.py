@@ -18,6 +18,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import shutil
 import socket
 import socketserver
@@ -370,8 +371,9 @@ SEARCH_PAIRS = [
 ]
 search_conn = CannedConn("0.24.0", pairs=SEARCH_PAIRS)
 search_rows = B.Bridge().execute_query(search_conn, "search", {"term": "southbound"})
-check("the term still goes out as one `any` filter",
-      search_conn.calls[-1], ("search", ["(any contains 'southbound')"]))
+check("the term still goes out as one `any` filter, in a window",
+      search_conn.calls[-1],
+      ("search", ["(any contains 'southbound')", "window", "0:1000"]))
 check("the title match comes first, though MPD answered it last",
       [r.get("title") for r in search_rows],
       ["Southbound", "Never Change Lovers in the Middle of the Night"])
@@ -398,6 +400,91 @@ check("... and ranked last", other_rows[0].get("rank"), B.UNMATCHED_RANK)
 # No term, no search: the pane clears the list instead of asking.
 check("an empty term asks MPD nothing",
       CannedConn("0.24.0").calls, [])
+
+print("=== a library answer is read in windows, not in one reply ===")
+# The report behind this: past MPD's output buffer a reply is not truncated, it
+# is fatal -- the server closes the connection and every row is lost. Measured
+# on this database (14 084 songs, ~770 bytes of protocol per song against the
+# default 8192 KiB buffer): `search "(any contains 'e')"` came back as nothing
+# with "connection closed by server", `search 'the'` (5 189 songs, 4.16 MiB) came
+# back whole. So every answer that grows with the library is asked for a window
+# at a time, which is what omajam's bridge does as well.
+
+
+class PageConn(REAL_MPDConn):
+    """A connection that answers a window with the songs inside it.
+
+    `total` is the size of the whole answer; a command that carries no window
+    gets all of it, which is how a pre-0.21 server or a stored playlist on 0.23
+    is asked. Every command is recorded, so the windows are checkable.
+    """
+
+    def __init__(self, total, version="0.24.0"):
+        REAL_MPDConn.__init__(self, ("tcp", "127.0.0.1", 6600))
+        self.version = version
+        self.total = total
+        self.calls = []
+
+    def _window(self, args):
+        for i, arg in enumerate(args):
+            span = re.match(r"^(\d+):(\d+)$", str(arg))
+            if span:
+                return int(span.group(1)), int(span.group(2))
+            if str(arg) == "window" and i + 1 < len(args):
+                span = re.match(r"^(\d+):(\d+)$", str(args[i + 1]))
+                if span:
+                    return int(span.group(1)), int(span.group(2))
+        return 0, self.total
+
+    def command(self, name, *args):
+        self.calls.append((name, list(args)))
+        start, end = self._window(args)
+        pairs = []
+        for n in range(start, min(end, self.total)):
+            pairs.append(("file", "Album/%05d.mp3" % n))
+            pairs.append(("Title", "Song %05d" % n))
+        return pairs, None
+
+
+big = PageConn(2500)
+big_rows = B.Bridge().execute_query(big, "search", {"term": "song"})
+check("a 2500 song answer comes back complete", len(big_rows), 2500)
+check("... first row first, last row last",
+      (big_rows[0]["file"], big_rows[-1]["file"]),
+      ("Album/00000.mp3", "Album/02499.mp3"))
+check("... asked for in windows of a thousand",
+      [call[1][-1] for call in big.calls], ["0:1000", "1000:2000", "2000:3000"])
+check("... and the short page is the last question", len(big.calls), 3)
+
+limited = PageConn(2500)
+limited_rows = B.Bridge().execute_query(limited, "search",
+                                        {"term": "song", "limit": 1200})
+check("the pane's row limit still caps the answer", len(limited_rows), 1200)
+check("... and asks for nothing past it",
+      [call[1][-1] for call in limited.calls], ["0:1000", "1000:1200"])
+
+queue_conn = PageConn(31)
+queue_rows = B.Bridge().execute_query(queue_conn, "queue", {})
+check("a queue that fits in one window costs one command",
+      queue_conn.calls, [("playlistinfo", ["0:1000"])])
+check("... and comes back whole", len(queue_rows), 31)
+
+old = PageConn(2500, version="0.20.3")
+old_rows = B.Bridge().execute_query(old, "search", {"term": "song"})
+check("a 0.20 server keeps the positional spelling and no window",
+      [call[1] for call in old.calls], [["any", "song"]])
+check("... and still gets every row", len(old_rows), 2500)
+
+stored = PageConn(1500)
+stored_rows = B.Bridge().execute_query(stored, "playlist", {"name": "Mix"})
+check("a stored playlist is read in windows on 0.24",
+      [call[1] for call in stored.calls], [["Mix", "0:1000"], ["Mix", "1000:2000"]])
+check("... whole", len(stored_rows), 1500)
+
+stored_old = PageConn(1500, version="0.23.5")
+B.Bridge().execute_query(stored_old, "playlist", {"name": "Mix"})
+check("a 0.23 server is asked for the whole playlist at once",
+      [call[1] for call in stored_old.calls], [["Mix"]])
 
 print("=== find: an album's track order survives a missing Disc tag ===")
 # The report behind this: the album view of Mazzy Star's "Among My Swan" opened
