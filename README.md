@@ -52,7 +52,7 @@ runs along, left click = play/pause, middle click = next, scroll = volume.
 - **On the wallpaper** (optional) — the same card, sitting on your desktop.
 - **A start screen when nothing is queued** — what just entered the library, what you
 played last, three random albums and your genres, each with its cover; `enter` plays an
-album, `l` opens it, `r` reshuffles the picks.
+album, `l` opens it, a heading opens the whole list, `r` reshuffles the picks.
 - **The full panel** — queue, search, library, playlists, all in one view.
 - **An album is a track list** — open one and the rows are number, title and
 duration, because the frame already says which album it is; the footer carries
@@ -89,7 +89,8 @@ no seek bar.
 [![Search](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-suche.png)](docs/panel-suche.png)
 
 **Start** — what an empty queue opens on: new in the library, recently played, three
-random albums, genres. `enter` plays, `l` opens.
+random albums, genres. `enter` plays, `l` opens, and a heading opens the section's
+full list.
 
 [![Start](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-start.png)](docs/panel-start.png)
 
