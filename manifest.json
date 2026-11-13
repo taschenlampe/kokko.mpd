@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "kokko.mpd",
   "name": "MPD",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "author": "kokko",
   "description": "MPD player for the bar and a full panel: queue, library search, playlists, internet radio. Needs a running MPD; it speaks the protocol itself over TCP or a Unix socket, with idle push instead of polling.",
   "license": "MIT",
