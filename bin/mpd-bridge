@@ -1024,6 +1024,20 @@ class RadioError(Exception):
     """The directory could not be asked, or did not answer with stations."""
 
 
+# Everything the directory sends is somebody else's data, and an address from it is
+# used for a request only if it is plain http(s). `urlopen` also speaks `file:` and
+# `ftp:`, and a local image file passes the caller's `image/*` check (measured:
+# `file:///…/cliamp.png` answers `Content-Type: image/png`), so a hostile station
+# entry could have the bridge read files off this machine and show one as a logo.
+# The control characters are in the pattern for the same reason: an address is later
+# handed to MPD, which reads its input line by line (see quote()).
+HTTP_URL = re.compile(r"^https?://[^\x00-\x20\x7f]+$", re.IGNORECASE)
+
+
+def is_http_url(url) -> bool:
+    return bool(HTTP_URL.match(str(url or "")))
+
+
 def radio_url(search: str, country: str = "", tag: str = "", limit: int = 50) -> str:
     """The search request, parameters and all.
 
@@ -1132,6 +1146,10 @@ def radio_stations(body, limit: int = 50) -> list:
             continue
         stream = str(entry.get("url_resolved") or "").strip()
         if not stream:
+            continue
+        # An address this row would hand to MPD has to be a plain http(s) URL. A
+        # scheme that is not one is not a stream, and the row is not offered.
+        if not is_http_url(stream):
             continue
         rows.append({
             "name": str(entry.get("name") or "").strip(),
@@ -1275,6 +1293,10 @@ def fetch_remote(url: str, timeout: float, accept: str = "image/*") -> tuple:
     caller. Only the header is returned alongside the bytes: this is how the
     caller tells an image apart from an HTML error page.
     """
+    if not is_http_url(url):
+        # `urlopen` also speaks `file:` and `ftp:`, and this URL is not ours (see
+        # is_http_url). Refused before a thread or a socket exists.
+        raise RadioError("not an http(s) address")
     result = {}
 
     def fetch():

@@ -1344,6 +1344,32 @@ check("an object instead of a list is a radio error",
 check("an empty list is simply no stations",
       B.radio_stations(b"[]", 50), [])
 
+print("=== radio search: an address that is not plain http(s) makes no row ===")
+# `url_resolved` is somebody else's JSON and is what MPD is handed when a row is
+# played. A scheme that is not http(s) is not a stream, and a control character in
+# the address would be a line break in the protocol's input (see quote()).
+hostile = [
+    station("Fine", "https://ok.example/stream"),
+    station("Upper case scheme", "HTTP://ok.example/upper"),
+    station("File", "file:///etc/passwd"),
+    station("Ftp", "ftp://x.example/s"),
+    station("Line break", "http://x.example/s\nclear"),
+    station("Space inside", "http://x.example/a b"),
+]
+check("only plain http(s) addresses survive",
+      [r["name"] for r in B.radio_stations(json.dumps(hostile).encode(), 50)],
+      ["Fine", "Upper case scheme"])
+
+print("=== fetch_remote: refuses what urlopen would still speak ===")
+# Measured on the old code: file:///usr/share/pixmaps/cliamp.png came back as
+# image/png with 15924 bytes, which passes the caller's image/* check -- a station
+# entry could have read a local file and shown it as its logo.
+check("file:, ftp: and data: are refused before a request is made",
+      [raised_by(lambda u=u: B.fetch_remote(u, 1.0))
+       for u in ("file:///etc/hostname", "ftp://127.0.0.1/x.png",
+                 "data:image/png;base64,AAAA")],
+      ["RadioError", "RadioError", "RadioError"])
+
 for label, responder in (
         ("a 503", radio_raw(b"nope", 503)),
         ("HTML where JSON belongs", radio_raw(b"<html>no</html>")),
