@@ -699,9 +699,13 @@ Panel {
   // filter on Last-Modified, measured), a few random albums, a few genres. Nothing
   // is stored and nothing is remembered, so the frame is rebuilt on every open, and
   // a section whose answer is empty is left out instead of shown as a dead heading.
-  readonly property int startNewest: 4
-  readonly property int startPicks: 3
-  readonly property int startGenres: 4
+  // Three sizes, not four and three: with the player band in the header the list is
+  // about 374 px tall, and 3 + 2 + 3 sections (87 + 200 + 78) fit inside that. Four
+  // albums, three picks and four genres came to 471 px, which cut the last heading in
+  // half at the fold -- a section that is only announced and never shown reads broken.
+  readonly property int startNewest: 3
+  readonly property int startPicks: 2
+  readonly property int startGenres: 3
 
   function loadStart(gen) {
     var year = (new Date()).getFullYear()

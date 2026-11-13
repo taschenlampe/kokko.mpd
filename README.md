@@ -7,8 +7,8 @@
 ## What it is
 
 A little bar widget for your music: cover + title always visible, a click opens the
-full player — queue, search, your whole library, playlists, and internet radio.
-Mouse-first, keyboard if you want it.
+full player — queue, search, your whole library, playlists, internet radio, and a start
+screen when nothing is queued. Mouse-first, keyboard if you want it.
 
 ## Get it running
 
@@ -46,10 +46,8 @@ The folder name must stay `kokko.mpd` — it's how `shell.json` and the CLI find
 runs along, left click = play/pause, middle click = next, scroll = volume.
 - **On hover** — a card with cover, draggable progress, big transport buttons.
 - **On the wallpaper** (optional) — the same card, sitting on your desktop.
-- **A start screen when nothing is queued** — the panel opens on it instead of an
-empty queue: the newest records in your library (by year), a few random albums, a few
-genres, each with its cover. Nothing is stored, so the picks change every time you open
-it, and `r` reshuffles without leaving the panel.
+- **A start screen when nothing is queued** — newest records, a few random albums, a few
+genres, each with its cover; `r` reshuffles.
 - **The full panel** — queue, search, library, playlists, all in one view.
 - **An album is a track list** — open one and the rows are number, title and
 duration, because the frame already says which album it is; the footer carries
@@ -85,8 +83,7 @@ no seek bar.
 
 [![Search](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-suche.png)](docs/panel-suche.png)
 
-**Start** — what the panel opens on while nothing is queued: the newest records, a few
-random albums, a few genres, covers included.
+**Start** — what an empty queue opens on: newest records, random albums, genres.
 
 [![Start](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-start.png)](docs/panel-start.png)
 
@@ -112,6 +109,9 @@ send a desktop notification).
 1. Press `/` and type (or open the search tab).
 2. Press `+` next to a hit — appends the track, album, or artist.
 3. Press `enter` instead — plays it right away.
+
+**Nothing queued?** The panel opens on **Start**: `enter` opens an album, `a` appends it,
+`r` reshuffles the picks, `0` always brings you back.
 
 That's really all you need. Everything below is for when you want more.
 
