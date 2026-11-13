@@ -395,7 +395,12 @@ function makePanel(opts) {
     clearQueue: function () {},
     cropQueue: function () {},
     toggleTrack: function () {},
-    toggleOption: function () {},
+    repeatOn: false,
+    // What the panel asked the bar to setopt: [name, value], the value being "0",
+    // "1" or "toggle". `c` has to choose between an absolute pair and a toggle.
+    options: [],
+    setOption: function (name, value) { host.options.push([String(name), String(value)]); },
+    toggleOption: function (name) { host.options.push([String(name), "toggle"]); },
     nudgeVolume: function () {},
     bare: function () {},
     nextTrack: function () {},
@@ -2136,6 +2141,35 @@ group("case 18: a queue reload keeps the cursor on its row");
   R.press("r");
   check("r asks the three questions again", R.queries.length === before + 3,
         before + " -> " + R.queries.length);
+}
+
+// ---------------------------------------------------------------- case 20
+// `repeat` and `consume` exclude each other: the bar turns consume off on every
+// state event while repeat is on, so the queue survives the loop. Turning consume
+// *on* from here used to bounce back on the next event -- `c` looked dead. Asking
+// for consume is asking for the other half, so the panel says so: repeat off,
+// consume on, and the two commands in that order (a state event must never see
+// both as on, or the bar's rule would undo the second command).
+{
+  group("case 20: consume and repeat exclude each other");
+  const P = makePanel();
+  P.host.repeatOn = true;
+  P.press("c");
+  check("c under a running loop turns repeat off, then consume on",
+        JSON.stringify(P.host.options) === JSON.stringify([["repeat", "0"], ["consume", "1"]]),
+        JSON.stringify(P.host.options));
+  check("... and the footer says so",
+        P.flashes[P.flashes.length - 1] === "consume on — repeat off",
+        P.flashes[P.flashes.length - 1]);
+
+  const Q = makePanel();
+  Q.host.repeatOn = false;
+  Q.press("c");
+  check("c without a loop is still the plain toggle",
+        JSON.stringify(Q.host.options) === JSON.stringify([["consume", "toggle"]]),
+        JSON.stringify(Q.host.options));
+  check("... and it does not claim to have changed repeat", Q.flashes.length === 0,
+        "flashes=" + Q.flashes.length);
 }
 
 // --------------------------------------------------------------- report

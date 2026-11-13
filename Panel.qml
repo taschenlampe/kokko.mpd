@@ -2403,7 +2403,23 @@ Panel {
     if (key === Qt.Key_Space || text === "p") { host.toggleTrack(); event.accepted = true; return }
     if (text === "z") { host.toggleOption("repeat"); event.accepted = true; return }
     if (text === "R") { host.toggleOption("random"); event.accepted = true; return }
-    if (text === "c") { host.toggleOption("consume"); event.accepted = true; return }
+    if (text === "c") {
+      // `repeat` and `consume` contradict each other: the bar keeps the queue safe
+      // by turning `consume` off whenever both are on (BarWidget.qml, the state
+      // handler). Flipping consume on under a running loop was therefore undone by
+      // the next state event -- the key looked dead. Asking for consume is asking
+      // for the other half, so say it and stop the loop in the same breath; the
+      // order matters, `repeat` first, so no event ever reports both as on.
+      if (root.host && root.host.repeatOn) {
+        root.host.setOption("repeat", 0)
+        root.host.setOption("consume", 1)
+        root.flash("consume on — repeat off")
+      } else {
+        root.host.toggleOption("consume")
+      }
+      event.accepted = true
+      return
+    }
     if (text === "v") { host.toggleOption("single"); event.accepted = true; return }
     if (key === Qt.Key_Plus || text === "+") { host.nudgeVolume(5); event.accepted = true; return }
     if (key === Qt.Key_Minus || text === "-") { host.nudgeVolume(-5); event.accepted = true; return }

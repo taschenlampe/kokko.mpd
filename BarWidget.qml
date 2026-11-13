@@ -483,6 +483,14 @@ Panel {
     bare("setopt " + name + " " + (current ? "0" : "1"))
   }
 
+  // An absolute setting, for the panel. Two of them in a row, because `repeat`
+  // and `consume` exclude each other: the loop has to be off before consume can
+  // be on, or the state event the first one causes would undo the second (see
+  // the `consume` rule in the state handler above).
+  function setOption(name, value) {
+    bare("setopt " + name + " " + (value ? "1" : "0"))
+  }
+
   function nudgeVolume(delta) {
     var base = volume >= 0 ? volume : 100
     bare("volume " + Math.max(0, Math.min(100, base + delta)))
