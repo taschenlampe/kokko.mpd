@@ -58,7 +58,8 @@ function freshTabOrder() {
 // panel.
 const START_SIZES = (function () {
   const out = {};
-  ["startNewest", "startPicks", "startGenres"].forEach(function (name) {
+  ["startNewest", "startRecent", "startPicks", "startGenres", "startGenrePool"]
+    .forEach(function (name) {
     const m = new RegExp("^  readonly property int " + name + ": (\\d+)$", "m").exec(SRC);
     if (!m) throw new Error("Panel.qml has no int property " + name);
     out[name] = Number(m[1]);
@@ -294,8 +295,10 @@ function makePanel(opts) {
     answeredLoads: 0,
     staleAnswers: 0,
     startNewest: START_SIZES.startNewest,
+    startRecent: START_SIZES.startRecent,
     startPicks: START_SIZES.startPicks,
     startGenres: START_SIZES.startGenres,
+    startGenrePool: START_SIZES.startGenrePool,
     settingRows: settingRows,
     note: function () {},
     flash: function (t) { flashes.push(String(t)); },

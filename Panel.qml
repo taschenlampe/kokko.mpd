@@ -706,8 +706,13 @@ Panel {
   // heading. The recent list is the only thing stored, it is a cache, and it says
   // so in `bin/mpd-bridge` (RECENT_LIMIT).
   readonly property int startNewest: 3
-  readonly property int startPicks: 3
+  readonly property int startRecent: 2
+  readonly property int startPicks: 2
   readonly property int startGenres: 3
+  // Genres are picked from a wider pool and then counted: 228 genre names in this
+  // library include "Singer & Songwriter" with one track, and three of those are a
+  // decoration, not a way in. The three largest of eight candidates are the section.
+  readonly property int startGenrePool: 8
 
   // YYYY-MM-DD, the form MPD's added-since takes.
   function isoDay(daysAgo) {
@@ -792,16 +797,17 @@ Panel {
     }
     root.startAlbumsFrom(parts.added, root.startNewest, true).forEach(mark)
     root.startAlbumsFrom(parts.released, root.startNewest, false).forEach(mark)
-    var recentRows = (parts.recent || []).slice(0, root.startNewest)
+    var recentRows = (parts.recent || []).slice(0, root.startRecent)
     recentRows.forEach(mark)
 
     var allGenres = parts.genres || []
-    var picked = []
-    for (var g = 0; g < 40 && allGenres.length > 0 && picked.length < root.startGenres; g++) {
+    var pool = []
+    for (var g = 0; g < 60 && allGenres.length > 0 && pool.length < root.startGenrePool; g++) {
       var gname = String((allGenres[Math.floor(Math.random() * allGenres.length)] || {}).value || "")
-      if (gname !== "" && picked.indexOf(gname) < 0) picked.push(gname)
+      if (gname !== "" && pool.indexOf(gname) < 0) pool.push(gname)
     }
-    parts.genreNames = picked
+    parts.genrePool = pool
+    parts.genreNames = []
 
     var all = parts.albums || []
     var names = []
@@ -811,16 +817,29 @@ Panel {
       names.push(pick)
     }
     parts.picks = []
-    var left = names.length + (picked.length > 0 ? 1 : 0)
+    var left = names.length + (pool.length > 0 ? 1 : 0)
     if (left === 0) { root.paintStart(gen, parts); return }
 
-    if (picked.length > 0) {
+    if (pool.length > 0) {
       var filters = []
-      for (var f = 0; f < picked.length; f++)
-        filters.push({ tag: "genre", value: picked[f] })
+      for (var f = 0; f < pool.length; f++)
+        filters.push({ tag: "genre", value: pool[f] })
       host.query("counts", { filters: filters }, "start:counts",
                  function(rows, error) {
-        if (error === "" && rows) parts.counts = rows
+        // The pool is asked for its size, then the three biggest are the section:
+        // a genre with one track is a fact, not an invitation.
+        var sizes = (error === "" && rows) ? rows : []
+        var ranked = []
+        for (var k = 0; k < pool.length; k++) {
+          var n = Number(sizes[k])
+          if (isFinite(n) && n > 0) ranked.push({ name: pool[k], tracks: n })
+        }
+        ranked.sort(function(a, b) { return b.tracks - a.tracks })
+        ranked = ranked.slice(0, root.startGenres)
+        for (var q = 0; q < ranked.length; q++) {
+          parts.genreNames.push(ranked[q].name)
+          parts.counts.push(ranked[q].tracks)
+        }
         left = left - 1
         if (left === 0) root.paintStart(gen, parts)
       })
@@ -860,7 +879,7 @@ Panel {
 
     var recent = []
     var cache = parts.recent || []
-    for (var r = 0; r < cache.length && recent.length < root.startNewest; r++) {
+    for (var r = 0; r < cache.length && recent.length < root.startRecent; r++) {
       var rec = cache[r] || {}
       if (String(rec.album || "") === "") continue
       var row = root.startAlbumRow(rec)
