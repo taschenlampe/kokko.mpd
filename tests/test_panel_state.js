@@ -156,8 +156,9 @@ function grabRowBinding(name) {
 const FUNCTIONS = [
   "rootFrameFor", "tabEntry", "tabForNumber", "setTab", "pushFrame", "popFrame", "topFrame",
   "loadFrame", "loadSearch", "presentRows",
-  // The start screen: three answers built into one list.
+  // The start screen: five answers, two stages, one list.
   "loadStart", "startPicksStage", "paintStart", "startRows", "startAlbumRow",
+  "startAlbumsFrom", "isoDay", "ago", "openStartRow",
   "breadcrumb",
   "infoFor", "groupHits", "matchName", "matchNote", "isSelectable",
   "firstSelectable", "lastSelectable", "carriedSelection",
@@ -2055,91 +2056,111 @@ group("case 18: a queue reload keeps the cursor on its row");
 }
 
 // ---------------------------------------------------------------- case 19
-// The start screen: three questions, one list, nothing stored. The test drives the
-// answers the way the bridge would and reads the rows the screen paints -- that is
-// the whole frame, so none of it needs a click.
+// The start screen: five answers, two stages, one list. Five because "what did I
+// just put in here" (added-since) and "what came out" (the Date tag) are two
+// questions, and "what did I play" is answered by the cache, not by the server.
 {
-  group("case 19: the start screen builds its list from three answers");
+  group("case 19: the start screen builds its list from five answers");
   const P = makePanel();
   P.root.setTab("start");
   check("the frame is the start frame", P.root.frameMode === "start", P.root.frameMode);
-  check("it asks three questions, one per section", P.queries.length === 3,
+  check("it asks five questions, one per source", P.queries.length === 5,
         P.queries.map(function (q) { return q.kind; }).join(","));
-  check("the newest section asks for a Date regexp, sorted by date",
+  check("the library question is added-since, sorted by it",
         P.queries[0].kind === "find"
-          && JSON.stringify(P.queries[0].args.regex || []).indexOf("date") > 0
-          && P.queries[0].args.sort === "date",
-        JSON.stringify(P.queries[0].args));
+          && String(P.queries[0].args.added_since || "").length === 10
+          && P.queries[0].args.sort === "added",
+        JSON.stringify(P.queries[0].args.added_since) + " " + P.queries[0].args.sort);
+  check("the recent one is the cache, not a query to MPD",
+        P.queries[1].kind === "recent", P.queries[1].kind);
+  check("the fallback section still asks for the Date tag",
+        P.queries[2].kind === "find"
+          && JSON.stringify(P.queries[2].args.regex || []).indexOf("date") > 0
+          && P.queries[2].args.sort === "date",
+        JSON.stringify(P.queries[2].args));
 
-  // The three answers: recent songs oldest-first (as MPD sorts), album names, genres.
-  P.answer([
-    { album: "Old One", albumartist: "A", date: "2025-03-01", file: "a/old1.mp3" },
-    { album: "Old One", albumartist: "A", date: "2025-03-01", file: "a/old2.mp3" },
-    { album: "New One", albumartist: "B", date: "2026-05-01", file: "b/new.mp3" }
-  ]);
+  // The five answers: songs added lately, the recent cache, songs released lately,
+  // album names, genre names.
+  P.answer([{ album: "New One", albumartist: "B", date: "2026-05-01", file: "b/1.mp3" },
+            { album: "New One", albumartist: "B", date: "2026-05-01", file: "b/2.mp3" },
+            { album: "Fresh Two", albumartist: "C", date: "2026-04-01", file: "c/1.mp3" }]);
+  const nowSecs = Math.floor(Date.now() / 1000);
+  P.answer([{ album: "Last Played", albumartist: "D", file: "d/1.mp3", at: nowSecs - 7200 },
+            { album: "Older Play", albumartist: "E", file: "e/1.mp3", at: nowSecs - 86400 * 3 }]);
+  P.answer([]);
   P.answer([{ value: "Pick A" }, { value: "Pick B" }]);
-  P.answer([{ value: "Ambient" }, { value: "Blues" }]);
+  P.answer([{ value: "Ambient" }, { value: "Blues" }, { value: "Techno" }]);
 
-  check("each random pick costs one detail query", P.queries.length === 5,
-        P.queries.slice(3).map(function (q) { return q.kind; }).join(","));
-  check("nothing is painted while the picks are still out", P.root.rows.length === 0,
+  check("nothing is painted while the counts are still out", P.root.rows.length === 0,
         "rows=" + P.root.rows.length);
+  check("the genre sizes are one query, and the picks follow",
+        P.queries.length === 8, P.queries.length + "");
 
-  P.answer([{ album: "Pick A", albumartist: "C", date: "1999", file: "c/a.mp3" }]);
-  check("... still nothing with one pick missing", P.root.rows.length === 0,
-        "rows=" + P.root.rows.length);
-  P.answer([{ album: "Pick B", albumartist: "D", date: "2001", file: "d/b.mp3" }]);
+  P.answer([105, 257, 12]);                       // one count per genre
+  P.answer([{ album: "Pick A", albumartist: "F", date: "1999", file: "f/1.mp3" }]);
+  P.answer([{ album: "Pick B", albumartist: "G", date: "2001", file: "g/1.mp3" }]);
 
   const titles = P.rowsTitles();
-  check("newest first, one row per album, no duplicate",
-        titles[0] === "Newest releases" && titles[1] === "New One" && titles[2] === "Old One",
-        titles.join(" | "));
-  check("the picks follow their own heading", titles[3] === "Random albums", titles[3]);
-  check("the genres come last",
+  check("new in the library comes first, one row per album",
+        titles[0] === "New in the library · 2" && titles[1] === "New One"
+          && titles[2] === "Fresh Two", titles.join(" | "));
+  check("recently played follows, with when it was played",
+        titles[3] === "Recently played · 2" && titles[4] === "Last Played",
+        P.root.rowSub(P.root.rows[4]));
+  check("... the row says how long ago", P.root.rowSub(P.root.rows[4]),
+        "D  ·  2 h ago");
+  check("random never repeats an album that is already above",
+        P.root.rows.filter(function (r) { return r.type === "startAlbum"; })
+          .map(function (r) { return r.album; })
+          .join(",") === "New One,Fresh Two,Last Played,Older Play,Pick A,Pick B",
+        P.root.rows.filter(function (r) { return r.type === "startAlbum"; })
+          .map(function (r) { return r.album; }).join(","));
+  check("genres come last, with their size",
         titles.indexOf("Genres") > 0
-          && P.root.rows.slice(titles.indexOf("Genres") + 1)
-               .every(function (r) { return r.type === "startGenre" }),
-        titles.join(" | "));
-
-  const firstAlbum = P.root.rows[1];
-  check("an album row says artist and year on its second line",
-        P.root.rowSub(firstAlbum) === "B  ·  2026", P.root.rowSub(firstAlbum));
+          && P.root.rowSub(P.root.rows[titles.length - 1]) === "12 tracks",
+        P.root.rowSub(P.root.rows[titles.length - 1]));
   check("the mark lands on the first album, not on a heading", P.root.sel === 1,
         "sel=" + P.root.sel);
 
+  // `enter` is the launch pad: it plays the album. `l` opens it.
+  P.root.sel = 1;
   P.enter();
-  check("enter opens the album's tracks",
-        P.root.frameMode === "find" && P.root.frameAlbum === "New One",
-        P.frames().join(" > "));
-
-  // `a` appends the album as one command, the albumartist included.
-  const A = makePanel();
-  A.root.setTab("start");
-  A.answer([{ album: "New One", albumartist: "B", date: "2026", file: "b/new.mp3" }]);
-  A.answer([]);
-  A.answer([{ value: "Ambient" }]);
-  A.root.sel = 1;
-  A.press("a");
-  check("a appends one findadd with album and albumartist",
-        A.mutations.length === 1 && A.mutations[0].op === "findadd"
-          && JSON.stringify(A.mutations[0].args.filter)
+  check("enter plays the album in one findplay",
+        P.mutations.length === 1 && P.mutations[0].op === "findplay"
+          && JSON.stringify(P.mutations[0].args.filter)
              === JSON.stringify([["album", "New One"], ["albumartist", "B"]]),
-        JSON.stringify(A.mutations));
+        JSON.stringify(P.mutations));
+  check("... and says so", P.flashes[P.flashes.length - 1], "playing “New One”");
+
+  const O = makePanel();
+  O.root.setTab("start");
+  O.answer([{ album: "New One", albumartist: "B", date: "2026", file: "b/1.mp3" }]);
+  O.answer([]);
+  O.answer([]);
+  O.answer([]);
+  O.answer([{ value: "Ambient" }]);
+  O.answer([9]);
+  O.root.sel = 1;
+  O.press("l");
+  check("l opens the album's tracks instead",
+        O.root.frameMode === "find" && O.root.frameAlbum === "New One",
+        O.frames().join(" > "));
+  check("... and plays nothing", O.mutations.length === 0, "mutations=" + O.mutations.length);
 
   // An answer with nothing in it leaves its section out instead of drawing a heading.
   const E = makePanel();
   E.root.setTab("start");
-  E.answer([]); E.answer([]); E.answer([]);
+  E.answer([]); E.answer([]); E.answer([]); E.answer([]); E.answer([]);
   check("an empty library paints no headings at all", E.root.rows.length === 0,
         "rows=" + E.root.rows.length);
 
   // `r` asks again -- that is the reshuffle.
   const R = makePanel();
   R.root.setTab("start");
-  R.answer([]); R.answer([]); R.answer([]);
+  R.answer([]); R.answer([]); R.answer([]); R.answer([]); R.answer([]);
   const before = R.queries.length;
   R.press("r");
-  check("r asks the three questions again", R.queries.length === before + 3,
+  check("r asks the five questions again", R.queries.length === before + 5,
         before + " -> " + R.queries.length);
 }
 

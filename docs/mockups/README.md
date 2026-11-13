@@ -173,3 +173,25 @@ until it was fixed: the album view is quiet now, the rest of this is still ahead
 - Untouched: the accent belongs to `isActiveRow` (`1178–1181`), which keys on the
   song id, not the row index; and the `find` filter stays as it is — filtering on
   `albumartist` or `disc` would silently drop albums with missing tags.
+
+## Start screen: four proposals (2026-11-13)
+
+Not composited this time: `src/startpage.py` writes four HTML pages at the panel's own
+size (1120x740, the panel at device scale 1.25), in the running theme's colours with
+JetBrainsMono Nerd Font; the covers are the real ones from the bridge cache.
+`chromium --headless --screenshot` renders them. None of it is plugin code.
+
+| file | idea | what it costs |
+|---|---|---|
+| `start-1-hero.png` | a **hero** (newest album, big cover, `enter` plays) over new / recently played / for you / genres, closed by "Überrasch mich" | one hero row (~112 px) and one row of genre chips |
+| `start-2-continue.png` | **weiterhören** as the anchor: last track, progress, `enter` resumes; the same sections, tighter | one card (~76 px), no hero |
+| `start-3-dense.png` | **no anchor**: four sections, 26 px rows, stars visible, every heading a door (`→ alle 12`) | the least air, the most on one screen |
+| `start-4-favorites.png` | the **album view** with the star: `★` per track, the album as a pill | one glyph column, one row height |
+
+Shared by all four: `enter` **plays** (the row's album, or `l` opens it), `a` appends,
+`f` stars, `r` reshuffles the picks. Headings carry `→ alle N` and are doors into the
+full list, because three rows are not the answer to "what is new".
+
+What the pictures assume and the code does not have yet: `added-since` (MPD 0.24) for
+"neu in der Bibliothek", a 20-entry recently-played cache, a `favorites` playlist, and
+genre counts. The bridge's `SONG_FIELDS` does not carry `added` today.

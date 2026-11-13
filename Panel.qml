@@ -694,22 +694,47 @@ Panel {
 
   // ------------------------------------------------------------------- start
   //
-  // What an empty player opens on: what the library itself offers. Three answers,
-  // three sections -- newest releases (the Date tag, not the file's date: MPD cannot
-  // filter on Last-Modified, measured), a few random albums, a few genres. Nothing
-  // is stored and nothing is remembered, so the frame is rebuilt on every open, and
-  // a section whose answer is empty is left out instead of shown as a dead heading.
-  // Three sizes, not four and three: with the player band in the header the list is
-  // about 374 px tall, and 3 + 2 + 3 sections (87 + 200 + 78) fit inside that. Four
-  // albums, three picks and four genres came to 471 px, which cut the last heading in
-  // half at the fold -- a section that is only announced and never shown reads broken.
+  // What an empty player opens on. Four sections, each answering a question a
+  // person actually has with nothing queued:
+  //
+  //   new in the library   what did I just put in here (added-since, MPD 0.24)
+  //   recently played      what did I play last (a 20-entry cache, no server)
+  //   random               what have I forgotten (never one already above)
+  //   genres              where else could I go (with the size of each)
+  //
+  // A section whose answer is empty is left out instead of drawn as a dead
+  // heading. The recent list is the only thing stored, it is a cache, and it says
+  // so in `bin/mpd-bridge` (RECENT_LIMIT).
   readonly property int startNewest: 3
-  readonly property int startPicks: 2
+  readonly property int startPicks: 3
   readonly property int startGenres: 3
+
+  // YYYY-MM-DD, the form MPD's added-since takes.
+  function isoDay(daysAgo) {
+    var d = new Date(Date.now() - daysAgo * 86400000)
+    function two(n) { return (n < 10 ? "0" : "") + n }
+    return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate())
+  }
+
+  // "2 h ago" -- the recent cache keeps a moment, not a clock reading.
+  function ago(at) {
+    var secs = Math.floor(Date.now() / 1000) - Number(at || 0)
+    if (!isFinite(secs) || secs < 0) return ""
+    if (secs < 90) return "just now"
+    var mins = Math.floor(secs / 60)
+    if (mins < 60) return mins + " min ago"
+    var hours = Math.floor(mins / 60)
+    if (hours < 24) return hours + " h ago"
+    var days = Math.floor(hours / 24)
+    if (days === 1) return "yesterday"
+    if (days < 14) return days + " days ago"
+    return Math.floor(days / 7) + " weeks ago"
+  }
 
   function loadStart(gen) {
     var year = (new Date()).getFullYear()
-    var parts = { recent: [], albums: [], genres: [], picks: [], left: 3 }
+    var parts = { added: [], recent: [], released: [], albums: [], genres: [],
+                  picks: [], counts: [], genreNames: [], left: 5 }
     function one(slot, rows, error) {
       parts[slot] = (error === "" && rows) ? rows : []
       parts.left = parts.left - 1
@@ -717,37 +742,92 @@ Panel {
       if (gen !== root.loadGeneration) { root.staleAnswers = root.staleAnswers + 1; return }
       root.startPicksStage(gen, parts)
     }
-    // This year and the one before, and a window wide enough to hold both: the
-    // bridge sorts the answer ascending and this screen reads it from the end, so
-    // a window that cuts early cuts the *newest* records -- on this library the two
-    // years already answer with 42 songs, and 40 of them would have been the wrong
-    // 40. 300 is one page (the bridge reads 1000 at a time) and years of listening.
-    host.query("find", { regex: [["date", "^(" + (year - 1) + "|" + year + ")"]],
-                         sort: "date", limit: 300 }, "start:recent",
+    // "New here" is the question people ask; the year answer is the fallback for
+    // a library that was added in one go, where nothing is recent. On a server
+    // before 0.24 the first one is refused and the second carries the section.
+    host.query("find", { added_since: root.isoDay(60), sort: "added", limit: 400 },
+               "start:added", function(rows, error) { one("added", rows, error) })
+    host.query("recent", {}, "start:recent",
                function(rows, error) { one("recent", rows, error) })
+    host.query("find", { regex: [["date", "^(" + (year - 1) + "|" + year + ")"]],
+                         sort: "date", limit: 300 }, "start:released",
+               function(rows, error) { one("released", rows, error) })
     host.query("list", { tag: "album", limit: 3000 }, "start:albums",
                function(rows, error) { one("albums", rows, error) })
     host.query("list", { tag: "genre", limit: 3000 }, "start:genres",
                function(rows, error) { one("genres", rows, error) })
   }
 
-  // Stage two: the random picks. `list album` answers with names only -- no artist,
-  // no file, and without a file there is no cover -- so each pick costs one more
-  // query. Three of them, a millisecond each, and it is what makes the section read
-  // like the one above it.
+  // One row per album from a song list, walked from the front (`newestFirst`) or
+  // from the back. The songs arrive sorted -- by Date ascending from the year
+  // answer, by `added` descending from the library one -- so this only has to
+  // know which end is the new one.
+  function startAlbumsFrom(songs, limit, newestFirst) {
+    var out = []
+    var seen = ({})
+    var list = songs || []
+    var i = newestFirst ? 0 : list.length - 1
+    var step = newestFirst ? 1 : -1
+    while (i >= 0 && i < list.length && out.length < limit) {
+      var s = list[i] || {}
+      var album = String(s.album || "")
+      if (album !== "") {
+        var key = album + "\u0000" + String(s.albumartist || s.artist || "")
+        if (seen[key] !== true) { seen[key] = true; out.push(root.startAlbumRow(s)) }
+      }
+      i += step
+    }
+    return out
+  }
+
+  // Stage two: the size of each genre (one `count` for all of them) and the album
+  // behind each pick. `list album` answers with names only -- no artist, no file,
+  // and without a file there is no cover -- so a pick costs one query.
   function startPicksStage(gen, parts) {
+    var used = ({})
+    function mark(row) {
+      var album = String((row && row.album) || "")
+      if (album === "") return
+      used[album] = true
+    }
+    root.startAlbumsFrom(parts.added, root.startNewest, true).forEach(mark)
+    root.startAlbumsFrom(parts.released, root.startNewest, false).forEach(mark)
+    var recentRows = (parts.recent || []).slice(0, root.startNewest)
+    recentRows.forEach(mark)
+
+    var allGenres = parts.genres || []
+    var picked = []
+    for (var g = 0; g < 40 && allGenres.length > 0 && picked.length < root.startGenres; g++) {
+      var gname = String((allGenres[Math.floor(Math.random() * allGenres.length)] || {}).value || "")
+      if (gname !== "" && picked.indexOf(gname) < 0) picked.push(gname)
+    }
+    parts.genreNames = picked
+
     var all = parts.albums || []
     var names = []
-    for (var i = 0; i < 40 && names.length < root.startPicks && all.length > 0; i++) {
+    for (var i = 0; i < 80 && names.length < root.startPicks && all.length > 0; i++) {
       var pick = String((all[Math.floor(Math.random() * all.length)] || {}).value || "")
-      if (pick !== "" && names.indexOf(pick) < 0) names.push(pick)
+      if (pick === "" || names.indexOf(pick) >= 0 || used[pick] === true) continue
+      names.push(pick)
     }
-    if (names.length === 0) { root.paintStart(gen, parts); return }
     parts.picks = []
-    var left = names.length
-    for (var j = 0; j < names.length; j++) (function(slot, name) {
-      parts.picks[slot] = { value: name }
-      host.query("find", { filter: [["album", name]], limit: 1 }, "start:pick" + slot,
+    var left = names.length + (picked.length > 0 ? 1 : 0)
+    if (left === 0) { root.paintStart(gen, parts); return }
+
+    if (picked.length > 0) {
+      var filters = []
+      for (var f = 0; f < picked.length; f++)
+        filters.push({ tag: "genre", value: picked[f] })
+      host.query("counts", { filters: filters }, "start:counts",
+                 function(rows, error) {
+        if (error === "" && rows) parts.counts = rows
+        left = left - 1
+        if (left === 0) root.paintStart(gen, parts)
+      })
+    }
+    for (var j = 0; j < names.length; j++) (function(slot, albumName) {
+      parts.picks[slot] = { value: albumName }
+      host.query("find", { filter: [["album", albumName]], limit: 1 }, "start:pick" + slot,
         function(rows, error) {
           if (error === "" && rows && rows.length > 0) parts.picks[slot] = rows[0]
           left = left - 1
@@ -766,48 +846,47 @@ Panel {
   function startRows(parts) {
     var rows = []
 
-    // Newest releases, one row per album. The songs arrive sorted by date
-    // ascending, so the list is walked from the back; album *and* albumartist are
-    // the key, because two records can share a title.
-    var seen = ({})
-    var newest = []
-    var songs = parts.recent || []
-    for (var i = songs.length - 1; i >= 0 && newest.length < root.startNewest; i--) {
-      var s = songs[i] || {}
-      var album = String(s.album || "")
-      if (album === "") continue
-      var key = album + "\u0000" + String(s.albumartist || s.artist || "")
-      if (seen[key] === true) continue
-      seen[key] = true
-      newest.push(s)
+    var added = root.startAlbumsFrom(parts.added, root.startNewest, true)
+    if (added.length > 0) {
+      rows.push({ type: "header", title: "New in the library · " + added.length })
+      rows = rows.concat(added)
+    } else {
+      var released = root.startAlbumsFrom(parts.released, root.startNewest, false)
+      if (released.length > 0) {
+        rows.push({ type: "header", title: "New releases · " + released.length })
+        rows = rows.concat(released)
+      }
     }
-    if (newest.length > 0) {
-      rows.push({ type: "header", title: "Newest releases" })
-      for (var a = 0; a < newest.length; a++)
-        rows.push(root.startAlbumRow(newest[a]))
+
+    var recent = []
+    var cache = parts.recent || []
+    for (var r = 0; r < cache.length && recent.length < root.startNewest; r++) {
+      var rec = cache[r] || {}
+      if (String(rec.album || "") === "") continue
+      var row = root.startAlbumRow(rec)
+      row.when = root.ago(rec.at)
+      recent.push(row)
+    }
+    if (recent.length > 0) {
+      rows.push({ type: "header", title: "Recently played · " + recent.length })
+      rows = rows.concat(recent)
     }
 
     var picks = parts.picks || []
     if (picks.length > 0) {
-      rows.push({ type: "header", title: "Random albums" })
-      for (var b = 0; b < picks.length; b++)
-        rows.push(root.startAlbumRow(picks[b] || {}))
+      rows.push({ type: "header", title: "Random · " + picks.length })
+      for (var p = 0; p < picks.length; p++) rows.push(root.startAlbumRow(picks[p] || {}))
     }
 
-    // The genres are four picked out of the list, not its first four: the alphabet
-    // starts at "2-Step", and a section that always reads the same three words is a
-    // decoration, not a way in. Ranking them would cost one `count` per genre; a
-    // pick costs nothing and changes with `r`.
-    var genres = parts.genres || []
-    var pickedGenres = []
-    for (var c = 0; c < 40 && genres.length > 0 && pickedGenres.length < root.startGenres; c++) {
-      var genre = String((genres[Math.floor(Math.random() * genres.length)] || {}).value || "")
-      if (genre !== "" && pickedGenres.indexOf(genre) < 0) pickedGenres.push(genre)
-    }
-    if (pickedGenres.length > 0) {
+    var names = parts.genreNames || []
+    var counts = parts.counts || []
+    if (names.length > 0) {
       rows.push({ type: "header", title: "Genres" })
-      for (var d = 0; d < pickedGenres.length; d++)
-        rows.push({ type: "startGenre", title: pickedGenres[d], genre: pickedGenres[d] })
+      for (var q = 0; q < names.length; q++) {
+        var n = Number(counts[q])
+        rows.push({ type: "startGenre", title: names[q], genre: names[q],
+                    tracks: (isFinite(n) && n > 0) ? n : 0 })
+      }
     }
     return rows
   }
@@ -825,6 +904,22 @@ Panel {
       albumartist: String(song.albumartist || song.artist || ""),
       year: year,
       file: String(song.file || "")
+    }
+  }
+
+  // One level deeper from the start screen: an album's tracks, or a genre's albums.
+  function openStartRow(row) {
+    if (!row) return
+    if (row.type === "startAlbum") {
+      var album = String(row.album || "")
+      var filter = [["album", album]]
+      if (String(row.albumartist || "") !== "")
+        filter.push(["albumartist", String(row.albumartist)])
+      root.pushFrame({ mode: "find", title: album + " — tracks", sort: "track",
+                       album: album, filter: filter })
+    } else if (row.type === "startGenre") {
+      root.pushFrame({ mode: "list", tag: "album", title: String(row.genre || ""),
+                       filter: [["genre", String(row.genre || "")]] })
     }
   }
 
@@ -1373,16 +1468,20 @@ Panel {
   function rowSub(row, prev) {
     if (!row) return ""
     if (row.type === "startAlbum") {
-      // The artist, then the year -- the two things the title cannot say. The album
-      // itself is the title, so repeating it here would be a row that says one word
-      // twice.
+      // The artist, then the one thing the title cannot say: the year it came out,
+      // or -- on a recently played row -- when it was here. The album itself is the
+      // title, so repeating it would be a row that says one word twice.
       var startBits = []
       if (String(row.albumartist || "") !== "") startBits.push(String(row.albumartist))
-      if (String(row.year || "") !== "") startBits.push(String(row.year))
+      if (String(row.when || "") !== "") startBits.push(String(row.when))
+      else if (String(row.year || "") !== "") startBits.push(String(row.year))
       return startBits.join("  ·  ")
     }
-    // A genre row of the start screen: the word is everything the row stands for.
-    if (row.type === "startGenre") return ""
+    // A genre row: the word is the title, the number is what it stands for.
+    if (row.type === "startGenre") {
+      var tracks = Number(row.tracks)
+      return (isFinite(tracks) && tracks > 0) ? (tracks + " tracks") : ""
+    }
     if (row.type === "setting") return String(row.hint || "")
     if (row.type === "radio") return String(row.hint || "")
     if (row.type === "radioStation") return root.stationSub(row)
@@ -1506,7 +1605,7 @@ Panel {
     }
   }
 
-  function activate() {
+  function activate(play) {
     var row = root.rows[root.sel]
     if (!row) return
     var mode = root.frameMode
@@ -1551,24 +1650,21 @@ Panel {
     }
     if (!root.up) return
 
-    // The start screen: its rows stand for an album or a genre, so both open one
-    // level deeper instead of playing anything -- a click here is browsing, the way
-    // it is in the album list.
+    // The start screen is the launch pad: `enter` plays the album, `l` and a click
+    // open it one level deeper. Appending has its own key (`a`), so the screen does
+    // not need a third verb.
     if (mode === "start") {
       if (row.type === "startAlbum") {
+        if (!play) { root.openStartRow(row); return }
         var startAlbum = String(row.album || "")
         var startFilter = [["album", startAlbum]]
         if (String(row.albumartist || "") !== "")
           startFilter.push(["albumartist", String(row.albumartist)])
-        root.pushFrame({ mode: "find", title: startAlbum + " — tracks", sort: "track",
-                         album: startAlbum, filter: startFilter })
+        host.mutation("findplay", { filter: startFilter })
+        root.flash("playing “" + startAlbum + "”")
         return
       }
-      if (row.type === "startGenre") {
-        root.pushFrame({ mode: "list", tag: "album", title: String(row.genre || ""),
-                         filter: [["genre", String(row.genre || "")]] })
-        return
-      }
+      if (row.type === "startGenre") { root.openStartRow(row); return }
       return
     }
 
@@ -1826,7 +1922,7 @@ Panel {
     if (root.promptMode !== "") return "type · enter confirms · esc cancels"
     var mode = root.frameMode
     if (mode === "queue") return "enter plays · a appends · d removes · D clears · C keeps only the playing track"
-    if (mode === "start") return "enter opens · a appends · r other picks · 0 is here"
+    if (mode === "start") return "enter plays · l opens · a appends · r other picks · 0 is here"
     if (mode === "search") return "/ to type · enter opens · a appends · A all hits · h/esc back"
     if (mode === "list") return "enter goes in · a appends all of it · A appends the selection · h/esc back"
     if (mode === "find") return "enter plays · a appends · A whole list · h/esc back"
@@ -2361,7 +2457,13 @@ Panel {
       return
     }
 
-    if (key === Qt.Key_Return || key === Qt.Key_Enter || text === "l") { root.activate(); event.accepted = true; return }
+    if (key === Qt.Key_Return || key === Qt.Key_Enter || text === "l") {
+      // On the start screen the two keys mean different things: one plays the
+      // album, the other opens it.
+      root.activate(key === Qt.Key_Return || key === Qt.Key_Enter)
+      event.accepted = true
+      return
+    }
     if (key === Qt.Key_Backspace || key === Qt.Key_Left || text === "h") {
       if (!root.popFrame() && text === "h") root.setTab("queue")
       event.accepted = true
@@ -2695,7 +2797,7 @@ Panel {
           required property var modelData
           required property int index
           width: list.width
-          height: rowItem.startRow ? Style.space(40)
+          height: rowItem.startRow ? Style.space(27)
             : (rowItem.sectionHeader ? Style.space(29)
               : (rowItem.isHeader ? Style.space(22) : Style.space(26)))
 
@@ -2843,7 +2945,7 @@ Panel {
             visible: rowItem.startRow && rowItem.thumb !== ""
             anchors { left: parent.left; leftMargin: Style.space(8)
                       verticalCenter: parent.verticalCenter }
-            width: Style.space(30)
+            width: Style.space(24)
             height: width
             radius: Style.cornerRadius
             clip: true
@@ -2861,7 +2963,7 @@ Panel {
           Row {
             visible: !rowItem.isHeader
             anchors { left: parent.left
-                      leftMargin: Style.space(8) + (rowItem.startRow ? Style.space(38) : 0)
+                      leftMargin: Style.space(8) + (rowItem.startRow ? Style.space(32) : 0)
                       right: root.frameMode === "settings" ? stepMinus.left
                         : (trashButton.visible ? trashButton.left : addButton.left)
                       rightMargin: Style.space(8)

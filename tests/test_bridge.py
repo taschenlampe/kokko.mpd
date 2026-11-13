@@ -30,6 +30,11 @@ import urllib.parse
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BRIDGE = os.path.join(ROOT, "bin", "mpd-bridge")
 
+# Nothing in this suite may touch the real cache. The bridge writes covers and the
+# recent list there, and a test that let "nosuch/01.mp3" play would otherwise put
+# that row on the start screen of the machine running the tests.
+os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp(prefix="kokko-test-cache-")
+
 FAILS = []
 CHECKS = 0      # counted so the summary can say "3 of 36" and not "3 of 3"
 
@@ -541,6 +546,59 @@ check("the rows come back oldest first, whatever the database order is",
       ["2025-03-14", "2025-06-06", "2026-04-18", "2026-05-01"])
 check("... so the last row is the newest record -- the row the screen shows first",
       date_rows[-1].get("album"), "FENIAN")
+
+print("=== added-since: what entered the library, not what was released ===")
+# "New here" is the question a person asks; the Date tag answers the other one
+# ("what came out lately"). MPD 0.24 can filter the moment of adding, older
+# servers cannot -- and then the filter must be refused, not dropped.
+added_args = B.Bridge().filter_args(CannedConn("0.24.0"), [], None, "2026-09-01")
+check("added-since travels as its own expression",
+      added_args, ["(added-since '2026-09-01')"])
+check("... and joins a tag filter with AND",
+      B.Bridge().filter_args(CannedConn("0.24.0"), [["genre", "Punk"]], None, "2026-09-01"),
+      ["((genre == 'Punk') AND (added-since '2026-09-01'))"])
+try:
+    B.Bridge().filter_args(CannedConn("0.23.5"), [], None, "2026-09-01")
+except B.MPDCommandError:
+    refused = True
+else:
+    refused = False
+check("a 0.23 server refuses the condition instead of answering the library",
+      refused, True)
+
+ADDED_PAIRS = []
+for _file, _album, _added in (("a/1.mp3", "Old", "2026-08-01T10:00:00Z"),
+                              ("b/1.mp3", "Newest", "2026-10-09T10:00:00Z"),
+                              ("c/1.mp3", "Middle", "2026-09-20T10:00:00Z")):
+    ADDED_PAIRS += [("file", _file), ("album", _album), ("added", _added)]
+added_rows = B.Bridge().execute_query(
+    CannedConn("0.24.0", pairs=ADDED_PAIRS), "find",
+    {"added_since": "2026-07-01", "sort": "added"})
+check("sort `added` answers newest first -- this answer is read from its head",
+      [r.get("album") for r in added_rows], ["Newest", "Middle", "Old"])
+
+print("=== recent: what was played, one row per album ===")
+# The start screen's "zuletzt gehört" is a cache, not a library: 20 rows, one
+# per album, written when the player touches a record. It has to answer without
+# MPD, because "what was played" is not "what is playing".
+_old_cache = B.cache_dir
+_recent_tmp = tempfile.mkdtemp()
+B.cache_dir = lambda: _recent_tmp
+try:
+    B.remember_recent({"file": "a/1.mp3", "album": "One", "albumartist": "A"})
+    B.remember_recent({"file": "a/2.mp3", "album": "One", "albumartist": "A"})
+    B.remember_recent({"file": "b/1.mp3", "album": "Two", "albumartist": "B"})
+    rows = B.Bridge().execute_query(CannedConn(), "recent", {})
+    check("the album played last comes first", [r["album"] for r in rows], ["Two", "One"])
+    check("a second track of the same record is the same row", len(rows), 2)
+    check("the row says it is a recent one", rows[0].get("type"), "recent")
+    for i in range(30):
+        B.remember_recent({"file": "x/%d.mp3" % i, "album": "Album %d" % i,
+                           "albumartist": "X"})
+    rows = B.Bridge().execute_query(CannedConn(), "recent", {})
+    check("the cache stops at twenty albums", len(rows), B.RECENT_LIMIT)
+finally:
+    B.cache_dir = _old_cache
 
 print("=== counts: how much `a` appends ===")
 # The number beside a search group used to be the hits that put it there: a

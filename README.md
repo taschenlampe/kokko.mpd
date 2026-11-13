@@ -50,8 +50,9 @@ The folder name must stay `kokko.mpd` — it's how `shell.json` and the CLI find
 runs along, left click = play/pause, middle click = next, scroll = volume.
 - **On hover** — a card with cover, draggable progress, big transport buttons.
 - **On the wallpaper** (optional) — the same card, sitting on your desktop.
-- **A start screen when nothing is queued** — newest records, a few random albums, a few
-genres, each with its cover; `r` reshuffles.
+- **A start screen when nothing is queued** — what just entered the library, what you
+played last, three random albums and your genres, each with its cover; `enter` plays an
+album, `l` opens it, `r` reshuffles the picks.
 - **The full panel** — queue, search, library, playlists, all in one view.
 - **An album is a track list** — open one and the rows are number, title and
 duration, because the frame already says which album it is; the footer carries
@@ -87,7 +88,8 @@ no seek bar.
 
 [![Search](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-suche.png)](docs/panel-suche.png)
 
-**Start** — what an empty queue opens on: newest records, random albums, genres.
+**Start** — what an empty queue opens on: new in the library, recently played, three
+random albums, genres. `enter` plays, `l` opens.
 
 [![Start](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-start.png)](docs/panel-start.png)
 
@@ -114,8 +116,8 @@ send a desktop notification).
 2. Press `+` next to a hit — appends the track, album, or artist.
 3. Press `enter` instead — plays it right away.
 
-**Nothing queued?** The panel opens on **Start**: `enter` opens an album, `a` appends it,
-`r` reshuffles the picks, `0` always brings you back.
+**Nothing queued?** The panel opens on **Start**: `enter` plays an album, `l` opens its
+tracks, `a` appends it, `r` reshuffles the picks, `0` always brings you back.
 
 That's really all you need. Everything below is for when you want more.
 

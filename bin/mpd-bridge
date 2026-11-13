@@ -204,7 +204,7 @@ HEALTH_FAILS = 2
 SONG_FIELDS = (
     "file", "id", "pos", "title", "artist", "albumartist", "album",
     "track", "disc", "date", "genre", "composer", "performer", "name",
-    "time", "duration", "last-modified",
+    "time", "duration", "last-modified", "added",
 )
 
 # The keys that start a new entry in a multi-entry response.
@@ -752,6 +752,68 @@ def cache_dir() -> str:
     path = os.path.join(base, "kokko-mpd")
     os.makedirs(path, exist_ok=True)
     return path
+
+
+RECENT_LIMIT = 20
+RECENT_LOCK = threading.Lock()
+
+
+def recent_file() -> str:
+    return os.path.join(cache_dir(), "recent.json")
+
+
+def load_recent() -> list:
+    """The albums this player touched, newest first.
+
+    A cache, not a library: losing the file costs a few empty rows on the start
+    screen and nothing else.
+    """
+    try:
+        with open(recent_file(), "r", encoding="utf-8") as fh:
+            rows = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)][:RECENT_LIMIT]
+
+
+def remember_recent(song: dict) -> None:
+    """Put the song's album at the head of the recent list.
+
+    One entry per album, not per track: the start screen offers albums, and a
+    record playing five tracks would otherwise fill the list with itself. The
+    write is a temp file and a rename, so a reader never sees half a list.
+    """
+    file = str(song.get("file", "") or "")
+    if not file:
+        return
+    album = str(song.get("album", "") or "")
+    artist = str(song.get("albumartist", "") or song.get("artist", "") or "")
+    entry = {"album": album, "albumartist": artist, "file": file,
+             "at": int(time.time())}
+    with RECENT_LOCK:
+        rows = load_recent()
+        if rows and rows[0].get("file") == file and rows[0].get("album") == album:
+            return
+        keep = []
+        for row in rows:
+            if album:
+                same = (str(row.get("album", "") or "") == album
+                        and str(row.get("albumartist", "") or "") == artist)
+            else:
+                same = str(row.get("file", "") or "") == file
+            if not same:
+                keep.append(row)
+        keep.insert(0, entry)
+        path = recent_file()
+        try:
+            tmp = path + ".part"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(keep[:RECENT_LIMIT], fh, ensure_ascii=False)
+            os.replace(tmp, path)
+        except OSError:
+            pass
 
 
 def extension_for(data: bytes, mime: str) -> str:
@@ -1822,6 +1884,8 @@ class Bridge:
             self.last_state = state
             self.emit(state)
         self.request_art(song)
+        if song and str(status.get("state", "")) in ("play", "pause"):
+            remember_recent(song)
 
     def do(self, *command, repeatable: bool = False) -> None:
         # `repeatable` says the command has a defined target and may be sent
@@ -2247,7 +2311,7 @@ class Bridge:
             out.append(songs)
         return out
 
-    def filter_args(self, conn: CommandConn, filters, matches=None) -> list:
+    def filter_args(self, conn: CommandConn, filters, matches=None, added_since=None) -> list:
         """The tail of a find/list/search command for a set of tag conditions.
 
         `filters` are exact -- `tag == value`. `matches` are POSIX extended
@@ -2263,10 +2327,18 @@ class Bridge:
         """
         pairs = [(str(t), str(v)) for t, v in (filters or []) if str(t)]
         patterns = [(str(t), str(v)) for t, v in (matches or []) if str(t)]
-        if not pairs and not patterns:
+        # `added-since` is the one condition that is not a tag: it asks about the
+        # moment the file entered the library, which is what "new here" means to
+        # a person -- the Date tag only says when the record came out.
+        extra = []
+        if str(added_since or "").strip():
+            if not version_at_least(conn.version, 0, 24):
+                raise MPDCommandError("added-since needs MPD 0.24 or newer")
+            extra.append("(added-since '%s')" % quote_filter_value(str(added_since)))
+        if not pairs and not patterns and not extra:
             return []
         if not version_at_least(conn.version, 0, 21):
-            if patterns:
+            if patterns or extra:
                 raise MPDCommandError("regexp filters need MPD 0.21 or newer")
             flat = []
             for tag, value in pairs:
@@ -2279,6 +2351,7 @@ class Bridge:
         # and one unquoted `'` ends the filter argument.
         clauses.extend("(%s =~ '%s')" % (tag, quote_filter_value(pattern))
                        for tag, pattern in patterns)
+        clauses.extend(extra)
         return ["(" + " AND ".join(clauses) + ")" if len(clauses) > 1 else clauses[0]]
 
     def paged(self, conn: MPDConn, limit, fetch, fields=SONG_FIELDS) -> list:
@@ -2331,6 +2404,12 @@ class Bridge:
         except (TypeError, ValueError):
             limit = QUERY_ROW_LIMIT
         limit = max(1, min(QUERY_ROW_LIMIT, limit))
+
+        if kind == "recent":
+            # The cache answers this one itself: no server, no query, and it must
+            # still work while MPD is down -- the list is what was played, not what
+            # is playing.
+            return [dict(row, type="recent") for row in load_recent()[:limit]]
 
         if kind == "queue":
             # A queue of ten thousand is past the server's output buffer, and a
@@ -2397,7 +2476,8 @@ class Bridge:
 
         if kind == "find":
             args = self.filter_args(conn, request.get("filter") or [],
-                                    request.get("regex") or [])
+                                    request.get("regex") or [],
+                                    request.get("added_since") or "")
             if not args:
                 return []
             rows = self.paged_filter(conn, limit, ["find"] + args)
@@ -2418,6 +2498,11 @@ class Bridge:
                 # a Date tag sorts first: "no date" cannot claim to be newer than
                 # anything, and the caller drops what it cannot place.
                 rows.sort(key=lambda r: (str(r.get("date", "")), r.get("file", "")))
+            elif request.get("sort") == "added":
+                # Newest first: this answer is read from its head, not its end --
+                # "what did I just put in here" has no natural second sort.
+                rows.sort(key=lambda r: (str(r.get("added", "")), r.get("file", "")),
+                          reverse=True)
             return rows
 
         if kind == "search":
