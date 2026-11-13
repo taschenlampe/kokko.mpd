@@ -634,6 +634,9 @@ Panel {
     // The start screen is three questions, not one: it builds its rows itself and
     // paints them once every answer is in (see loadStart).
     if (mode === "start") { root.loadStart(gen); return }
+    // A section of the start screen, without the cut: the same question, no limit
+    // worth speaking of, the same rows.
+    if (mode === "startList") { root.loadStartList(f, gen); return }
 
     function answer(list, error) {
       if (gen !== root.loadGeneration) { root.staleAnswers++; return }
@@ -907,6 +910,42 @@ Panel {
     })(j, names[j])
   }
 
+  function loadStartList(f, gen) {
+    var section = String(f.section || "new")
+    root.loading = true
+    function answer(list, error) {
+      if (gen !== root.loadGeneration) { root.staleAnswers++; return }
+      root.loading = false
+      if (error !== "") { root.setInfo(error); return }
+      var rows = []
+      if (section === "recent") {
+        var cache = list || []
+        for (var i = 0; i < cache.length; i++) {
+          var rec = cache[i] || {}
+          if (String(rec.album || "") === "") continue
+          var row = root.startAlbumRow(rec)
+          row.when = root.ago(rec.at)
+          rows.push(row)
+        }
+      } else if (section === "released") {
+        rows = root.startAlbumsFrom(list, 400, false)
+      } else {
+        rows = root.startAlbumsFrom(list, 400, true)
+      }
+      root.allRows = rows
+      root.presentRows("startList", f, rows)
+    }
+    var year = (new Date()).getFullYear()
+    if (section === "recent") { host.query("recent", {}, "list", answer); return }
+    if (section === "released") {
+      host.query("find", { regex: [["date", "^(" + (year - 1) + "|" + year + ")"]],
+                           sort: "date", limit: 600 }, "list", answer)
+      return
+    }
+    host.query("find", { added_since: root.isoDay(60), sort: "added", limit: 600 },
+               "list", answer)
+  }
+
   function paintStart(gen, parts) {
     if (gen !== root.loadGeneration) { root.staleAnswers = root.staleAnswers + 1; return }
     var rows = root.startRows(parts)
@@ -919,12 +958,14 @@ Panel {
 
     var added = root.startAlbumsFrom(parts.added, root.startNewest, true)
     if (added.length > 0) {
-      rows.push({ type: "header", title: "New in the library · " + added.length })
+      rows.push({ type: "header", title: "New in the library · " + added.length + "  ›",
+                  door: { mode: "startList", section: "new", title: "New in the library" } })
       rows = rows.concat(added)
     } else {
       var released = root.startAlbumsFrom(parts.released, root.startNewest, false)
       if (released.length > 0) {
-        rows.push({ type: "header", title: "New releases · " + released.length })
+        rows.push({ type: "header", title: "New releases · " + released.length + "  ›",
+                    door: { mode: "startList", section: "released", title: "New releases" } })
         rows = rows.concat(released)
       }
     }
@@ -939,7 +980,8 @@ Panel {
       recent.push(row)
     }
     if (recent.length > 0) {
-      rows.push({ type: "header", title: "Recently played · " + recent.length })
+      rows.push({ type: "header", title: "Recently played · " + recent.length + "  ›",
+                  door: { mode: "startList", section: "recent", title: "Recently played" } })
       rows = rows.concat(recent)
     }
 
@@ -952,7 +994,7 @@ Panel {
     var names = parts.genreNames || []
     var counts = parts.counts || []
     if (names.length > 0) {
-      rows.push({ type: "header", title: "Genres" })
+      rows.push({ type: "header", title: "Genres  ›", tab: "genres" })
       for (var q = 0; q < names.length; q++) {
         var n = Number(counts[q])
         rows.push({ type: "startGenre", title: names[q], genre: names[q],
@@ -1062,6 +1104,12 @@ Panel {
     }
     else {
       root.sel = root.firstSelectable(0)
+      // A heading can be a door, and the first heading is the first row -- but
+      // landing there would make `enter` open a list on a screen whose job is to
+      // play something. The cursor starts on the first album.
+      if ((mode === "start" || mode === "startList") && root.rows[root.sel]
+          && String(root.rows[root.sel].type || "") === "header")
+        root.sel = root.firstSelectable(root.sel + 1)
       if (root.pendingSelect === "first") root.pendingSelect = ""
     }
     root.loadedFrame = f
@@ -1123,6 +1171,7 @@ Panel {
     // The start screen counts nothing: its sections count themselves, and a total
     // over four albums plus three picks plus four genres says nothing.
     if (mode === "start") return ""
+    if (mode === "startList") return n + (n === 1 ? " album" : " albums")
     if (mode === "playlists") return n + " Playlists"
     if (mode === "plist") return n + " tracks"
     if (mode === "radioStations") return n === 1 ? "1 station" : n + " stations"
@@ -1240,7 +1289,11 @@ Panel {
   }
 
   function isSelectable(row) {
-    return !!row && String(row.type || "") !== "header"
+    if (!row) return false
+    if (String(row.type || "") !== "header") return true
+    // A heading that opens something is a row of its own: "new in the library"
+    // with three rows on screen is not the answer to "what is new".
+    return !!row.door || !!row.tab
   }
 
   // The first rows as text, for `omarchy-shell kokko.mpd state` -- what the panel
@@ -1689,6 +1742,13 @@ Panel {
   function activate(play) {
     var row = root.rows[root.sel]
     if (!row) return
+    // A heading is a door where it has one: the section's full list, or the tab
+    // that owns it (`Genres`). Headings without one keep doing nothing.
+    if (row.type === "header") {
+      if (row.door) { root.pushFrame(row.door); return }
+      if (row.tab) { root.setTab(String(row.tab)); return }
+      return
+    }
     var mode = root.frameMode
 
     // Before the connection check: the settings tab works without MPD.
@@ -2922,7 +2982,10 @@ Panel {
           // value, every key path (addRow, addAll, d, D, C) is untouched: the one
           // truth for "who has the keys" is the prompt state itself, and only the
           // drawing waits for the hand-over (↓/↑ out of the field).
-          readonly property bool selected: index === root.sel && !rowItem.isHeader
+          readonly property bool doorRow: rowItem.isHeader
+            && (!!(rowItem.modelData || {}).door || !!(rowItem.modelData || {}).tab)
+          readonly property bool selected: index === root.sel
+            && (!rowItem.isHeader || rowItem.doorRow)
             && root.promptMode === ""
 
           // The queue's runs get a bracket (see sameQueueAlbum): a thin line
@@ -3008,11 +3071,12 @@ Panel {
           // its own clicks (a row-wide MouseArea after it would swallow them).
           MouseArea {
             anchors.fill: parent
-            enabled: !rowItem.isHeader
+            enabled: !rowItem.isHeader || rowItem.doorRow
             cursorShape: Qt.PointingHandCursor
             onClicked: function(mouse) {
-              if (rowItem.isHeader) return
+              if (rowItem.isHeader && !rowItem.doorRow) return
               root.sel = rowItem.index
+              if (rowItem.doorRow) { root.activate(); return }
               // In the settings tab a click means "change this", like any switch.
               if (root.frameMode === "settings") root.activate()
             }

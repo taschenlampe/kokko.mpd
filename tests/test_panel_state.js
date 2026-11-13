@@ -162,6 +162,8 @@ const FUNCTIONS = [
   "startAlbumsFrom", "isoDay", "ago", "openStartRow",
   // The stars.
   "loadFavorites", "isFavorite", "toggleFavorite",
+  // The doors behind the headings.
+  "loadStartList",
   "breadcrumb",
   "infoFor", "groupHits", "matchName", "matchNote", "isSelectable",
   "firstSelectable", "lastSelectable", "carriedSelection",
@@ -2113,10 +2115,10 @@ group("case 18: a queue reload keeps the cursor on its row");
 
   const titles = P.rowsTitles();
   check("new in the library comes first, one row per album",
-        titles[0] === "New in the library · 2" && titles[1] === "New One"
+        titles[0] === "New in the library · 2  ›" && titles[1] === "New One"
           && titles[2] === "Fresh Two", titles.join(" | "));
   check("recently played follows, with when it was played",
-        titles[3] === "Recently played · 2" && titles[4] === "Last Played",
+        titles[3] === "Recently played · 2  ›" && titles[4] === "Last Played",
         P.root.rowSub(P.root.rows[4]));
   check("... the row says how long ago", P.root.rowSub(P.root.rows[4]),
         "D  ·  2 h ago");
@@ -2267,6 +2269,52 @@ group("case 18: a queue reload keeps the cursor on its row");
   H.press("f");
   check("f on a heading sends nothing", H.mutations.length === 0,
         "mutations=" + H.mutations.length);
+}
+
+// ---------------------------------------------------------------- case 22
+// Three rows are not the answer to "what is new" when twelve albums are. A heading
+// with a door is a row you can stand on: `enter` opens the section's own list.
+{
+  group("case 22: a heading with a door opens its full list");
+  const P = makePanel();
+  P.root.rows = [
+    { type: "header", title: "New in the library · 3  ›",
+      door: { mode: "startList", section: "new", title: "New in the library" } },
+    { type: "startAlbum", album: "One", albumartist: "A", file: "a/1.mp3" }
+  ];
+  check("a heading with a door can be stood on",
+        P.root.isSelectable(P.root.rows[0]) === true, "selectable");
+  check("a heading without one cannot",
+        P.root.isSelectable({ type: "header", title: "Random" }) === false, "not selectable");
+
+  P.root.sel = 0;
+  P.enter();
+  check("enter opens the section's list",
+        P.root.frameMode === "startList" && P.root.frame.section === "new",
+        P.root.frameMode + "/" + (P.root.frame && P.root.frame.section));
+  check("... and asks the same question without the cut",
+        P.queries[0].kind === "find" && String(P.queries[0].args.added_since).length === 10,
+        JSON.stringify(P.queries[0].args).slice(0, 60));
+  P.answer([{ album: "A", albumartist: "X", file: "a/1.mp3" },
+            { album: "B", albumartist: "Y", file: "b/1.mp3" }]);
+  check("... the answer is albums", P.root.rows.map(function (r) { return r.album; }).join(","),
+        "A,B");
+  check("... and the frame counts them",
+        P.root.infoFor("startList", P.root.frame, P.root.rows), "2 albums");
+
+  const G = makePanel();
+  G.root.rows = [{ type: "header", title: "Genres  ›", tab: "genres" }];
+  G.root.sel = 0;
+  G.enter();
+  check("the genres heading opens the genres tab", G.root.tab === "genres", G.root.tab);
+
+  const R = makePanel();
+  R.root.rows = [{ type: "header", title: "Random · 2" }];
+  R.root.sel = 0;
+  const before = R.root.frameMode;
+  R.enter();
+  check("a heading without a door does nothing", R.root.frameMode === before,
+        before + " -> " + R.root.frameMode);
 }
 
 // --------------------------------------------------------------- report
