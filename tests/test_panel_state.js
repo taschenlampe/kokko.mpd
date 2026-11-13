@@ -53,6 +53,19 @@ function freshTabOrder() {
   return TAB_ORDER.map(function (t) { return { key: t.key, label: t.label }; });
 }
 
+// The three sizes of the start screen, read from Panel.qml for the same reason as
+// the tab table: a copy in the model could agree with itself and disagree with the
+// panel.
+const START_SIZES = (function () {
+  const out = {};
+  ["startNewest", "startPicks", "startGenres"].forEach(function (name) {
+    const m = new RegExp("^  readonly property int " + name + ": (\\d+)$", "m").exec(SRC);
+    if (!m) throw new Error("Panel.qml has no int property " + name);
+    out[name] = Number(m[1]);
+  });
+  return out;
+})();
+
 // --------------------------------------------------------------- extraction
 // Verbatim: the text between the opening and the matching closing brace, with
 // strings and line comments skipped while counting.
@@ -143,6 +156,8 @@ function grabRowBinding(name) {
 const FUNCTIONS = [
   "rootFrameFor", "tabEntry", "tabForNumber", "setTab", "pushFrame", "popFrame", "topFrame",
   "loadFrame", "loadSearch", "presentRows",
+  // The start screen: three answers built into one list.
+  "loadStart", "startPicksStage", "paintStart", "startRows", "startAlbumRow",
   "breadcrumb",
   "infoFor", "groupHits", "matchName", "matchNote", "isSelectable",
   "firstSelectable", "lastSelectable", "carriedSelection",
@@ -277,6 +292,9 @@ function makePanel(opts) {
     sentQueries: 0,
     answeredLoads: 0,
     staleAnswers: 0,
+    startNewest: START_SIZES.startNewest,
+    startPicks: START_SIZES.startPicks,
+    startGenres: START_SIZES.startGenres,
     settingRows: settingRows,
     note: function () {},
     flash: function (t) { flashes.push(String(t)); },
@@ -1636,18 +1654,19 @@ radioCase("a stream is named, not addressed", case14StreamDisplay);
 // the queue -- while the README's `1`…`9`, `tab` cell promised the cycle. Nothing
 // covered `cycleTab`, which is why the renumbering missed it.
 function case15TabRing() {
-  const NINE = ["queue", "search", "albums", "artists", "genres", "files", "playlists",
-                "radio", "settings"];
+  // The table itself, not a copy: nine hard-coded names is exactly how the ring
+  // once held seven of the tabs. `start` is the tenth and is reached by `0`.
+  const TABS = TAB_ORDER.map(function (t) { return String(t.key); });
   const wrong = [];
-  NINE.forEach(function (tab, i) {
+  TABS.forEach(function (tab, i) {
     const P = makePanel();
     P.root.tab = tab;
     P.root.cycleTab(1);
-    const want = NINE[(i + 1) % NINE.length];
+    const want = TABS[(i + 1) % TABS.length];
     if (P.root.tab !== want) wrong.push(tab + " -> " + P.root.tab + " (want " + want + ")");
   });
   check("one step from every tab lands on the next, in the digit order",
-        wrong.length === 0, wrong.length === 0 ? NINE.length + " tabs agree" : wrong.join(", "));
+        wrong.length === 0, wrong.length === 0 ? TABS.length + " tabs agree" : wrong.join(", "));
 
   // The shape the user hit: the eighth tab, then the tab key.
   const K = makePanel();
@@ -1659,18 +1678,29 @@ function case15TabRing() {
   const S = makePanel();
   S.root.tab = "settings";
   S.root.cycleTab(1);
-  check("... and from settings it wraps to the queue", S.root.tab === "queue", S.root.tab);
+  check("... and from settings it wraps to the last tab, the start screen",
+        S.root.tab === TABS[TABS.length - 1], S.root.tab);
 
   const T = makePanel();
   T.root.tab = "queue";
   const seen = {};
-  for (var i = 0; i < NINE.length; i++) { seen[T.root.tab] = true; T.root.cycleTab(1); }
-  check("... nine steps touch every tab and come back to the start",
-        T.root.tab === "queue" && Object.keys(seen).length === NINE.length,
+  for (var i = 0; i < TABS.length; i++) { seen[T.root.tab] = true; T.root.cycleTab(1); }
+  check("... every step touches every tab and comes back to the start",
+        T.root.tab === "queue" && Object.keys(seen).length === TABS.length,
         Object.keys(seen).sort().join(", ") + " -> " + T.root.tab);
+
+  // The digits stay where they were: `1` is still the queue, and the tenth tab is
+  // the one the 1-based range cannot reach -- so it gets `0`.
+  const D = makePanel();
+  D.key(0, "1");
+  check("`1` is still the queue after the tenth tab was added",
+        D.root.tab === "queue", D.root.tab);
+  const Z = makePanel();
+  Z.key(D.Qt.Key_0, "0");
+  check("`0` opens the start screen", Z.root.tab === "start", Z.root.tab);
 }
 
-group("case 15: `tab` walks all nine tabs");
+group("case 15: `tab` walks every tab");
 case15TabRing();
 
 // ---------------------------------------------------------------- case 16
@@ -2017,6 +2047,95 @@ group("case 18: a queue reload keeps the cursor on its row");
   S.answer(ROWS);
   check("control: opening the queue afresh still lands on row one", S.root.sel === 0,
         "sel=" + S.root.sel);
+}
+
+// ---------------------------------------------------------------- case 19
+// The start screen: three questions, one list, nothing stored. The test drives the
+// answers the way the bridge would and reads the rows the screen paints -- that is
+// the whole frame, so none of it needs a click.
+{
+  group("case 19: the start screen builds its list from three answers");
+  const P = makePanel();
+  P.root.setTab("start");
+  check("the frame is the start frame", P.root.frameMode === "start", P.root.frameMode);
+  check("it asks three questions, one per section", P.queries.length === 3,
+        P.queries.map(function (q) { return q.kind; }).join(","));
+  check("the newest section asks for a Date regexp, sorted by date",
+        P.queries[0].kind === "find"
+          && JSON.stringify(P.queries[0].args.regex || []).indexOf("date") > 0
+          && P.queries[0].args.sort === "date",
+        JSON.stringify(P.queries[0].args));
+
+  // The three answers: recent songs oldest-first (as MPD sorts), album names, genres.
+  P.answer([
+    { album: "Old One", albumartist: "A", date: "2025-03-01", file: "a/old1.mp3" },
+    { album: "Old One", albumartist: "A", date: "2025-03-01", file: "a/old2.mp3" },
+    { album: "New One", albumartist: "B", date: "2026-05-01", file: "b/new.mp3" }
+  ]);
+  P.answer([{ value: "Pick A" }, { value: "Pick B" }]);
+  P.answer([{ value: "Ambient" }, { value: "Blues" }]);
+
+  check("each random pick costs one detail query", P.queries.length === 5,
+        P.queries.slice(3).map(function (q) { return q.kind; }).join(","));
+  check("nothing is painted while the picks are still out", P.root.rows.length === 0,
+        "rows=" + P.root.rows.length);
+
+  P.answer([{ album: "Pick A", albumartist: "C", date: "1999", file: "c/a.mp3" }]);
+  check("... still nothing with one pick missing", P.root.rows.length === 0,
+        "rows=" + P.root.rows.length);
+  P.answer([{ album: "Pick B", albumartist: "D", date: "2001", file: "d/b.mp3" }]);
+
+  const titles = P.rowsTitles();
+  check("newest first, one row per album, no duplicate",
+        titles[0] === "Newest releases" && titles[1] === "New One" && titles[2] === "Old One",
+        titles.join(" | "));
+  check("the picks follow their own heading", titles[3] === "Random albums", titles[3]);
+  check("the genres come last",
+        titles.indexOf("Genres") > 0
+          && P.root.rows.slice(titles.indexOf("Genres") + 1)
+               .every(function (r) { return r.type === "startGenre" }),
+        titles.join(" | "));
+
+  const firstAlbum = P.root.rows[1];
+  check("an album row says artist and year on its second line",
+        P.root.rowSub(firstAlbum) === "B  ·  2026", P.root.rowSub(firstAlbum));
+  check("the mark lands on the first album, not on a heading", P.root.sel === 1,
+        "sel=" + P.root.sel);
+
+  P.enter();
+  check("enter opens the album's tracks",
+        P.root.frameMode === "find" && P.root.frameAlbum === "New One",
+        P.frames().join(" > "));
+
+  // `a` appends the album as one command, the albumartist included.
+  const A = makePanel();
+  A.root.setTab("start");
+  A.answer([{ album: "New One", albumartist: "B", date: "2026", file: "b/new.mp3" }]);
+  A.answer([]);
+  A.answer([{ value: "Ambient" }]);
+  A.root.sel = 1;
+  A.press("a");
+  check("a appends one findadd with album and albumartist",
+        A.mutations.length === 1 && A.mutations[0].op === "findadd"
+          && JSON.stringify(A.mutations[0].args.filter)
+             === JSON.stringify([["album", "New One"], ["albumartist", "B"]]),
+        JSON.stringify(A.mutations));
+
+  // An answer with nothing in it leaves its section out instead of drawing a heading.
+  const E = makePanel();
+  E.root.setTab("start");
+  E.answer([]); E.answer([]); E.answer([]);
+  check("an empty library paints no headings at all", E.root.rows.length === 0,
+        "rows=" + E.root.rows.length);
+
+  // `r` asks again -- that is the reshuffle.
+  const R = makePanel();
+  R.root.setTab("start");
+  R.answer([]); R.answer([]); R.answer([]);
+  const before = R.queries.length;
+  R.press("r");
+  check("r asks the three questions again", R.queries.length === before + 3,
+        before + " -> " + R.queries.length);
 }
 
 // --------------------------------------------------------------- report

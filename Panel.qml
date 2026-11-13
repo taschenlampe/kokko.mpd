@@ -230,12 +230,17 @@ Panel {
   }
 
   // ----------------------------------------------------------------- frames
-  // The nine root tabs, in the order the digits and `tab` walk them: what a tab
+  // The root tabs, in the order the digits and `tab` walk them: what a tab
   // is called and which key reaches it (the key is the position, 1-based). One
   // table, because four things read it -- the chips, the digits, the tab ring and
   // the breadcrumb title -- and four copies of an order is how `8` stopped being
   // the radio tab once already. Chip and breadcrumb say the same word on purpose:
   // the chip is where the mouse is, the breadcrumb where the eye is after a jump.
+  //
+  // `start` sits at the end although it is the first screen: putting it in front
+  // would renumber every digit (`1` is the queue, and that is muscle memory), so
+  // it is reached by `0` -- the one digit the 1-based range leaves free -- and by
+  // the tab ring. It is also where an empty player opens (see onOpenChanged).
   readonly property var tabOrder: [
     { key: "queue", label: "Queue" },
     { key: "search", label: "Search" },
@@ -245,7 +250,8 @@ Panel {
     { key: "files", label: "Library" },
     { key: "playlists", label: "Playlists" },
     { key: "radio", label: "Radio" },
-    { key: "settings", label: "Settings" }
+    { key: "settings", label: "Settings" },
+    { key: "start", label: "Start" }
   ]
 
   // The table entry for a tab key, or null for anything the table does not know.
@@ -269,6 +275,7 @@ Panel {
     // The station directory: a browse root like the others, but nothing under it
     // comes from MPD (see loadFrame).
     if (tab === "radio") return { mode: "radio", title: title }
+    if (tab === "start") return { mode: "start", title: title }
     return { mode: "playlists", title: title }
   }
 
@@ -620,6 +627,10 @@ Panel {
 
     root.loading = true
 
+    // The start screen is three questions, not one: it builds its rows itself and
+    // paints them once every answer is in (see loadStart).
+    if (mode === "start") { root.loadStart(gen); return }
+
     function answer(list, error) {
       if (gen !== root.loadGeneration) { root.staleAnswers++; return }
       root.answeredLoads++
@@ -679,6 +690,136 @@ Panel {
     root.loading = false
     root.rows = []
     root.setInfo("unknown view: " + mode)
+  }
+
+  // ------------------------------------------------------------------- start
+  //
+  // What an empty player opens on: what the library itself offers. Three answers,
+  // three sections -- newest releases (the Date tag, not the file's date: MPD cannot
+  // filter on Last-Modified, measured), a few random albums, a few genres. Nothing
+  // is stored and nothing is remembered, so the frame is rebuilt on every open, and
+  // a section whose answer is empty is left out instead of shown as a dead heading.
+  readonly property int startNewest: 4
+  readonly property int startPicks: 3
+  readonly property int startGenres: 4
+
+  function loadStart(gen) {
+    var year = (new Date()).getFullYear()
+    var parts = { recent: [], albums: [], genres: [], picks: [], left: 3 }
+    function one(slot, rows, error) {
+      parts[slot] = (error === "" && rows) ? rows : []
+      parts.left = parts.left - 1
+      if (parts.left > 0) return
+      if (gen !== root.loadGeneration) { root.staleAnswers = root.staleAnswers + 1; return }
+      root.startPicksStage(gen, parts)
+    }
+    // This year and the one before: on any library that is a handful of albums, and
+    // 40 songs is enough to see them. The order is made later -- MPD sorts ascending
+    // and this screen wants the newest first.
+    host.query("find", { regex: [["date", "^(" + (year - 1) + "|" + year + ")"]],
+                         sort: "date", limit: 40 }, "start:recent",
+               function(rows, error) { one("recent", rows, error) })
+    host.query("list", { tag: "album", limit: 3000 }, "start:albums",
+               function(rows, error) { one("albums", rows, error) })
+    host.query("list", { tag: "genre", limit: 3000 }, "start:genres",
+               function(rows, error) { one("genres", rows, error) })
+  }
+
+  // Stage two: the random picks. `list album` answers with names only -- no artist,
+  // no file, and without a file there is no cover -- so each pick costs one more
+  // query. Three of them, a millisecond each, and it is what makes the section read
+  // like the one above it.
+  function startPicksStage(gen, parts) {
+    var all = parts.albums || []
+    var names = []
+    for (var i = 0; i < 40 && names.length < root.startPicks && all.length > 0; i++) {
+      var pick = String((all[Math.floor(Math.random() * all.length)] || {}).value || "")
+      if (pick !== "" && names.indexOf(pick) < 0) names.push(pick)
+    }
+    if (names.length === 0) { root.paintStart(gen, parts); return }
+    parts.picks = []
+    var left = names.length
+    for (var j = 0; j < names.length; j++) (function(slot, name) {
+      parts.picks[slot] = { value: name }
+      host.query("find", { filter: [["album", name]], limit: 1 }, "start:pick" + slot,
+        function(rows, error) {
+          if (error === "" && rows && rows.length > 0) parts.picks[slot] = rows[0]
+          left = left - 1
+          if (left === 0) root.paintStart(gen, parts)
+        })
+    })(j, names[j])
+  }
+
+  function paintStart(gen, parts) {
+    if (gen !== root.loadGeneration) { root.staleAnswers = root.staleAnswers + 1; return }
+    var rows = root.startRows(parts)
+    root.allRows = rows
+    root.presentRows("start", root.frame, rows)
+  }
+
+  function startRows(parts) {
+    var rows = []
+
+    // Newest releases, one row per album. The songs arrive sorted by date
+    // ascending, so the list is walked from the back; album *and* albumartist are
+    // the key, because two records can share a title.
+    var seen = ({})
+    var newest = []
+    var songs = parts.recent || []
+    for (var i = songs.length - 1; i >= 0 && newest.length < root.startNewest; i--) {
+      var s = songs[i] || {}
+      var album = String(s.album || "")
+      if (album === "") continue
+      var key = album + "\u0000" + String(s.albumartist || s.artist || "")
+      if (seen[key] === true) continue
+      seen[key] = true
+      newest.push(s)
+    }
+    if (newest.length > 0) {
+      rows.push({ type: "header", title: "Newest releases" })
+      for (var a = 0; a < newest.length; a++)
+        rows.push(root.startAlbumRow(newest[a]))
+    }
+
+    var picks = parts.picks || []
+    if (picks.length > 0) {
+      rows.push({ type: "header", title: "Random albums" })
+      for (var b = 0; b < picks.length; b++)
+        rows.push(root.startAlbumRow(picks[b] || {}))
+    }
+
+    // The genres are four picked out of the list, not its first four: the alphabet
+    // starts at "2-Step", and a section that always reads the same three words is a
+    // decoration, not a way in. Ranking them would cost one `count` per genre; a
+    // pick costs nothing and changes with `r`.
+    var genres = parts.genres || []
+    var pickedGenres = []
+    for (var c = 0; c < 40 && genres.length > 0 && pickedGenres.length < root.startGenres; c++) {
+      var genre = String((genres[Math.floor(Math.random() * genres.length)] || {}).value || "")
+      if (genre !== "" && pickedGenres.indexOf(genre) < 0) pickedGenres.push(genre)
+    }
+    if (pickedGenres.length > 0) {
+      rows.push({ type: "header", title: "Genres" })
+      for (var d = 0; d < pickedGenres.length; d++)
+        rows.push({ type: "startGenre", title: pickedGenres[d], genre: pickedGenres[d] })
+    }
+    return rows
+  }
+
+  // One album row of the start screen. `album` and `albumartist` are what the
+  // filters and the cover need; `title` is what the list draws.
+  function startAlbumRow(song) {
+    var album = String(song.album || song.value || "")
+    // A `Date` of "0000" is a tag that exists and says nothing -- printed as a year
+    // it reads like a bug in the screen.
+    var year = String(song.date || "").slice(0, 4)
+    if (!/[1-9]/.test(year)) year = ""
+    return {
+      type: "startAlbum", title: album, album: album,
+      albumartist: String(song.albumartist || song.artist || ""),
+      year: year,
+      file: String(song.file || "")
+    }
   }
 
   // The hits of a search, painted once their group counts are back.
@@ -807,6 +948,9 @@ Panel {
       return n + " tracks"
     }
     if (mode === "files") return String(f.path || "") === "" ? "Library — " + n + " entries" : String(f.path) + " — " + n
+    // The start screen counts nothing: its sections count themselves, and a total
+    // over four albums plus three picks plus four genres says nothing.
+    if (mode === "start") return ""
     if (mode === "playlists") return n + " Playlists"
     if (mode === "plist") return n + " tracks"
     if (mode === "radioStations") return n === 1 ? "1 station" : n + " stations"
@@ -1222,6 +1366,17 @@ Panel {
   // view the frame says it (see frame.album below).
   function rowSub(row, prev) {
     if (!row) return ""
+    if (row.type === "startAlbum") {
+      // The artist, then the year -- the two things the title cannot say. The album
+      // itself is the title, so repeating it here would be a row that says one word
+      // twice.
+      var startBits = []
+      if (String(row.albumartist || "") !== "") startBits.push(String(row.albumartist))
+      if (String(row.year || "") !== "") startBits.push(String(row.year))
+      return startBits.join("  ·  ")
+    }
+    // A genre row of the start screen: the word is everything the row stands for.
+    if (row.type === "startGenre") return ""
     if (row.type === "setting") return String(row.hint || "")
     if (row.type === "radio") return String(row.hint || "")
     if (row.type === "radioStation") return root.stationSub(row)
@@ -1390,6 +1545,27 @@ Panel {
     }
     if (!root.up) return
 
+    // The start screen: its rows stand for an album or a genre, so both open one
+    // level deeper instead of playing anything -- a click here is browsing, the way
+    // it is in the album list.
+    if (mode === "start") {
+      if (row.type === "startAlbum") {
+        var startAlbum = String(row.album || "")
+        var startFilter = [["album", startAlbum]]
+        if (String(row.albumartist || "") !== "")
+          startFilter.push(["albumartist", String(row.albumartist)])
+        root.pushFrame({ mode: "find", title: startAlbum + " — tracks", sort: "track",
+                         album: startAlbum, filter: startFilter })
+        return
+      }
+      if (row.type === "startGenre") {
+        root.pushFrame({ mode: "list", tag: "album", title: String(row.genre || ""),
+                         filter: [["genre", String(row.genre || "")]] })
+        return
+      }
+      return
+    }
+
     if (mode === "queue") { if (row.id !== undefined) host.playId(row.id); return }
     // A station is played the way a library track is: put the stream in the queue
     // and start it. Nothing plays by itself while browsing -- this is the one
@@ -1488,7 +1664,19 @@ Panel {
     if (!root.up) return
     var what = ""
 
-    if (type === "group") {
+    if (type === "startAlbum") {
+      // One command for the album, not one `add` per track: the filter is the same
+      // one the album's own view would use. The albumartist narrows it, because a
+      // record's title alone can be shared by two artists.
+      var albumFilter = [["album", String(row.album || "")]]
+      if (String(row.albumartist || "") !== "")
+        albumFilter.push(["albumartist", String(row.albumartist)])
+      host.mutation("findadd", { filter: albumFilter })
+      what = "Album “" + String(row.album || "") + "”"
+    } else if (type === "startGenre") {
+      host.mutation("findadd", { filter: [["genre", String(row.genre || "")]] })
+      what = "everything in " + String(row.genre || "")
+    } else if (type === "group") {
       if (row.kind === "artist") {
         host.mutation("findadd", { filter: [["artist", String(row.value || "")]] })
         what = "all tracks by " + String(row.value || "")
@@ -1528,6 +1716,10 @@ Panel {
     if (root.radioFrame()) { root.flash("a appends the selected station"); return }
     if (!root.up) return
     var mode = root.frameMode
+
+    // Nothing on the start screen stands for a whole list: every row is one album or
+    // one genre, and appending "all of it" would be the library.
+    if (mode === "start") { root.flash("pick an album or genre — a appends it"); return }
 
     if (mode === "search") {
       var term = String(root.frame.term || "").trim()
@@ -1628,6 +1820,7 @@ Panel {
     if (root.promptMode !== "") return "type · enter confirms · esc cancels"
     var mode = root.frameMode
     if (mode === "queue") return "enter plays · a appends · d removes · D clears · C keeps only the playing track"
+    if (mode === "start") return "enter opens · a appends · r other picks · 0 is here"
     if (mode === "search") return "/ to type · enter opens · a appends · A all hits · h/esc back"
     if (mode === "list") return "enter goes in · a appends all of it · A appends the selection · h/esc back"
     if (mode === "find") return "enter plays · a appends · A whole list · h/esc back"
@@ -1693,6 +1886,13 @@ Panel {
     var row = root.rows[root.sel]
     if (!row) return
     if (root.detailRow !== null) { root.detailRow = null; return }
+    // A start row stands for a collection, not a song: its `file` is only the track
+    // the cover came from, and that track's tags would answer a question nobody
+    // asked. Say which way the details are, instead of showing the wrong ones.
+    if (row.type === "startAlbum" || row.type === "startGenre") {
+      root.flash("open it first — i shows one track")
+      return
+    }
     // A station is in nobody's library: there is nothing for MPD to look up, and
     // the row already carries everything the pane can say. So this needs no
     // connection either.
@@ -2087,6 +2287,11 @@ Panel {
       var tabKey = root.tabForNumber(String(tabDigit))
       if (tabKey !== "") { root.setTab(tabKey); event.accepted = true; return }
     }
+    // `0` reaches the tenth tab. The range above is 1-based and stops at nine, and
+    // the start screen is the one tab that had to go somewhere without renumbering
+    // the other nine. While a field is open the digit belongs to the field -- that
+    // branch runs earlier, so this one only ever sees a list with the keys.
+    if (text === "0" || key === Qt.Key_0) { root.setTab("start"); event.accepted = true; return }
 
     // Settings tab: -/+ step a number, space flips a switch. Before the global
     // volume/play bindings, which own those keys everywhere else.
@@ -2179,6 +2384,9 @@ Panel {
     if (text === "J") { root.moveRow(1); event.accepted = true; return }
     if (text === "K") { root.moveRow(-1); event.accepted = true; return }
     if (text === "s" && root.frameMode !== "search") { root.openPrompt("save", "", true); event.accepted = true; return }
+    // The start screen's own reshuffle: the picks are random per load, so this just
+    // asks again -- one key, and the section is different music.
+    if (text === "r" && root.frameMode === "start") { root.loadFrame(); event.accepted = true; return }
     if (text === "r" && root.frameMode === "playlists") {
       var row = root.rows[root.sel]
       root.promptTarget = row ? String(row.playlist || "") : ""
@@ -2255,7 +2463,15 @@ Panel {
       // Opened on a long queue, the list would start at the top -- the one place
       // the playing track is not. The queue load picks this up and lands on it.
       root.jumpToCurrent = true
-      if (root.stack.length === 0) root.setTab(root.tab)
+      // An empty queue has nothing to come back to, so the panel lands on the start
+      // screen -- that is what it is for. The rule is narrow on purpose: only from
+      // the queue's own root frame (a panel closed somewhere deep is left there,
+      // that is where the user was) and only when the queue is really empty, not
+      // merely paused: a paused queue is still the way back to the music.
+      var startHere = root.host && root.host.queueLength === 0
+        && root.tab === "queue" && root.frameMode === "queue"
+      if (startHere) root.setTab("start")
+      else if (root.stack.length === 0) root.setTab(root.tab)
       else root.loadFrame()
       Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
     }
@@ -2457,17 +2673,41 @@ Panel {
           required property var modelData
           required property int index
           width: list.width
-          height: rowItem.sectionHeader ? Style.space(29)
-            : (rowItem.isHeader ? Style.space(22) : Style.space(26))
+          height: rowItem.startRow ? Style.space(40)
+            : (rowItem.sectionHeader ? Style.space(29)
+              : (rowItem.isHeader ? Style.space(22) : Style.space(26)))
 
           readonly property string rowType: String(rowItem.modelData.type || "")
           readonly property bool isHeader: rowItem.rowType === "header"
+          // An album row of the start screen carries a cover: the one thing the title
+          // cannot say, and the difference between "a list of words" and "what the
+          // library has". The host hands out art from its cache by song uri, so a
+          // second open costs nothing; an answer that lands after the row was
+          // recycled is dropped by comparing the file it was asked for.
+          readonly property bool startRow: rowItem.rowType === "startAlbum"
+          property string thumb: ""
+          function loadThumb() {
+            rowItem.thumb = ""
+            var r = rowItem.modelData
+            if (!rowItem.startRow || !r || !root.host) return
+            var file = String(r.file || "")
+            if (file === "") return
+            root.host.artFor(file, String(r.album || ""), String(r.albumartist || ""),
+              function(path) {
+                if (!rowItem.startRow) return
+                if (String((rowItem.modelData || {}).file || "") !== file) return
+                rowItem.thumb = String(path || "")
+              })
+          }
+          Component.onCompleted: rowItem.loadThumb()
+          onModelDataChanged: rowItem.loadThumb()
           // A heading over a group of rows: the sections of the settings tab and
           // the three the search builds (Artists / Albums / Tracks). It is drawn
           // as a quiet label with a rule above it -- the accent belongs to what
           // plays, not to structure.
           readonly property bool sectionHeader: rowItem.isHeader
-            && (root.frameMode === "settings" || root.frameMode === "search")
+            && (root.frameMode === "settings" || root.frameMode === "search"
+                || root.frameMode === "start")
           // The mark belongs to the list, so it only shows while the list really
           // holds the keyboard. With a prompt up the field owns it (see the head of
           // handleKey: `+`, `a` and `A` are letters there), and a marked row would
@@ -2574,9 +2814,32 @@ Panel {
             onWheel: function(wheel) { root.step(wheel.angleDelta.y > 0 ? -3 : 3) }
           }
 
+          // The cover of a start row, left of its text. Square-ish and small: it is
+          // there to be recognised, not to be looked at.
+          Rectangle {
+            id: thumbFrame
+            visible: rowItem.startRow && rowItem.thumb !== ""
+            anchors { left: parent.left; leftMargin: Style.space(8)
+                      verticalCenter: parent.verticalCenter }
+            width: Style.space(30)
+            height: width
+            radius: Style.cornerRadius
+            clip: true
+            color: "transparent"
+            Image {
+              anchors.fill: parent
+              source: rowItem.thumb !== "" ? "file://" + rowItem.thumb : ""
+              fillMode: Image.PreserveAspectCrop
+              asynchronous: true
+              sourceSize.width: 60
+              sourceSize.height: 60
+            }
+          }
+
           Row {
             visible: !rowItem.isHeader
-            anchors { left: parent.left; leftMargin: Style.space(8)
+            anchors { left: parent.left
+                      leftMargin: Style.space(8) + (rowItem.startRow ? Style.space(38) : 0)
                       right: root.frameMode === "settings" ? stepMinus.left
                         : (trashButton.visible ? trashButton.left : addButton.left)
                       rightMargin: Style.space(8)
@@ -2602,7 +2865,7 @@ Panel {
               color: root.isActiveRow(rowItem.modelData) ? root.accent
                 : (rowItem.selected ? root.selFg : root.fg)
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: rowItem.startRow ? Style.font.body : Style.font.caption
               font.bold: root.isActiveRow(rowItem.modelData) || rowItem.rowType === "group"
               elide: Text.ElideRight
               width: Math.max(Style.space(80), parent.width * 0.40)

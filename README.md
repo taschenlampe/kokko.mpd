@@ -46,6 +46,10 @@ The folder name must stay `kokko.mpd` — it's how `shell.json` and the CLI find
 runs along, left click = play/pause, middle click = next, scroll = volume.
 - **On hover** — a card with cover, draggable progress, big transport buttons.
 - **On the wallpaper** (optional) — the same card, sitting on your desktop.
+- **A start screen when nothing is queued** — the panel opens on it instead of an
+empty queue: the newest records in your library (by year), a few random albums, a few
+genres, each with its cover. Nothing is stored, so the picks change every time you open
+it, and `r` reshuffles without leaving the panel.
 - **The full panel** — queue, search, library, playlists, all in one view.
 - **An album is a track list** — open one and the rows are number, title and
 duration, because the frame already says which album it is; the footer carries
@@ -80,6 +84,11 @@ no seek bar.
 **Search** — grouped hits, `+` appends, `enter` plays.
 
 [![Search](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-suche.png)](docs/panel-suche.png)
+
+**Start** — what the panel opens on while nothing is queued: the newest records, a few
+random albums, a few genres, covers included.
+
+[![Start](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-start.png)](docs/panel-start.png)
 
 **Settings** — everything you'd actually tweak, with a live preview.
 
@@ -120,7 +129,7 @@ That's really all you need. Everything below is for when you want more.
 
 | Key | Effect |
 |---|---|
-| `1`…`9`, `tab` | queue · search · albums · artists · genres · files · playlists · radio · settings |
+| `1`…`9`, `0`, `tab` | queue · search · albums · artists · genres · files · playlists · radio · settings · start |
 | `t` | jump to the playing track, from any tab |
 | `<` `>` | previous / next track |
 | `/` | search — the current category only in albums/artists/genres, the filter in files/playlists, the station directory in radio, global elsewhere. Case never matters. |
@@ -138,6 +147,7 @@ That's really all you need. Everything below is for when you want more.
 - In search, `↓`/`↑` jump from the field to the first/last hit; `/` brings the field back.
 - In radio, nothing plays by itself: `enter` starts a station, `a` appends it, `i` shows what the directory knows about it.
 - Digits switch tabs *only* when the search field is empty — otherwise they're search text.
+- The panel lands on **Start** while the queue is empty; `1` always reaches the queue, `0` always Start.
 - `esc` backs out step by step: song info → one level → panel.
 - Saved playlists need MPD's `playlist_directory` set in `~/.config/mpd/mpd.conf`.
 

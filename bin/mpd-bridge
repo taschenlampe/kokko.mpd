@@ -68,7 +68,9 @@ QUERIES (the "kind" key of `query`):
     queue                     the play queue, in order
     lsinfo {path}             one directory of the music tree
     list {tag,filter}         distinct values of a tag, optionally filtered
-    find {filter,sort}        songs matching an exact-match filter
+    find {filter,regex,sort}  songs matching an exact-match filter; `regex` is a
+                              list of [tag, pattern] for the conditions an exact
+                              match cannot say ("released in the last two years")
     search {term}             songs matching a substring of any tag, ranked by
                               where the term matched (title first)
     counts {filters}          how many tracks each filter stands for -- what
@@ -2223,27 +2225,39 @@ class Bridge:
             out.append(songs)
         return out
 
-    def filter_args(self, conn: CommandConn, filters) -> list:
+    def filter_args(self, conn: CommandConn, filters, matches=None) -> list:
         """The tail of a find/list/search command for a set of tag conditions.
 
-        MPD 0.21 introduced the filter expression and has spent every release
-        since deprecating the tag/value spelling that came before it. Both are
-        still accepted here because the plugin has no say in which server it is
-        pointed at, and 0.20 is still what a NAS ships.
+        `filters` are exact -- `tag == value`. `matches` are POSIX extended
+        regular expressions -- `tag =~ pattern` -- and exist for the one thing
+        the exact form cannot say: "any album released in the last two years".
+        Both sets are joined with AND, because that is the only operator MPD
+        has; two ways of matching one tag cost two commands and a merge in the
+        caller.
+
+        A pattern on a server older than 0.21 is refused, not dropped: a filter
+        that quietly disappears answers with the whole library, and no caller
+        can tell that apart from a tag with a lot of hits.
         """
-        if not filters:
+        pairs = [(str(t), str(v)) for t, v in (filters or []) if str(t)]
+        patterns = [(str(t), str(v)) for t, v in (matches or []) if str(t)]
+        if not pairs and not patterns:
             return []
-        pairs = [(str(t), str(v)) for t, v in filters if str(t)]
-        if not pairs:
-            return []
-        if version_at_least(conn.version, 0, 21):
-            clauses = ["(%s == '%s')" % (tag, quote_filter_value(value))
-                       for tag, value in pairs]
-            return ["(" + " AND ".join(clauses) + ")" if len(clauses) > 1 else clauses[0]]
-        flat = []
-        for tag, value in pairs:
-            flat.extend([tag, value])
-        return flat
+        if not version_at_least(conn.version, 0, 21):
+            if patterns:
+                raise MPDCommandError("regexp filters need MPD 0.21 or newer")
+            flat = []
+            for tag, value in pairs:
+                flat.extend([tag, value])
+            return flat
+        clauses = ["(%s == '%s')" % (tag, quote_filter_value(value))
+                   for tag, value in pairs]
+        # The pattern goes through the same quoting as a literal. The pane builds
+        # it from a year, but nothing stops a caller from putting a quote in it,
+        # and one unquoted `'` ends the filter argument.
+        clauses.extend("(%s =~ '%s')" % (tag, quote_filter_value(pattern))
+                       for tag, pattern in patterns)
+        return ["(" + " AND ".join(clauses) + ")" if len(clauses) > 1 else clauses[0]]
 
     def paged(self, conn: MPDConn, limit, fetch, fields=SONG_FIELDS) -> list:
         """Collect a list of songs a window at a time.
@@ -2360,7 +2374,8 @@ class Bridge:
             return rows
 
         if kind == "find":
-            args = self.filter_args(conn, request.get("filter") or [])
+            args = self.filter_args(conn, request.get("filter") or [],
+                                    request.get("regex") or [])
             if not args:
                 return []
             rows = self.paged_filter(conn, limit, ["find"] + args)
