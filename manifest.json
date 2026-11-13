@@ -4,7 +4,7 @@
   "name": "MPD",
   "version": "1.5.3",
   "author": "kokko",
-  "description": "MPD client for the Omarchy bar: what is playing right now, with cover and transport, plus a panel with queue, local library search, file browser and a tab that browses internet radio (radio-browser.info). Talks the MPD protocol directly (TCP or Unix socket); state arrives by MPD idle push instead of polling. Also runs under a third-party bar, because the connection lives as a child process inside the widget itself.",
+  "description": "MPD player for the bar and a full panel: queue, library search, playlists, internet radio. Needs a running MPD; it speaks the protocol itself over TCP or a Unix socket, with idle push instead of polling.",
   "license": "MIT",
   "kinds": [
     "bar-widget"

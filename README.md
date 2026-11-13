@@ -10,6 +10,10 @@ A little bar widget for your music: cover + title always visible, a click opens 
 full player — queue, search, your whole library, playlists, internet radio, and a start
 screen when nothing is queued. Mouse-first, keyboard if you want it.
 
+It needs a running MPD with a music directory — nothing else. No extra package: the
+widget talks the protocol itself, and the state arrives by MPD's own `idle` push instead
+of polling.
+
 ## Get it running
 
 ```
