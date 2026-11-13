@@ -708,7 +708,7 @@ Panel {
   readonly property int startNewest: 3
   readonly property int startRecent: 2
   readonly property int startPicks: 2
-  readonly property int startGenres: 3
+  readonly property int startGenres: 2
   // Genres are picked from a wider pool and then counted: 228 genre names in this
   // library include "Singer & Songwriter" with one track, and three of those are a
   // decoration, not a way in. The three largest of eight candidates are the section.

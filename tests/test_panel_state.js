@@ -2064,6 +2064,11 @@ group("case 18: a queue reload keeps the cursor on its row");
 // questions, and "what did I play" is answered by the cache, not by the server.
 {
   group("case 19: the start screen builds its list from five answers");
+  // The picks are random by design. The test needs a fixed order to know which
+  // count belongs to which genre, so the dice are loaded for this block.
+  const realRandom = Math.random;
+  let rnd = 0;
+  Math.random = function () { return (rnd++ % 3) / 3; };
   const P = makePanel();
   P.root.setTab("start");
   check("the frame is the start frame", P.root.frameMode === "start", P.root.frameMode);
@@ -2118,10 +2123,17 @@ group("case 18: a queue reload keeps the cursor on its row");
           .join(",") === "New One,Fresh Two,Last Played,Older Play,Pick A,Pick B",
         P.root.rows.filter(function (r) { return r.type === "startAlbum"; })
           .map(function (r) { return r.album; }).join(","));
-  check("genres come last, with their size",
-        titles.indexOf("Genres") > 0
-          && P.root.rowSub(P.root.rows[titles.length - 1]) === "12 tracks",
-        P.root.rowSub(P.root.rows[titles.length - 1]));
+  // The pool answers 105 / 257 / 12; the section takes the two biggest, not the
+  // first two it was handed.
+  const genreRows = P.root.rows.filter(function (r) { return r.type === "startGenre"; });
+  check("genres come last, and the section takes the biggest of the pool",
+        genreRows.length === 2 && genreRows[0].genre === "Blues"
+          && genreRows[1].genre === "Ambient",
+        genreRows.map(function (r) { return r.genre; }).join(","));
+  check("... with the number behind each",
+        P.root.rowSub(genreRows[0]) === "257 tracks"
+          && P.root.rowSub(genreRows[1]) === "105 tracks",
+        P.root.rowSub(genreRows[0]) + " / " + P.root.rowSub(genreRows[1]));
   check("the mark lands on the first album, not on a heading", P.root.sel === 1,
         "sel=" + P.root.sel);
 
@@ -2165,6 +2177,7 @@ group("case 18: a queue reload keeps the cursor on its row");
   R.press("r");
   check("r asks the five questions again", R.queries.length === before + 5,
         before + " -> " + R.queries.length);
+  Math.random = realRandom;
 }
 
 // ---------------------------------------------------------------- case 20
