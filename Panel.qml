@@ -717,11 +717,13 @@ Panel {
       if (gen !== root.loadGeneration) { root.staleAnswers = root.staleAnswers + 1; return }
       root.startPicksStage(gen, parts)
     }
-    // This year and the one before: on any library that is a handful of albums, and
-    // 40 songs is enough to see them. The order is made later -- MPD sorts ascending
-    // and this screen wants the newest first.
+    // This year and the one before, and a window wide enough to hold both: the
+    // bridge sorts the answer ascending and this screen reads it from the end, so
+    // a window that cuts early cuts the *newest* records -- on this library the two
+    // years already answer with 42 songs, and 40 of them would have been the wrong
+    // 40. 300 is one page (the bridge reads 1000 at a time) and years of listening.
     host.query("find", { regex: [["date", "^(" + (year - 1) + "|" + year + ")"]],
-                         sort: "date", limit: 40 }, "start:recent",
+                         sort: "date", limit: 300 }, "start:recent",
                function(rows, error) { one("recent", rows, error) })
     host.query("list", { tag: "album", limit: 3000 }, "start:albums",
                function(rows, error) { one("albums", rows, error) })

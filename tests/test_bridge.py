@@ -518,6 +518,30 @@ disc_rows = B.Bridge().execute_query(
 check("a multi-disc album still runs disc by disc",
       [r.get("title") for r in disc_rows], ["one one", "one two", "second disc"])
 
+print("=== find: the start screen's newest list is ordered by the Date tag ===")
+# The start screen asks `find` for the last two years with `sort: "date"` and
+# then walks the answer from its end -- MPD's sort is ascending, so the newest
+# record is the last row. The bridge used to honour only "track": the request
+# was dropped, the rows arrived in database order, and the release screen showed
+# "Turnstile 2025" above "KNEECAP 2026". Measured on a real library, the answer
+# came back 2025-03-14, 2026-05-01, 2026-04-18, 2025-06-06.
+DATE_PAIRS = [("file", "h/doechii/anxiety.mp3"), ("Album", "Alligator Bites Never Heal"),
+              ("AlbumArtist", "Doechii"), ("Date", "2025-03-14"),
+              ("file", "h/kneecap/eire.mp3"), ("Album", "FENIAN"),
+              ("AlbumArtist", "KNEECAP"), ("Date", "2026-05-01"),
+              ("file", "p/bad-brains/i.mp3"), ("Album", "Live"),
+              ("AlbumArtist", "Bad Brains"), ("Date", "2026-04-18"),
+              ("file", "r/turnstile/sole.mp3"), ("Album", "Never Enough"),
+              ("AlbumArtist", "Turnstile"), ("Date", "2025-06-06")]
+date_rows = B.Bridge().execute_query(
+    CannedConn("0.24.0", pairs=DATE_PAIRS), "find",
+    {"regex": [["date", "^(2025|2026)"]], "sort": "date"})
+check("the rows come back oldest first, whatever the database order is",
+      [r.get("date") for r in date_rows],
+      ["2025-03-14", "2025-06-06", "2026-04-18", "2026-05-01"])
+check("... so the last row is the newest record -- the row the screen shows first",
+      date_rows[-1].get("album"), "FENIAN")
+
 print("=== counts: how much `a` appends ===")
 # The number beside a search group used to be the hits that put it there: a
 # search for "southbound" showed "Thin Lizzy 1 tracks" and appended 137. `count`

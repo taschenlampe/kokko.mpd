@@ -2386,6 +2386,16 @@ class Bridge:
                 # everything that carries `Disc: 1`.
                 rows.sort(key=lambda r: (number(r.get("disc")) or 1, number(r.get("track")),
                                          r.get("file", "")))
+            elif request.get("sort") == "date":
+                # Ascending, because that is what the caller expects from a sort:
+                # the start screen asks for the last two years and reads the end
+                # of the answer. Sorting here rather than handing `sort date` to
+                # MPD is deliberate -- the pages are cut before they arrive, so a
+                # server-side sort would only order what the window already kept,
+                # and a sort of the window is exactly what this is. A row without
+                # a Date tag sorts first: "no date" cannot claim to be newer than
+                # anything, and the caller drops what it cannot place.
+                rows.sort(key=lambda r: (str(r.get("date", "")), r.get("file", "")))
             return rows
 
         if kind == "search":
