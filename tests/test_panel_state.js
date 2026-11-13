@@ -160,6 +160,8 @@ const FUNCTIONS = [
   // The start screen: five answers, two stages, one list.
   "loadStart", "startPicksStage", "paintStart", "startRows", "startAlbumRow",
   "startAlbumsFrom", "isoDay", "ago", "openStartRow",
+  // The stars.
+  "loadFavorites", "isFavorite", "toggleFavorite",
   "breadcrumb",
   "infoFor", "groupHits", "matchName", "matchNote", "isSelectable",
   "firstSelectable", "lastSelectable", "carriedSelection",
@@ -287,6 +289,7 @@ function makePanel(opts) {
     skipCarry: false,
     carrySel: null,
     loadedFrame: null,
+    favSet: ({}),
     scanRequested: false,
     pendingSelect: "",
     pendingCenter: -1,
@@ -2207,6 +2210,57 @@ group("case 18: a queue reload keeps the cursor on its row");
         JSON.stringify(Q.host.options));
   check("... and it does not claim to have changed repeat", Q.flashes.length === 0,
         "flashes=" + Q.flashes.length);
+}
+
+// ---------------------------------------------------------------- case 21
+// The star is a row in MPD's `favorites` playlist, not a setting: the panel keeps
+// a set of uris for the glyph and sends the wish as one mutation. An album row
+// stars the record by filter -- its own file is only the track the cover came from.
+{
+  group("case 21: the star is a playlist, not a setting");
+  const P = makePanel();
+  P.root.loadFavorites();
+  check("loadFavorites asks the bridge", P.queries[0].kind === "favorites",
+        P.queries[0].kind);
+  P.answer([{ file: "b/1.mp3", type: "favorite" }]);
+  check("a uri the playlist names is starred", P.root.isFavorite({ file: "b/1.mp3" }) === true,
+        "favorite");
+  check("... and one it does not is not", P.root.isFavorite({ file: "c/1.mp3" }) === false,
+        "not favorite");
+  check("a row without a file is never starred", P.root.isFavorite({ title: "x" }) === false,
+        "no file");
+
+  P.root.rows = [{ type: "file", file: "c/1.mp3", title: "T" }];
+  P.root.sel = 0;
+  P.press("f");
+  check("f on a track sends one favorite, on",
+        JSON.stringify(P.mutations[0]) === JSON.stringify(
+          { op: "favorite", args: { uri: "c/1.mp3", on: true } }),
+        JSON.stringify(P.mutations[0]));
+  check("... and the footer says so", P.flashes[P.flashes.length - 1], "in favorites");
+  P.answer([{ file: "b/1.mp3" }, { file: "c/1.mp3" }]);
+  check("... the reload fills the glyph", P.root.isFavorite({ file: "c/1.mp3" }) === true,
+        "favorite");
+
+  const A = makePanel();
+  A.root.rows = [{ type: "startAlbum", album: "One", albumartist: "A", file: "a/1.mp3" }];
+  A.root.sel = 0;
+  A.press("f");
+  check("f on an album row stars the record by its filter",
+        JSON.stringify(A.mutations[0]) === JSON.stringify(
+          { op: "favoritefilter",
+            args: { filter: [["album", "One"], ["albumartist", "A"]], on: true } }),
+        JSON.stringify(A.mutations[0]));
+  check("... and it says album", A.flashes[A.flashes.length - 1], "album in favorites");
+  A.answer([]);
+
+  // A header is not a thing to star.
+  const H = makePanel();
+  H.root.rows = [{ type: "header", title: "Genres" }];
+  H.root.sel = 0;
+  H.press("f");
+  check("f on a heading sends nothing", H.mutations.length === 0,
+        "mutations=" + H.mutations.length);
 }
 
 // --------------------------------------------------------------- report

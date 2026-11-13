@@ -600,6 +600,56 @@ try:
 finally:
     B.cache_dir = _old_cache
 
+print("=== favorites: one saved playlist, no side file ===")
+# The star is a row in the `favorites` playlist: visible to every MPD client, and
+# playable without the player knowing what a favourite is. Starring twice must not
+# duplicate, and unstarring must not take a neighbour with it.
+
+
+class PlaylistConn(CannedConn):
+    """CannedConn, plus a `favorites` playlist that actually changes."""
+
+    def __init__(self, songs=(), playlist=()):
+        CannedConn.__init__(self, "0.24.0", pairs=list(songs))
+        self.playlist = list(playlist)
+        self.writes = []
+
+    def command(self, name, *args):
+        self.calls.append((name, list(args)))
+        if name == "listplaylistinfo":
+            return [("file", uri) for uri in self.playlist], None
+        if name == "playlistadd":
+            self.writes.append(("add", args[1]))
+            self.playlist.append(args[1])
+            return [], None
+        if name == "playlistdelete":
+            self.writes.append(("del", args[1]))
+            del self.playlist[int(args[1])]
+            return [], None
+        return self.pairs, None
+
+
+empty = PlaylistConn()
+check("a playlist that is not there answers with no stars",
+      B.Bridge().execute_query(empty, "favorites", {}), [])
+
+conn = PlaylistConn()
+B.Bridge().set_favorite(conn, ["a/1.mp3"], True)
+B.Bridge().set_favorite(conn, ["a/1.mp3"], True)
+check("starring twice leaves one row", conn.playlist, ["a/1.mp3"])
+B.Bridge().set_favorite(conn, ["b/1.mp3"], True)
+B.Bridge().set_favorite(conn, ["a/1.mp3"], False)
+check("unstarring takes its own row and nothing else", conn.playlist, ["b/1.mp3"])
+rows = B.Bridge().execute_query(conn, "favorites", {})
+check("the stars come back as rows", [r["file"] for r in rows], ["b/1.mp3"])
+check("... typed, so the panel can tell them apart", rows[0]["type"], "favorite")
+
+album = PlaylistConn(songs=[("file", "d/1.mp3"), ("file", "d/2.mp3")])
+B.Bridge().favorite_filter(album, [["album", "One"]], True)
+check("starring an album adds every track of it", album.playlist, ["d/1.mp3", "d/2.mp3"])
+B.Bridge().favorite_filter(album, [["album", "One"]], False)
+check("... and takes them out again", album.playlist, [])
+
 print("=== counts: how much `a` appends ===")
 # The number beside a search group used to be the hits that put it there: a
 # search for "southbound" showed "Thin Lizzy 1 tracks" and appended 137. `count`

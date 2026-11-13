@@ -154,6 +154,12 @@ QUERY_ROW_LIMIT = 20000
 # NOTICE.md), which fixed exactly this.
 QUERY_PAGE = 1000
 
+# Where the stars live. A saved playlist, not a side file and not a sticker
+# database: every MPD client sees the same favourites, and the player can play
+# them without knowing what a favourite is.
+FAVORITES = "favorites"
+FAVORITE_ALBUM_LIMIT = 500
+
 # The public station directory the radio search asks. No key, no account, and
 # the `all` host is the load-balanced one the project points clients at; the
 # plugin keeps no list of mirrors to go stale. radio-browser asks callers to
@@ -1945,6 +1951,16 @@ class Bridge:
             self.with_cmd(lambda conn: self.add_and_play(conn, uri))
         elif op == "insert" and uri:
             self.with_cmd(lambda conn: self.add_after_current(conn, uri))
+        elif op == "favorite" and payload.get("uri"):
+            # A star is a wish about a place, not about what is playing, so the
+            # writable connection carries it like any other mutation.
+            uri = str(payload.get("uri", ""))
+            on = bool(payload.get("on", True))
+            self.with_cmd(lambda conn: self.set_favorite(conn, [uri], on))
+        elif op == "favoritefilter" and payload.get("filter"):
+            filters = payload.get("filter") or []
+            on = bool(payload.get("on", True))
+            self.with_cmd(lambda conn: self.favorite_filter(conn, filters, on))
         elif op in ("findadd", "findplay"):
             # Everything matching a filter, in one command. The browser adds an
             # artist by adding a filter rather than by walking their albums and
@@ -2031,6 +2047,48 @@ class Bridge:
             return True
         conn.command("move", "%d:%d" % (start, end), target)
         return True
+
+    def favorite_uris(self, conn: CommandConn) -> list:
+        """The `favorites` playlist, in order. A playlist that is not there is empty."""
+        try:
+            pairs = conn.command("listplaylistinfo", FAVORITES)[0]
+        except MPDCommandError:
+            return []
+        return [value for key, value in pairs if key.lower() == "file"]
+
+    def set_favorite(self, conn: CommandConn, uris, on: bool) -> None:
+        """Put uris into `favorites`, or take them out.
+
+        Adding is a `playlistadd` per song and skipping what is already there, so
+        starring twice cannot duplicate a row. Removing walks the playlist from its
+        end: the positions before the one being deleted stay valid while it shrinks.
+        """
+        wanted = []
+        for uri in uris:
+            uri = str(uri or "")
+            if uri and uri not in wanted:
+                wanted.append(uri)
+        if not wanted:
+            return
+        current = self.favorite_uris(conn)
+        if on:
+            have = set(current)
+            for uri in wanted:
+                if uri not in have:
+                    conn.command("playlistadd", FAVORITES, uri)
+                    have.add(uri)
+            return
+        drop = [pos for pos, uri in enumerate(current) if uri in set(wanted)]
+        for pos in reversed(drop):
+            conn.command("playlistdelete", FAVORITES, str(pos))
+
+    def favorite_filter(self, conn: CommandConn, filters, on: bool) -> None:
+        """Star a whole album: every row the filter stands for, in one keypress."""
+        args = self.filter_args(conn, filters)
+        if not args:
+            return
+        rows = self.paged_filter(conn, FAVORITE_ALBUM_LIMIT, ["find"] + args)
+        self.set_favorite(conn, [row.get("file", "") for row in rows], on)
 
     def find_add(self, conn: CommandConn, filters, then_play: bool) -> bool:
         args = self.filter_args(conn, filters)
@@ -2404,6 +2462,11 @@ class Bridge:
         except (TypeError, ValueError):
             limit = QUERY_ROW_LIMIT
         limit = max(1, min(QUERY_ROW_LIMIT, limit))
+
+        if kind == "favorites":
+            # The stars, as rows: the panel keeps them in a set and draws a glyph.
+            return [{"type": "favorite", "file": uri}
+                    for uri in self.favorite_uris(conn)]
 
         if kind == "recent":
             # The cache answers this one itself: no server, no query, and it must

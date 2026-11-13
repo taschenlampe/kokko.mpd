@@ -111,6 +111,10 @@ Panel {
   // cursor back, because something keeps playing; at the end of the queue nothing
   // plays afterwards, so that row was lost for good and the cursor sat on the first
   // entry. A reload of the frame that is already showing carries the selection.
+  // The stars: the uris in MPD's `favorites` playlist. Nothing is stored here --
+  // the playlist is the store, every client sees the same stars, and this map is
+  // only how the list knows which row to draw filled.
+  property var favSet: ({})
   property var carrySel: null
   property var loadedFrame: null
   // A skip with < or > leaves the row playing now in the middle of the list -- and only a
@@ -196,7 +200,7 @@ Panel {
   // here is still the previous one -- which loaded the list the user had just
   // left.
   onStackChanged: root.loadFrame(root.stack[root.stack.length - 1])
-  onUpChanged: if (root.up) root.loadFrame()
+  onUpChanged: if (root.up) { root.loadFavorites(); root.loadFrame() }
 
   // Set when the settings tab starts a library scan, so the confirmation names
   // what happened instead of firing on every scan another client happens to run.
@@ -690,6 +694,54 @@ Panel {
     root.loading = false
     root.rows = []
     root.setInfo("unknown view: " + mode)
+  }
+
+  // ----------------------------------------------------------------- stars
+  function loadFavorites() {
+    if (!root.up) return
+    host.query("favorites", {}, "favorites", function(rows, error) {
+      if (error !== "") return
+      var next = ({})
+      for (var i = 0; i < (rows || []).length; i++) {
+        var uri = String((rows[i] || {}).file || "")
+        if (uri !== "") next[uri] = true
+      }
+      root.favSet = next
+    })
+  }
+
+  function isFavorite(row) {
+    if (!row) return false
+    var uri = String(row.file || "")
+    return uri !== "" && root.favSet[uri] === true
+  }
+
+  // `f`: one star for the row under the cursor. An album row stars the record --
+  // the filter, not the one track the row carries -- a track row stars the track.
+  function toggleFavorite() {
+    var row = root.rows[root.sel]
+    if (!row || !root.isSelectable(row)) return
+    var on = !root.isFavorite(row)
+    var uri = String(row.file || "")
+    if (row.type === "startAlbum") {
+      var filter = [["album", String(row.album || "")]]
+      if (String(row.albumartist || "") !== "")
+        filter.push(["albumartist", String(row.albumartist)])
+      host.mutation("favoritefilter", { filter: filter, on: on })
+      root.flash(on ? "album in favorites" : "album out of favorites")
+    } else if (uri !== "") {
+      host.mutation("favorite", { uri: uri, on: on })
+      root.flash(on ? "in favorites" : "out of favorites")
+    } else {
+      return
+    }
+    // Optimistic: the glyph answers now, the reload confirms it. A copy, because
+    // the binding only re-evaluates when the property is assigned.
+    var next = ({})
+    for (var key in root.favSet) next[key] = root.favSet[key]
+    if (uri !== "") next[uri] = on
+    root.favSet = next
+    root.loadFavorites()
   }
 
   // ------------------------------------------------------------------- start
@@ -1941,10 +1993,10 @@ Panel {
     if (root.promptMode !== "") return "type · enter confirms · esc cancels"
     var mode = root.frameMode
     if (mode === "queue") return "enter plays · a appends · d removes · D clears · C keeps only the playing track"
-    if (mode === "start") return "enter plays · l opens · a appends · r other picks · 0 is here"
+    if (mode === "start") return "enter plays · l opens · a appends · f stars · r other picks · 0 is here"
     if (mode === "search") return "/ to type · enter opens · a appends · A all hits · h/esc back"
     if (mode === "list") return "enter goes in · a appends all of it · A appends the selection · h/esc back"
-    if (mode === "find") return "enter plays · a appends · A whole list · h/esc back"
+    if (mode === "find") return "enter plays · a appends · A whole list · f stars · h/esc back"
     if (mode === "files") return "enter opens/plays · a appends · A whole folder · ← back"
     if (mode === "playlists") return "enter opens · a loads · s saves the queue · r renames · d deletes"
     if (mode === "plist") return "enter plays · a appends · d removes the track · ← back"
@@ -2514,6 +2566,7 @@ Panel {
     // The start screen's own reshuffle: the picks are random per load, so this just
     // asks again -- one key, and the section is different music.
     if (text === "r" && root.frameMode === "start") { root.loadFrame(); event.accepted = true; return }
+    if (text === "f") { root.toggleFavorite(); event.accepted = true; return }
     if (text === "r" && root.frameMode === "playlists") {
       var row = root.rows[root.sel]
       root.promptTarget = row ? String(row.playlist || "") : ""
@@ -2984,7 +3037,8 @@ Panel {
             anchors { left: parent.left
                       leftMargin: Style.space(8) + (rowItem.startRow ? Style.space(32) : 0)
                       right: root.frameMode === "settings" ? stepMinus.left
-                        : (trashButton.visible ? trashButton.left : addButton.left)
+                        : (trashButton.visible ? trashButton.left
+                          : (starButton.visible ? starButton.left : addButton.left))
                       rightMargin: Style.space(8)
                       verticalCenter: parent.verticalCenter }
             spacing: Style.space(10)
@@ -3106,6 +3160,37 @@ Panel {
             }
           }
 
+          // `f`: the star. Always visible where a row is a song or an album -- a
+          // favourite you have to hover to find is not one -- filled in the accent
+          // when it is set, dim when it is not.
+          Item {
+            id: starButton
+            readonly property bool on: root.isFavorite(rowItem.modelData)
+            visible: !rowItem.isHeader && root.frameMode !== "settings"
+              && String((rowItem.modelData || {}).file || "") !== ""
+            anchors { right: addButton.left; rightMargin: Style.space(6)
+                      verticalCenter: parent.verticalCenter }
+            width: Style.space(18)
+            height: Style.space(18)
+
+            Text {
+              anchors.centerIn: parent
+              text: "★"
+              color: starButton.on ? root.accent
+                : (rowItem.selected ? root.selFg : root.dim)
+              opacity: starButton.on ? 1.0 : 0.45
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: function(mouse) { root.sel = rowItem.index; root.toggleFavorite() }
+            }
+          }
+
           // `+`: append what this row stands for — the track, the album, the
           // artist, the folder. The mouse half of `a`.
           Item {
@@ -3153,7 +3238,8 @@ Panel {
               opacity: (rowItem.glyphsHot || trashArea.containsMouse) ? 1.0 : 0.32
             visible: !rowItem.isHeader
               && (root.frameMode === "queue" || root.frameMode === "plist")
-            anchors { right: addButton.left; rightMargin: Style.space(6)
+            anchors { right: starButton.visible ? starButton.left : addButton.left
+                      rightMargin: Style.space(6)
                       verticalCenter: parent.verticalCenter }
             width: Style.space(22)
             height: Style.space(18)
