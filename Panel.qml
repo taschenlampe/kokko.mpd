@@ -741,7 +741,7 @@ Panel {
     for (var key in root.favSet) next[key] = root.favSet[key]
     if (uri !== "") next[uri] = on
     root.favSet = next
-    root.loadFavorites()
+    favTimer.restart()
   }
 
   // ------------------------------------------------------------------- start
@@ -1348,6 +1348,16 @@ Panel {
   function mutateAndReload(op, args) {
     host.mutation(op, args)
     reloadTimer.restart()
+  }
+
+  // The star answers at once; the playlist is asked again a moment later. The
+  // mutation and the query are two connections, and asking immediately can read
+  // the playlist before the write has landed -- which is a star that vanishes.
+  Timer {
+    id: favTimer
+    interval: 600
+    repeat: false
+    onTriggered: root.loadFavorites()
   }
 
   Timer {

@@ -206,7 +206,7 @@ const ROW_SELECTED = grabRowBinding("selected");
 
 const BUILD = new Function(
   "root", "host", "Qt", "settingRows", "timers", "promptDebounce",
-  "promptFocusTimer", "pendingSelectGuard", "reloadTimer", "centerTimer",
+  "promptFocusTimer", "pendingSelectGuard", "reloadTimer", "centerTimer", "favTimer",
   EXTRACTED.map(function (f) { return f.text; }).filter(Boolean).join("\n\n")
     + "\nreturn { " + FUNCTIONS.filter(function (n) { return MISSING.indexOf(n) < 0; })
         .map(function (n) { return n + ": " + n; }).join(", ") + " };"
@@ -417,7 +417,7 @@ function makePanel(opts) {
 
   const timers = {};
   ["promptDebounce", "promptFocusTimer", "pendingSelectGuard", "reloadTimer",
-   "flashTimer", "skipTimer", "centerTimer"].forEach(function (id) {
+   "flashTimer", "skipTimer", "centerTimer", "favTimer"].forEach(function (id) {
     timers[id] = {
       id: id, running: false,
       restart: function () { timers[id].running = true; },
@@ -427,7 +427,7 @@ function makePanel(opts) {
 
   const panel = BUILD(root, host, Qt, settingRows, timers, timers.promptDebounce,
                       timers.promptFocusTimer, timers.pendingSelectGuard,
-                      timers.reloadTimer, timers.centerTimer);
+                      timers.reloadTimer, timers.centerTimer, timers.favTimer);
   Object.keys(panel).forEach(function (k) { root[k] = panel[k]; });
 
   // Record what the panel asks for, without changing what it does.
@@ -2237,7 +2237,11 @@ group("case 18: a queue reload keeps the cursor on its row");
         JSON.stringify(P.mutations[0]) === JSON.stringify(
           { op: "favorite", args: { uri: "c/1.mp3", on: true } }),
         JSON.stringify(P.mutations[0]));
-  check("... and the footer says so", P.flashes[P.flashes.length - 1], "in favorites");
+  check("... and the footer says so", P.flashes[P.flashes.length - 1] === "in favorites",
+        P.flashes[P.flashes.length - 1]);
+  check("... and the playlist is asked again later, not at once", P.queries.length === 1,
+        "queries=" + P.queries.length);
+  P.root.loadFavorites();                       // what favTimer does 600 ms later
   P.answer([{ file: "b/1.mp3" }, { file: "c/1.mp3" }]);
   check("... the reload fills the glyph", P.root.isFavorite({ file: "c/1.mp3" }) === true,
         "favorite");
@@ -2251,7 +2255,9 @@ group("case 18: a queue reload keeps the cursor on its row");
           { op: "favoritefilter",
             args: { filter: [["album", "One"], ["albumartist", "A"]], on: true } }),
         JSON.stringify(A.mutations[0]));
-  check("... and it says album", A.flashes[A.flashes.length - 1], "album in favorites");
+  check("... and it says album", A.flashes[A.flashes.length - 1] === "album in favorites",
+        A.flashes[A.flashes.length - 1]);
+  A.root.loadFavorites();
   A.answer([]);
 
   // A header is not a thing to star.
