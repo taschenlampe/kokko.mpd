@@ -236,3 +236,18 @@ What the pictures decide, read off the pixels:
 The star column at the right of the rows is the panel's own (it is drawn today);
 `fav-1`, `fav-4` and `fav-5` draw it dim, with the accent only where the uri is in
 `favorites`.
+
+## Sixth round: one search, two answers (2026-11-15)
+
+`src/search-abba.py` asks the running bridge for "abba" and draws the same panel twice
+at 1120x740 in the theme that is on -- rows, order and group counts are the library's
+own, nothing is typed by hand. `search-abba-old.png` is what the panel shows today:
+60 hits, seven artists, the top of the list is Black Sabbath (34) because "S**abba**th"
+is a substring. `search-abba-new.png` is the proposed rule: a hit that matches in the
+middle of a longer word is dropped when a better hit exists, which leaves 24 hits and
+four artists (ABBA, Frida -- her track sits on an album credited to ABBA -- and the two
+spellings of the Prokofiev/Abbado credit).
+
+The pictures are the argument for the rule, and the record of what it costs: "Cabbage"
+and "Jabba the Hutt" are no longer found by searching "abba" (they are still found by
+their own words).
