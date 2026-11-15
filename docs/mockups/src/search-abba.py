@@ -83,6 +83,21 @@ def load_bridge():
     return mod
 
 
+
+def word_around(value, needle=TERM):
+    """The word the term sits in -- "Sabbath" for "S**abba**th"."""
+    low = str(value or "").lower()
+    at = low.find(needle)
+    if at < 0:
+        return ""
+    left = at
+    while left > 0 and low[left - 1].isalnum():
+        left -= 1
+    right = at + len(needle)
+    while right < len(low) and low[right].isalnum():
+        right += 1
+    return str(value)[left:right]
+
 def hits(br):
     conn = br.MPDConn(br.parse_target("127.0.0.1", 6600), "")
     conn.connect()
@@ -156,7 +171,24 @@ def chips(active):
         '<div class="chip%s">%s</div>' % (" on" if n == active else "", n) for n in CHIPS)
 
 
-def render(br, conn, title, rows, cut):
+def reason(row):
+    """Why this row is in the results -- the words the panel does not show."""
+    tag = str(row.get("match") or "")
+    if tag == "":
+        return ""
+    value = str(row.get(tag) or "")
+    if row.get("pos") == 2:
+        word = word_around(value)
+        return "inside “%s”" % word if word else ""
+    if tag in ("label", "comment", "genre", "composer", "performer", "date"):
+        return "%s: %s" % (tag.capitalize(), value[:48])
+    if tag == "albumartist":
+        short = value if len(value) <= 52 else value[:51] + "…"
+        return "Album artist: %s" % short
+    return ""
+
+
+def render(br, conn, title, rows, cut, why=False):
     items = group_rows(rows)
     totals = group_totals(br, conn, items)
     body = []
@@ -165,9 +197,14 @@ def render(br, conn, title, rows, cut):
             body.append('<div class="sec"><div class="t">%s</div></div>' % item["text"])
         elif item["kind"] == "group":
             total = totals.get((item["tag"], item["value"]), item["count"])
+            # the strongest hit behind the group is the one that explains it
+            behind = [r for r in rows if (r.get("artist") if item["tag"] == "artist"
+                                          else r.get("album")) == item["value"]]
+            best = min(behind, key=lambda r: r.get("rank", 99)) if behind else {}
+            note = reason(best) if why else ""
             body.append('<div class="row group"><div class="ti">%s</div>'
-                        '<div class="su"></div><div class="rt">%d %s</div></div>'
-                        % (item["value"], total, "track" if total == 1 else "tracks"))
+                        '<div class="su">%s</div><div class="rt">%d %s</div></div>'
+                        % (item["value"], note, total, "track" if total == 1 else "tracks"))
         else:
             row = item["row"]
             sub = "&nbsp; · &nbsp;".join(x for x in (row.get("artist") or "",
@@ -175,6 +212,10 @@ def render(br, conn, title, rows, cut):
             cls = "row"
             if row.get("pos") == 2:
                 cls = "row cut" if cut else "row mid"
+            if why:
+                because = reason(row)
+                if because:
+                    sub = (sub + "&nbsp; · &nbsp;" + because) if sub else because
             body.append('<div class="%s"><div class="ti">%s</div><div class="su">%s</div>'
                         '<div class="rt">%s</div></div>'
                         % (cls, (row.get("title") or "")[:60], sub,
@@ -211,7 +252,10 @@ def main():
 
     old_html = render(br, conn, '<b>%d hits</b> for “%s”' % (len(rows), TERM), rows, False)
     new_html = render(br, conn, '<b>%d hits</b> for “%s”' % (len(kept), TERM), kept, True)
-    for name, html in (("search-abba-old", old_html), ("search-abba-new", new_html)):
+    why_html = render(br, conn, '<b>%d hits</b> for “%s”' % (len(rows), TERM), rows,
+                      False, why=True)
+    for name, html in (("search-abba-old", old_html), ("search-abba-new", new_html),
+                       ("search-abba-why", why_html)):
         path = os.path.join(HERE, name + ".html")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(html)
