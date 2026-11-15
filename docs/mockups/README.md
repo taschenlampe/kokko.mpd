@@ -251,3 +251,28 @@ spellings of the Prokofiev/Abbado credit).
 The pictures are the argument for the rule, and the record of what it costs: "Cabbage"
 and "Jabba the Hutt" are no longer found by searching "abba" (they are still found by
 their own words).
+
+## Seventh round: a mini cover in the search results (2026-11-15)
+
+The queue's round argued against a cover per row, with a reason that does not hold in a
+search: the panel's header shows the *playing* album at 127 px, so a 24 px copy under it
+is the same picture twice. A search hit is a different record than the one playing, so
+the picture is new information here.
+
+`src/search-covers.py` asks the live bridge for "a-ha" (80 hits, one artist, seven
+albums) and draws four panels; the covers come from the same `art` query the panel uses.
+
+| file | stance |
+|---|---|
+| `search-cover-a-none.png` | what the search does today |
+| `search-cover-b-every-row.png` | 22 px cover on every track row, titles indented |
+| `search-cover-c-albums.png` | cover on the album rows only, tracks unchanged |
+| `search-cover-d-first-of-run.png` | C plus a cover where an album run starts |
+
+B answers itself on this data: nine visible tracks of one album carry the same sleeve
+nine times while the second column already says `· 25`. C turns the album section into a
+rack of records -- seven rows, seven sleeves, the tracks below untouched. D adds the
+cover to the run start, which is worth little in a search: hits of one album rarely sit
+in a run, and every row pays the indent for the occasional picture.
+
+An artist row cannot carry one -- it stands for several records.
