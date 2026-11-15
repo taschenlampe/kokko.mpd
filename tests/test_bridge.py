@@ -612,12 +612,17 @@ class PlaylistConn(CannedConn):
     def __init__(self, songs=(), playlist=()):
         CannedConn.__init__(self, "0.24.0", pairs=list(songs))
         self.playlist = list(playlist)
+        self.tags = {}          # uri -> [(tag, value)] the playlist carries
         self.writes = []
 
     def command(self, name, *args):
         self.calls.append((name, list(args)))
         if name == "listplaylistinfo":
-            return [("file", uri) for uri in self.playlist], None
+            out = []
+            for uri in self.playlist:
+                out.append(("file", uri))
+                out.extend(self.tags.get(uri, []))
+            return out, None
         if name == "playlistadd":
             self.writes.append(("add", args[1]))
             self.playlist.append(args[1])
@@ -643,6 +648,18 @@ check("unstarring takes its own row and nothing else", conn.playlist, ["b/1.mp3"
 rows = B.Bridge().execute_query(conn, "favorites", {})
 check("the stars come back as rows", [r["file"] for r in rows], ["b/1.mp3"])
 check("... typed, so the panel can tell them apart", rows[0]["type"], "favorite")
+
+# The start screen's Favourites section draws a *track* row -- title, artist,
+# album, cover -- so the answer has to carry the tags, not just the uri. Same
+# reader as a stored playlist: `favorites` is one.
+tagged = PlaylistConn(playlist=["c/1.mp3"])
+tagged.tags["c/1.mp3"] = [("Title", "Povo"), ("Artist", "Freddie Hubbard"),
+                          ("Album", "Pulp Fusion"), ("Time", "312")]
+fav_rows = B.Bridge().execute_query(tagged, "favorites", {})
+check("a star carries its tags for the row", fav_rows[0].get("title"), "Povo")
+check("... artist and album too", (fav_rows[0].get("artist"), fav_rows[0].get("album")),
+      ("Freddie Hubbard", "Pulp Fusion"))
+check("... and stays typed as a favorite", fav_rows[0].get("type"), "favorite")
 
 album = PlaylistConn(songs=[("file", "d/1.mp3"), ("file", "d/2.mp3")])
 B.Bridge().favorite_filter(album, [["album", "One"]], True)

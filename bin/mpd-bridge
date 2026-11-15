@@ -2464,9 +2464,16 @@ class Bridge:
         limit = max(1, min(QUERY_ROW_LIMIT, limit))
 
         if kind == "favorites":
-            # The stars, as rows: the panel keeps them in a set and draws a glyph.
-            return [{"type": "favorite", "file": uri}
-                    for uri in self.favorite_uris(conn)]
+            # The stars, as full song entries -- not only the uri: the start screen
+            # draws a track row with artist, album and cover, and `enter` has to play
+            # exactly the track that was starred. Same reader as a stored playlist,
+            # because that is what `favorites` is; the type is what tells the panel
+            # these rows are the stars it may unset with `f`.
+            rows = self.execute_query(conn, "playlist",
+                                      {"name": FAVORITES, "limit": limit})
+            for row in rows:
+                row["type"] = "favorite"
+            return rows
 
         if kind == "recent":
             # The cache answers this one itself: no server, no query, and it must

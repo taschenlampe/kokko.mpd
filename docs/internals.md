@@ -140,10 +140,18 @@ a favourite is. The **widget** owns that set (`favSet`, `favoriteCurrent`) becau
 owns the bridge — the panel, the hover card and the wallpaper card all read it, and
 every write goes through `toggleFavorite`, so the three surfaces cannot drift apart.
 The set is asked for when the connection comes up, once per track change (another
-client may have starred something) and again 600 ms after a toggle: the mutation and
-the query are two connections, and asking too early reads the playlist from before
-the write. An album is starred as its filter (`favoritefilter`), because an album row
-carries only the one track its cover came from.
+client may have starred something), when the hover card opens, and again 600 ms after a
+toggle: the mutation and the query are two connections, and asking too early reads the
+playlist from before the write. An album is starred as its filter (`favoritefilter`),
+because an album row carries only the one track its cover came from.
+
+Three surfaces draw that one star: the **band** (right behind the title; on the thin
+`minimal` line as a fourth transport glyph, because the line has no column beside the
+title), the **hover card** and the **card on the wallpaper**. On the start screen
+`Favorites` is a section of its own -- three track rows, newest first (the playlist
+appends, so the last row is the most recent star), the heading a door onto the whole
+list. The rows are track rows on purpose: `enter` plays the starred track, `l` opens the
+album it came from.
 
 **Settings** live in `~/.config/omarchy/shell.json` in the widget entry — host, port,
 password, label format, the card and desktop-card options. The plugin's settings tab

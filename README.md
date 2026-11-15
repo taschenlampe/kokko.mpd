@@ -65,10 +65,12 @@ album, or artist. A row that only matched on a tag it does not show says which
 section headers (Artists, Albums, Tracks) are quiet labels rather than another
 accent, and a run of hits from the same album names it once.
 - **Quick cleanup** — clear a row, clear the queue, or keep only what's playing.
-- **Favourites** — `f` stars the row under the cursor (a track, or the whole album a
-start-screen row stands for) into MPD's saved playlist `favorites`: no side file, so
-every MPD client sees the same stars, and the list plays like any other. The hover card
-and the card on the wallpaper carry the same star for the track that is playing.
+- **Favorites** — `f` stars the row under the cursor (a track, or the whole album a
+start-screen row stands for), `F` stars whatever is playing, and the star sits on the
+playing track everywhere it is drawn: in the panel band, on the hover card, on the card
+on the wallpaper. The store is MPD's saved playlist `favorites` — no side file, so every
+MPD client sees the same stars and the list plays like any other. The start screen shows
+the three most recent stars as its own section, and the heading opens the whole list.
 - **Track-change popup** — a brief card (and optional desktop notification) whenever
 a new song starts.
 - **Internet radio** — browse by country or genre, or search the public
@@ -147,7 +149,7 @@ That's really all you need. Everything below is for when you want more.
 | `j` `k`, `↑` `↓`, `pgup` `pgdn`, `g` `G` | move |
 | `enter` | open or play |
 | `a` / `A` | append the row / append everything in this list |
-| `f` | star the row — a track, or an album on the start screen (MPD's `favorites`) |
+| `f` / `F` | star the row / star the track that is playing (MPD's `favorites`) |
 | `+` `-` · `,` `.` · `space` | volume · seek 5s · play/pause |
 | `z` `R` `c` `v` | repeat · shuffle · consume · single (the four playlist switches) |
 | `d` `D` `C` | delete row · clear queue · keep only what's playing |

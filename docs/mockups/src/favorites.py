@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mockups: the star in the band, and a Favourites section on the start screen.
+"""Mockups: the star in the band, and a Favorites section on the start screen.
 
     python3 docs/mockups/src/favorites.py
     for f in fav-*.html; do chromium --headless --disable-gpu --no-sandbox \\
@@ -84,7 +84,7 @@ html,body{margin:0;width:1120px;height:740px;overflow:hidden;background:@@bg@@;
 .list{flex:1;padding:8px 13px 0 13px;overflow:hidden}
 .sec{display:flex;align-items:center;height:37px;margin-top:4px;
   border-top:1px solid rgba(246,220,172,.10);padding:6px 4px 0}
-.sec .t{font-size:14px;color:rgba(246,220,172,.52);letter-spacing:.2px}
+.sec .t{font-size:12.5px;color:rgba(246,220,172,.52);letter-spacing:1.6px;text-transform:uppercase}
 .sec .more{margin-left:auto;font-size:14px;color:rgba(246,220,172,.32)}
 .row{display:flex;align-items:center;gap:12px;height:34px;padding:0 4px;
   border-radius:5px}
@@ -280,7 +280,7 @@ def start_sections(fav_pos, fav_rows):
         return sec(name, more) + "".join(
             row(t, s, c, star="☆") for t, s, c in rows)
 
-    fav = block_starred("Favourites · 12", fav_rows, "›")
+    fav = block_starred("Favorites · 12", fav_rows, "›")
     out = ""
     out += block_dim("New in the library · 3", new, "›")
     if fav_pos == "new":

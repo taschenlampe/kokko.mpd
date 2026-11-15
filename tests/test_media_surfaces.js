@@ -865,6 +865,65 @@ function caseCardStar() {
     ])
 }
 
+// --- 11: the star in the band -----------------------------------------------
+// The band is the third surface with the star, and the only one with two
+// placements by design: on the title line for every look that has a column
+// (docs/mockups/fav-7 -- attached reads as part of the name), and as a fourth
+// transport glyph on the thin line, which has no column beside the title. The
+// star itself is StarButton.qml: it owns no state, it asks the widget
+// (BarWidget.favoriteCurrent) and hands the click back through `toggleStar`.
+function caseBandStar() {
+  const starFile = path.join(root, "StarButton.qml")
+  let starSrc = ""
+  try { starSrc = fs.readFileSync(starFile, "utf8") } catch (e) { starSrc = "" }
+
+  const onPiece = exprAt(starSrc, /readonly property bool on:/, "starOn")
+  const onSet = evalPiece(onPiece, "expr", ["host"], [{ favoriteCurrent: true }], "starOn")
+  const onUnset = evalPiece(onPiece, "expr", ["host"], [{ favoriteCurrent: false }], "starOn")
+  const onNoHost = evalPiece(onPiece, "expr", ["host"], [null], "starOn")
+  const starClicks = /star\.clicked\(\)/.test(starSrc)
+
+  // The two placements: mutually exclusive, and each one is gated on a track
+  // being there while the daemon answers.
+  const titleVis = exprAt(src.band, /visible:(?=\s*!band\.oneLine && band\.hasSong)/, "titleVis")
+  const rowVis = exprAt(src.band, /visible:(?=\s*band\.oneLine && band\.hasSong)/, "rowVis")
+  function bandState(oneLine, hasSong, stale) {
+    return { oneLine: oneLine, hasSong: hasSong, stale: stale }
+  }
+  const titleOn = evalPiece(titleVis, "expr", ["band"], [bandState(false, true, false)], "titleVis")
+  const titleWedged = evalPiece(titleVis, "expr", ["band"], [bandState(false, true, true)], "titleVis")
+  const titleSilent = evalPiece(titleVis, "expr", ["band"], [bandState(false, false, false)], "titleVis")
+  const rowOn = evalPiece(rowVis, "expr", ["band"], [bandState(true, true, false)], "rowVis")
+  const rowFat = evalPiece(rowVis, "expr", ["band"], [bandState(false, true, false)], "rowVis")
+
+  // `toggleStar` is the one write the band sends: through the widget, with the
+  // footer line said in the same word the rest of the panel uses.
+  const toggle = blockAt(src.band, /function toggleStar\s*\(\s*\)/, "toggleStar")
+  const stub = { calls: 0, said: "", host: { toggleFavorite: function () { stub.calls++; return true } },
+                 message: function (t) { stub.said = String(t) }, hint: function () {} }
+  evalPiece(toggle, "block", ["band"], [stub], "toggleStar")
+
+  const ok = starSrc !== "" && onSet === true && onUnset === false && onNoHost === false
+    && starClicks
+    && titleOn === true && titleWedged === false && titleSilent === false
+    && rowOn === true && rowFat === false
+    && stub.calls === 1 && stub.said === "in favorites"
+
+  report("11", "the band's star sits on the title, or in the transport on the thin line",
+    ok,
+    [
+      "StarButton.qml on: set " + JSON.stringify(onSet) + ", unset " + JSON.stringify(onUnset)
+        + ", no host " + JSON.stringify(onNoHost) + "   click calls star.clicked(): " + starClicks,
+      "title line   drawn: playing " + titleOn + ", wedged " + titleWedged
+        + ", nothing playing " + titleSilent,
+      "thin line    drawn: thin look " + rowOn + ", other looks " + rowFat
+        + "   (the two placements exclude each other)",
+      "toggleStar   toggleFavorite called: " + stub.calls + ", footer said: \"" + stub.said + "\"",
+      "expected: filled only for the playing uri that is in `favorites`, two placements that"
+        + " never show at once, one write through the widget, and no star while nothing plays"
+    ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -875,6 +934,7 @@ caseTransportHover()
 caseCardHoverOwnership()
 caseCardAnchoredToStrip()
 caseCardStar()
+caseBandStar()
 
 console.log(failures === 0
   ? "all media-surface checks passed"

@@ -758,6 +758,9 @@ Panel {
   // so in `bin/mpd-bridge` (RECENT_LIMIT).
   readonly property int startNewest: 3
   readonly property int startRecent: 2
+  // The user's own list gets the same room as "new": three tracks, newest first.
+  // One number -- the mockups (docs/mockups/fav-4) drew three.
+  readonly property int startFavorites: 3
   readonly property int startPicks: 2
   readonly property int startGenres: 2
   // Genres are picked from a wider pool and then counted: 228 genre names in this
@@ -790,7 +793,7 @@ Panel {
   function loadStart(gen) {
     var year = (new Date()).getFullYear()
     var parts = { added: [], recent: [], released: [], albums: [], genres: [],
-                  picks: [], counts: [], genreNames: [], left: 5 }
+                  favs: [], picks: [], counts: [], genreNames: [], left: 6 }
     function one(slot, rows, error) {
       parts[slot] = (error === "" && rows) ? rows : []
       parts.left = parts.left - 1
@@ -812,6 +815,10 @@ Panel {
                function(rows, error) { one("albums", rows, error) })
     host.query("list", { tag: "genre", limit: 3000 }, "start:genres",
                function(rows, error) { one("genres", rows, error) })
+    // The list the user built. Asked last: the five library questions keep their
+    // order, so this one can be the slowest without holding the screen back.
+    host.query("favorites", { limit: 400 }, "start:favorites",
+               function(rows, error) { one("favs", rows, error) })
   }
 
   // One row per album from a song list, walked from the front (`newestFirst`) or
@@ -914,7 +921,15 @@ Panel {
       root.loading = false
       if (error !== "") { root.setInfo(error); return }
       var rows = []
-      if (section === "recent") {
+      if (section === "favorites") {
+        // The whole playlist, newest first -- the same order the section shows,
+        // so opening the door continues the list instead of reversing it.
+        var favAll = list || []
+        for (var fv = favAll.length - 1; fv >= 0; fv--) {
+          var favTrack = root.startTrackRow(favAll[fv] || {})
+          if (favTrack.file !== "") rows.push(favTrack)
+        }
+      } else if (section === "recent") {
         var cache = list || []
         for (var i = 0; i < cache.length; i++) {
           var rec = cache[i] || {}
@@ -932,6 +947,10 @@ Panel {
       root.presentRows("startList", f, rows)
     }
     var year = (new Date()).getFullYear()
+    if (section === "favorites") {
+      host.query("favorites", { limit: 400 }, "list", answer)
+      return
+    }
     if (section === "recent") { host.query("recent", {}, "list", answer); return }
     if (section === "released") {
       host.query("find", { regex: [["date", "^(" + (year - 1) + "|" + year + ")"]],
@@ -981,6 +1000,23 @@ Panel {
       rows = rows.concat(recent)
     }
 
+    // Favourites: the tracks the user starred, newest first (the playlist appends,
+    // so the newest star is its last row). Track rows, not album rows -- `enter`
+    // has to play exactly the track that was starred, and the album it came from
+    // is what `l` opens (docs/mockups/fav-6 shows the album version as the one
+    // that reads like a second "Recently played").
+    var favs = []
+    var favSrc = parts.favs || []
+    for (var fav = favSrc.length - 1; fav >= 0 && favs.length < root.startFavorites; fav--) {
+      var favRow = root.startTrackRow(favSrc[fav] || {})
+      if (favRow.file !== "") favs.push(favRow)
+    }
+    if (favs.length > 0) {
+      rows.push({ type: "header", title: "Favorites · " + favs.length + "  ›",
+                  door: { mode: "startList", section: "favorites", title: "Favorites" } })
+      rows = rows.concat(favs)
+    }
+
     var picks = parts.picks || []
     if (picks.length > 0) {
       rows.push({ type: "header", title: "Random · " + picks.length })
@@ -1016,9 +1052,39 @@ Panel {
     }
   }
 
+  // One starred track on the start screen: the title is the track itself, the
+  // second line is where it comes from, and `file` is the row -- so `enter`
+  // plays that track, `a` appends it, `f` takes the star off again.
+  function startTrackRow(song) {
+    var file = String(song.file || "")
+    var title = String(song.title || "")
+    if (title === "" && file !== "")
+      title = (root.host && root.host.basename) ? String(root.host.basename(file)) : file
+    return {
+      type: "startTrack", title: title,
+      artist: String(song.artist || ""),
+      album: String(song.album || ""),
+      albumartist: String(song.albumartist || ""),
+      time: String(song.time || ""),
+      file: file
+    }
+  }
+
   // One level deeper from the start screen: an album's tracks, or a genre's albums.
   function openStartRow(row) {
     if (!row) return
+    if (row.type === "startTrack") {
+      // A starred track opens the record it came from: the row has no cover of
+      // its own to show, and the album is what the user starred it from.
+      var favAlbum = String(row.album || "")
+      if (favAlbum === "") return
+      var favFilter = [["album", favAlbum]]
+      if (String(row.albumartist || "") !== "")
+        favFilter.push(["albumartist", String(row.albumartist)])
+      root.pushFrame({ mode: "find", title: favAlbum + " — tracks", sort: "track",
+                       album: favAlbum, filter: favFilter })
+      return
+    }
     if (row.type === "startAlbum") {
       var album = String(row.album || "")
       var filter = [["album", album]]
@@ -1167,7 +1233,13 @@ Panel {
     // The start screen counts nothing: its sections count themselves, and a total
     // over four albums plus three picks plus four genres says nothing.
     if (mode === "start") return ""
-    if (mode === "startList") return n + (n === 1 ? " album" : " albums")
+    if (mode === "startList") {
+      // A section of the start screen says how many rows it has -- in the word
+      // the section itself uses: albums behind "New", favorites behind "Favorites".
+      if (String((f || {}).section || "") === "favorites")
+        return n + (n === 1 ? " favorite" : " favorites")
+      return n + (n === 1 ? " album" : " albums")
+    }
     if (mode === "playlists") return n + " Playlists"
     if (mode === "plist") return n + " tracks"
     if (mode === "radioStations") return n === 1 ? "1 station" : n + " stations"
@@ -1612,6 +1684,14 @@ Panel {
       var tracks = Number(row.tracks)
       return (isFinite(tracks) && tracks > 0) ? (tracks + " tracks") : ""
     }
+    // A starred track on the start screen: the title is the track, so the second
+    // line says where it comes from.
+    if (row.type === "startTrack") {
+      var favBits = []
+      if (String(row.artist || "") !== "") favBits.push(String(row.artist))
+      if (String(row.album || "") !== "") favBits.push(String(row.album))
+      return favBits.join("  ·  ")
+    }
     if (row.type === "setting") return String(row.hint || "")
     if (row.type === "radio") return String(row.hint || "")
     if (row.type === "radioStation") return root.stationSub(row)
@@ -1802,6 +1882,16 @@ Panel {
         return
       }
       if (row.type === "startGenre") { root.openStartRow(row); return }
+      if (row.type === "startTrack") {
+        // One starred track: `enter` plays exactly it (not the record it came
+        // from), `l` opens that record (openStartRow).
+        if (!play) { root.openStartRow(row); return }
+        var favUri = String(row.file || "")
+        if (favUri === "") return
+        host.addAndPlay(favUri)
+        root.flash("playing “" + root.rowTitle(row) + "”")
+        return
+      }
       return
     }
 
@@ -2633,6 +2723,16 @@ Panel {
     // asks again -- one key, and the section is different music.
     if (text === "r" && root.frameMode === "start") { root.loadFrame(); event.accepted = true; return }
     if (text === "f") { root.toggleFavorite(); event.accepted = true; return }
+    // `F`: the star of what is *playing*, from any tab -- the band's glyph and the
+    // two cards have this key. `f` stays the row under the cursor, so the two are
+    // never the same wish by accident.
+    if (text === "F") {
+      var favState = root.host && root.host.toggleFavorite ? root.host.toggleFavorite() : null
+      if (favState === null || favState === undefined) root.flash("not connected")
+      else root.flash(favState ? "in favorites" : "out of favorites")
+      event.accepted = true
+      return
+    }
     if (text === "r" && root.frameMode === "playlists") {
       var row = root.rows[root.sel]
       root.promptTarget = row ? String(row.playlist || "") : ""
@@ -2947,6 +3047,7 @@ Panel {
           // second open costs nothing; an answer that lands after the row was
           // recycled is dropped by comparing the file it was asked for.
           readonly property bool startRow: rowItem.rowType === "startAlbum"
+            || rowItem.rowType === "startTrack"
           property string thumb: ""
           function loadThumb() {
             rowItem.thumb = ""

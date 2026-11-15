@@ -66,6 +66,15 @@ Item {
   // The thin look: no picture, so no second row to put anything in either.
   readonly property bool oneLine: cover === "none"
 
+  // The star, from the title line or the transport row (the thin look). One
+  // definition, so the two placements cannot drift into saying different things.
+  function toggleStar() {
+    if (!band.host) return
+    var on = band.host.toggleFavorite ? band.host.toggleFavorite() : null
+    if (on === null || on === undefined) { band.message("not connected"); return }
+    band.message(on ? "in favorites" : "out of favorites")
+  }
+
   // Never shorter than the picture plus a little air, otherwise a bigger cover
   // sticks out over the header rule and the list.
   readonly property real floorHeight: cover === "disc" ? Style.space(88) : Style.space(74)
@@ -274,18 +283,46 @@ Item {
     }
     spacing: Style.space(3)
 
-    Text {
-      id: titleText
+    // The title, with the star right behind it: the mockups (docs/mockups/fav-7)
+    // put the two placements side by side, and attached reads as part of the name
+    // where a glyph at the column's end floats away from a short title. The star
+    // travels with the title's length -- one glyph, once per track.
+    Row {
+      id: titleRow
       width: parent.width
-      // On the one line the meta follows the title, separated exactly the way it is
-      // in its own line everywhere else.
-      text: band.oneLine && band.meta !== "" ? (band.title + "  ·  " + band.meta) : band.title
-      // Never the accent: the accent marks state (playing, on), the title is text.
-      color: band.fg
-      font.family: band.fontFamily
-      font.pixelSize: Style.font.title
-      font.bold: true
-      elide: Text.ElideRight
+      spacing: Style.space(8)
+
+      Text {
+        id: titleText
+        // As wide as the word, and never under the star: `implicitWidth` is the
+        // unelided width, so the min() is what lets elide do its work at all.
+        width: Math.min(implicitWidth,
+          titleRow.width - (bandStar.visible ? bandStar.width + titleRow.spacing : 0))
+        // On the one line the meta follows the title, separated exactly the way it is
+        // in its own line everywhere else.
+        text: band.oneLine && band.meta !== "" ? (band.title + "  ·  " + band.meta) : band.title
+        // Never the accent: the accent marks state (playing, on), the title is text.
+        color: band.fg
+        font.family: band.fontFamily
+        font.pixelSize: Style.font.title
+        font.bold: true
+        elide: Text.ElideRight
+      }
+
+      // The thin line has no column for it: there the star joins the transport
+      // row (see `buttons`). Everywhere else it belongs to the title.
+      StarButton {
+        id: bandStar
+        visible: !band.oneLine && band.hasSong && !band.stale
+        host: band.host
+        glyphSize: Style.font.body
+        fontFamily: band.fontFamily
+        glyphColor: band.dim
+        activeColor: band.accent
+        onEntered: band.hint("Favorite this track (F)")
+        onExited: band.hint("")
+        onClicked: band.toggleStar()
+      }
     }
 
     Text {
@@ -468,6 +505,22 @@ Item {
       onEntered: band.hint("Next track (>)")
       onExited: band.hint("")
       onClicked: if (band.host) band.host.nextTrack()
+    }
+
+    // The thin look's star: on one line there is no column beside the title to
+    // hang it in, so it takes the fourth slot of the transport row -- and only
+    // there (`visible: band.oneLine`); every other look has it on the title.
+    StarButton {
+      visible: band.oneLine && band.hasSong && !band.stale
+      host: band.host
+      height: parent.height
+      glyphSize: Style.font.title
+      fontFamily: band.fontFamily
+      glyphColor: band.dim
+      activeColor: band.accent
+      onEntered: band.hint("Favorite this track (F)")
+      onExited: band.hint("")
+      onClicked: band.toggleStar()
     }
 
     // The same two playback options the hover card offers, in the same colours:

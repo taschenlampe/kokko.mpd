@@ -58,7 +58,8 @@ function freshTabOrder() {
 // panel.
 const START_SIZES = (function () {
   const out = {};
-  ["startNewest", "startRecent", "startPicks", "startGenres", "startGenrePool"]
+  ["startNewest", "startRecent", "startFavorites", "startPicks", "startGenres",
+   "startGenrePool"]
     .forEach(function (name) {
     const m = new RegExp("^  readonly property int " + name + ": (\\d+)$", "m").exec(SRC);
     if (!m) throw new Error("Panel.qml has no int property " + name);
@@ -162,6 +163,7 @@ const FUNCTIONS = [
   "startAlbumsFrom", "isoDay", "ago", "openStartRow",
   // The stars.
   "loadFavorites", "isFavorite", "toggleFavorite",
+  "startTrackRow",
   // The doors behind the headings.
   "loadStartList",
   "breadcrumb",
@@ -301,6 +303,7 @@ function makePanel(opts) {
     staleAnswers: 0,
     startNewest: START_SIZES.startNewest,
     startRecent: START_SIZES.startRecent,
+    startFavorites: START_SIZES.startFavorites,
     startPicks: START_SIZES.startPicks,
     startGenres: START_SIZES.startGenres,
     startGenrePool: START_SIZES.startGenrePool,
@@ -2090,11 +2093,12 @@ group("case 18: a queue reload keeps the cursor on its row");
 }
 
 // ---------------------------------------------------------------- case 19
-// The start screen: five answers, two stages, one list. Five because "what did I
+// The start screen: six answers, two stages, one list. Six because "what did I
 // just put in here" (added-since) and "what came out" (the Date tag) are two
-// questions, and "what did I play" is answered by the cache, not by the server.
+// questions, "what did I play" is answered by the cache, not by the server, and
+// the sixth is the one list nobody else filled: the stars.
 {
-  group("case 19: the start screen builds its list from five answers");
+  group("case 19: the start screen builds its list from six answers");
   // The picks are random by design. The test needs a fixed order to know which
   // count belongs to which genre, so the dice are loaded for this block.
   const realRandom = Math.random;
@@ -2103,7 +2107,7 @@ group("case 18: a queue reload keeps the cursor on its row");
   const P = makePanel();
   P.root.setTab("start");
   check("the frame is the start frame", P.root.frameMode === "start", P.root.frameMode);
-  check("it asks five questions, one per source", P.queries.length === 5,
+  check("it asks six questions, one per source", P.queries.length === 6,
         P.queries.map(function (q) { return q.kind; }).join(","));
   check("the library question is added-since, sorted by it",
         P.queries[0].kind === "find"
@@ -2117,6 +2121,11 @@ group("case 18: a queue reload keeps the cursor on its row");
           && JSON.stringify(P.queries[2].args.regex || []).indexOf("date") > 0
           && P.queries[2].args.sort === "date",
         JSON.stringify(P.queries[2].args));
+  // The stars are asked last, on their own channel, so a slow answer cannot hold
+  // the five library questions back.
+  check("the stars are the sixth question",
+        P.queries[5].kind === "favorites" && P.queries[5].channel === "start:favorites",
+        P.queries[5].kind + " ch=" + P.queries[5].channel);
 
   // The five answers: songs added lately, the recent cache, songs released lately,
   // album names, genre names.
@@ -2129,11 +2138,14 @@ group("case 18: a queue reload keeps the cursor on its row");
   P.answer([]);
   P.answer([{ value: "Pick A" }, { value: "Pick B" }]);
   P.answer([{ value: "Ambient" }, { value: "Blues" }, { value: "Techno" }]);
+  P.answer([]);                                   // no stars in this library
 
   check("nothing is painted while the counts are still out", P.root.rows.length === 0,
         "rows=" + P.root.rows.length);
+  // Six stage-one answers, then the three of stage two: one `counts` for the whole
+  // genre pool and one `find` per pick.
   check("the genre sizes are one query, and the picks follow",
-        P.queries.length === 8, P.queries.length + "");
+        P.queries.length === 9, P.queries.length + "");
 
   P.answer([105, 257, 12]);                       // one count per genre
   P.answer([{ album: "Pick A", albumartist: "F", date: "1999", file: "f/1.mp3" }]);
@@ -2185,6 +2197,7 @@ group("case 18: a queue reload keeps the cursor on its row");
   O.answer([]);
   O.answer([]);
   O.answer([{ value: "Ambient" }]);
+  O.answer([]);                                   // no stars
   O.answer([9]);
   O.root.sel = 1;
   O.press("l");
@@ -2196,17 +2209,17 @@ group("case 18: a queue reload keeps the cursor on its row");
   // An answer with nothing in it leaves its section out instead of drawing a heading.
   const E = makePanel();
   E.root.setTab("start");
-  E.answer([]); E.answer([]); E.answer([]); E.answer([]); E.answer([]);
+  E.answer([]); E.answer([]); E.answer([]); E.answer([]); E.answer([]); E.answer([]);
   check("an empty library paints no headings at all", E.root.rows.length === 0,
         "rows=" + E.root.rows.length);
 
   // `r` asks again -- that is the reshuffle.
   const R = makePanel();
   R.root.setTab("start");
-  R.answer([]); R.answer([]); R.answer([]); R.answer([]); R.answer([]);
+  R.answer([]); R.answer([]); R.answer([]); R.answer([]); R.answer([]); R.answer([]);
   const before = R.queries.length;
   R.press("r");
-  check("r asks the five questions again", R.queries.length === before + 5,
+  check("r asks the six questions again", R.queries.length === before + 6,
         before + " -> " + R.queries.length);
   Math.random = realRandom;
 }
@@ -2311,6 +2324,19 @@ group("case 18: a queue reload keeps the cursor on its row");
   check("f on a heading sends nothing", H.mutations.length === 0 && H.host.favToggles.length === 0,
         "mutations=" + H.mutations.length + " toggles=" + H.host.favToggles.length);
 
+  // `F` is the band's key: the playing track, wherever the cursor stands. `f`
+  // stays the row under the cursor, so the two can never be confused.
+  const K = makePanel();
+  K.host.songFile = "p/1.mp3";
+  K.root.rows = [{ type: "file", file: "other/9.mp3", title: "Not this one" }];
+  K.root.sel = 0;
+  K.press("F");
+  check("F stars what is playing, not the row under the cursor",
+        JSON.stringify(K.host.favToggles) === JSON.stringify([{ uri: "p/1.mp3", on: true }]),
+        JSON.stringify(K.host.favToggles));
+  check("... and the footer says so", K.flashes[K.flashes.length - 1] === "in favorites",
+        K.flashes[K.flashes.length - 1]);
+
   // A dead connection is said out loud instead of a star that goes nowhere.
   const D = makePanel();
   D.host.connected = false;
@@ -2367,6 +2393,95 @@ group("case 18: a queue reload keeps the cursor on its row");
   R.enter();
   check("a heading without a door does nothing", R.root.frameMode === before,
         before + " -> " + R.root.frameMode);
+}
+
+// ---------------------------------------------------------------- case 23
+// Favourites on the start screen -- the one section nobody else filled. Track
+// rows, newest first: the playlist appends, so its last entry is the star that was
+// set most recently. `enter` plays that track (not the record it came from), `l`
+// opens the record, `a` appends the track, `f` takes the star off. The heading is
+// a door like the others and opens the whole playlist in the same order.
+{
+  group("case 23: Favourites on the start screen");
+  const realRandom = Math.random;
+  Math.random = function () { return 0 };      // the picks are random by design
+  const P = makePanel();
+  P.root.setTab("start");
+  P.answer([{ album: "New One", albumartist: "B", date: "2026", file: "b/1.mp3" }]);
+  P.answer([]);
+  P.answer([]);
+  P.answer([]);
+  P.answer([]);
+  // The playlist in MPD's order: the first star is the oldest.
+  P.answer([{ type: "favorite", file: "f/1.mp3", title: "Bananie",
+              artist: "Jaga Jazzist", album: "One-Armed Bandit", albumartist: "Jaga Jazzist" },
+            { type: "favorite", file: "f/2.mp3", title: "Povo",
+              artist: "Freddie Hubbard", album: "Pulp Fusion", albumartist: "Freddie Hubbard" }]);
+
+  const titles = P.rowsTitles();
+  check("the section follows Recently played and comes before Random",
+        titles.join(" | ") === "New in the library · 1  › | New One | Favorites · 2  › | Povo | Bananie",
+        titles.join(" | "));
+  check("newest star first, not playlist order",
+        P.root.rows[3].file === "f/2.mp3" && P.root.rows[4].file === "f/1.mp3",
+        P.root.rows.slice(3).map(function (r) { return r.title; }).join(","));
+  check("a starred row is a track row with its artist and album",
+        P.root.rowSub(P.root.rows[3]) === "Freddie Hubbard  ·  Pulp Fusion",
+        P.root.rowSub(P.root.rows[3]));
+  check("the cursor still lands on the first album, not on a heading", P.root.sel === 1,
+        "sel=" + P.root.sel);
+
+  // `enter` plays the starred track itself -- one command, that uri.
+  P.root.sel = 3;
+  P.enter();
+  check("enter plays the starred track, not its album",
+        JSON.stringify(P.mutations[0]) === JSON.stringify({ op: "addplay", args: { uri: "f/2.mp3" } }),
+        JSON.stringify(P.mutations));
+  check("... and says which track", P.flashes[P.flashes.length - 1] === "playing “Povo”",
+        P.flashes[P.flashes.length - 1]);
+
+  // `l` opens the album the track came from.
+  const L = makePanel();
+  L.root.setTab("start");
+  L.root.rows = [{ type: "startTrack", title: "Povo", artist: "Freddie Hubbard",
+                   album: "Pulp Fusion", albumartist: "Freddie Hubbard", file: "f/2.mp3" }];
+  L.root.sel = 0;
+  L.press("l");
+  check("l opens the track's album",
+        L.root.frameMode === "find" && L.root.frameAlbum === "Pulp Fusion",
+        L.root.frameMode + "/" + L.root.frameAlbum);
+
+  // `a` appends the track (its own uri), `f` takes the star off through the widget.
+  const A = makePanel();
+  A.root.rows = [{ type: "startTrack", title: "Povo", album: "Pulp Fusion", file: "f/2.mp3" }];
+  A.root.sel = 0;
+  A.press("a");
+  check("a appends the one track",
+        JSON.stringify(A.mutations[0]) === JSON.stringify({ op: "add", args: { uri: "f/2.mp3" } }),
+        JSON.stringify(A.mutations));
+  A.press("f");
+  check("f hands the unstar to the widget",
+        JSON.stringify(A.host.favToggles) === JSON.stringify([{ uri: "f/2.mp3", on: true }]),
+        JSON.stringify(A.host.favToggles));
+
+  // The heading is a door: the whole playlist, same order as the section.
+  P.root.sel = 2;
+  P.enter();
+  check("the heading opens the playlist",
+        P.root.frameMode === "startList" && P.root.frame.section === "favorites",
+        P.root.frameMode + "/" + (P.root.frame && P.root.frame.section));
+  check("... by asking the stars",
+        P.queries[P.queries.length - 1].kind === "favorites",
+        P.queries[P.queries.length - 1].kind);
+  P.answer([{ file: "f/1.mp3", title: "Bananie", artist: "Jaga Jazzist", album: "One-Armed Bandit" },
+            { file: "f/2.mp3", title: "Povo", artist: "Freddie Hubbard", album: "Pulp Fusion" }]);
+  check("... still newest first behind the door",
+        P.root.rows.map(function (r) { return r.title; }).join(",") === "Povo,Bananie",
+        P.root.rows.map(function (r) { return r.title; }).join(","));
+  check("... and the footer counts favorites, not albums",
+        P.root.infoFor("startList", P.root.frame, P.root.rows) === "2 favorites",
+        P.root.infoFor("startList", P.root.frame, P.root.rows));
+  Math.random = realRandom;
 }
 
 // --------------------------------------------------------------- report
