@@ -134,6 +134,17 @@ this compositor.
 track — an artist with 900 tracks costs one query. Every action reports in the
 footer.
 
+**Favourites** are rows in MPD's saved playlist `favorites`, not a side file: every
+MPD client sees the same stars, and the player can play the list without knowing what
+a favourite is. The **widget** owns that set (`favSet`, `favoriteCurrent`) because it
+owns the bridge — the panel, the hover card and the wallpaper card all read it, and
+every write goes through `toggleFavorite`, so the three surfaces cannot drift apart.
+The set is asked for when the connection comes up, once per track change (another
+client may have starred something) and again 600 ms after a toggle: the mutation and
+the query are two connections, and asking too early reads the playlist from before
+the write. An album is starred as its filter (`favoritefilter`), because an album row
+carries only the one track its cover came from.
+
 **Settings** live in `~/.config/omarchy/shell.json` in the widget entry — host, port,
 password, label format, the card and desktop-card options. The plugin's settings tab
 writes them there too (`setBarWidget`), so there is only ever one writer.
@@ -149,6 +160,7 @@ omarchy-shell kokko.mpd panel                 # panel on/off
 omarchy-shell kokko.mpd tab artists           # set the tab
 omarchy-shell kokko.mpd find "kate bush"      # run a search
 omarchy-shell kokko.mpd key j                 # simulate a key press
+omarchy-shell kokko.mpd favorite toggle       # star/unstar the playing track (on, off as well)
 omarchy-shell kokko.mpd hover on              # show the card without a mouse (screenshots/tests)
 omarchy-shell kokko.mpd debug on              # protocol to the shell log
 ```

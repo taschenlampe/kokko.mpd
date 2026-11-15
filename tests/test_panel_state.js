@@ -369,6 +369,12 @@ function makePanel(opts) {
   Object.defineProperty(root, "up", {
     get: function () { return host.connected === true; }
   });
+  // Panel.qml: readonly property var favSet: (root.host && root.host.favSet)
+  //   ? root.host.favSet : ({})
+  // The panel keeps no set of its own any more: the widget owns the stars.
+  Object.defineProperty(root, "favSet", {
+    get: function () { return (host && host.favSet) ? host.favSet : {}; }
+  });
 
   const host = {
     connected: true,
@@ -413,7 +419,27 @@ function makePanel(opts) {
     nudgeVolume: function () {},
     bare: function () {},
     nextTrack: function () {},
-    previousTrack: function () {}
+    previousTrack: function () {},
+
+    // BarWidget.qml, the owner of MPD's `favorites` playlist: the set, the
+    // question and the write. Copied on every toggle, the way a QML var property
+    // only notifies when it is assigned -- an edit in place leaves the glyph.
+    favSet: {},
+    favLoads: 0,
+    favToggles: [],
+    loadFavorites: function () { host.favLoads++; },
+    isFavorite: function (uri) { return host.favSet[String(uri || "")] === true; },
+    toggleFavorite: function (uri) {
+      var key = String(uri === undefined || uri === null ? host.songFile : uri);
+      if (!host.connected || key === "") return null;
+      var on = !host.isFavorite(key);
+      var next = {};
+      Object.keys(host.favSet).forEach(function (k) { next[k] = host.favSet[k]; });
+      next[key] = on;
+      host.favSet = next;
+      host.favToggles.push({ uri: key, on: on });
+      return on;
+    }
   };
   root.host = host;
 
@@ -2215,38 +2241,49 @@ group("case 18: a queue reload keeps the cursor on its row");
 }
 
 // ---------------------------------------------------------------- case 21
-// The star is a row in MPD's `favorites` playlist, not a setting: the panel keeps
-// a set of uris for the glyph and sends the wish as one mutation. An album row
-// stars the record by filter -- its own file is only the track the cover came from.
+// The star is a row in MPD's `favorites` playlist, not a setting -- and the set
+// lives in the widget, not in the panel: the hover card and the card on the
+// wallpaper draw the same star, so a copy here would disagree with whatever a
+// card just toggled. The panel keeps only what is its own -- the album row (a
+// filter, not one track) and the footer -- and delegates the list, the glyph
+// question and the single-track write to the widget.
 {
-  group("case 21: the star is a playlist, not a setting");
+  group("case 21: the star is the widget's playlist, not a panel copy");
   const P = makePanel();
   P.root.loadFavorites();
-  check("loadFavorites asks the bridge", P.queries[0].kind === "favorites",
-        P.queries[0].kind);
-  P.answer([{ file: "b/1.mp3", type: "favorite" }]);
-  check("a uri the playlist names is starred", P.root.isFavorite({ file: "b/1.mp3" }) === true,
+  check("loadFavorites asks the widget", P.host.favLoads === 1,
+        "favLoads=" + P.host.favLoads);
+  check("... and sends no query of its own", P.queries.length === 0,
+        "queries=" + P.queries.length);
+  P.host.favSet = { "b/1.mp3": true };
+  check("a uri the widget's set names is starred", P.root.isFavorite({ file: "b/1.mp3" }) === true,
         "favorite");
   check("... and one it does not is not", P.root.isFavorite({ file: "c/1.mp3" }) === false,
         "not favorite");
   check("a row without a file is never starred", P.root.isFavorite({ title: "x" }) === false,
         "no file");
+  check("the glyph reads the widget's own set, not a copy", P.root.favSet === P.host.favSet,
+        "favSet is the host's");
 
   P.root.rows = [{ type: "file", file: "c/1.mp3", title: "T" }];
   P.root.sel = 0;
   P.press("f");
-  check("f on a track sends one favorite, on",
-        JSON.stringify(P.mutations[0]) === JSON.stringify(
-          { op: "favorite", args: { uri: "c/1.mp3", on: true } }),
-        JSON.stringify(P.mutations[0]));
+  check("f on a track hands the write to the widget, once",
+        JSON.stringify(P.host.favToggles) === JSON.stringify([{ uri: "c/1.mp3", on: true }]),
+        JSON.stringify(P.host.favToggles));
+  check("... and the panel sends no favorite mutation of its own", P.mutations.length === 0,
+        "mutations=" + P.mutations.length);
+  check("... the glyph answers at once (the widget's optimistic copy)",
+        P.root.isFavorite({ file: "c/1.mp3" }) === true, "starred");
   check("... and the footer says so", P.flashes[P.flashes.length - 1] === "in favorites",
         P.flashes[P.flashes.length - 1]);
-  check("... and the playlist is asked again later, not at once", P.queries.length === 1,
-        "queries=" + P.queries.length);
-  P.root.loadFavorites();                       // what favTimer does 600 ms later
-  P.answer([{ file: "b/1.mp3" }, { file: "c/1.mp3" }]);
-  check("... the reload fills the glyph", P.root.isFavorite({ file: "c/1.mp3" }) === true,
-        "favorite");
+  check("... and the star goes off again on a second press",
+        (function () {
+          P.press("f");
+          var last = P.host.favToggles[P.host.favToggles.length - 1];
+          return last.uri === "c/1.mp3" && last.on === false
+            && P.root.isFavorite({ file: "c/1.mp3" }) === false;
+        })(), JSON.stringify(P.host.favToggles));
 
   const A = makePanel();
   A.root.rows = [{ type: "startAlbum", album: "One", albumartist: "A", file: "a/1.mp3" }];
@@ -2257,18 +2294,33 @@ group("case 18: a queue reload keeps the cursor on its row");
           { op: "favoritefilter",
             args: { filter: [["album", "One"], ["albumartist", "A"]], on: true } }),
         JSON.stringify(A.mutations[0]));
-  check("... and it says album", A.flashes[A.flashes.length - 1] === "album in favorites",
+  check("... it says album", A.flashes[A.flashes.length - 1] === "album in favorites",
         A.flashes[A.flashes.length - 1]);
-  A.root.loadFavorites();
-  A.answer([]);
+  check("... and the playlist is asked again later, not at once",
+        A.host.favLoads === 0 && A.timers.favTimer.running === true,
+        "favLoads=" + A.host.favLoads + " timer=" + A.timers.favTimer.running);
+  A.root.loadFavorites();                       // what favTimer does 600 ms later
+  check("... the reload goes to the widget", A.host.favLoads === 1,
+        "favLoads=" + A.host.favLoads);
 
   // A header is not a thing to star.
   const H = makePanel();
   H.root.rows = [{ type: "header", title: "Genres" }];
   H.root.sel = 0;
   H.press("f");
-  check("f on a heading sends nothing", H.mutations.length === 0,
-        "mutations=" + H.mutations.length);
+  check("f on a heading sends nothing", H.mutations.length === 0 && H.host.favToggles.length === 0,
+        "mutations=" + H.mutations.length + " toggles=" + H.host.favToggles.length);
+
+  // A dead connection is said out loud instead of a star that goes nowhere.
+  const D = makePanel();
+  D.host.connected = false;
+  D.root.rows = [{ type: "file", file: "c/1.mp3", title: "T" }];
+  D.root.sel = 0;
+  D.press("f");
+  check("f while disconnected says so", D.flashes[D.flashes.length - 1] === "not connected",
+        D.flashes[D.flashes.length - 1]);
+  check("... and writes nothing", D.host.favToggles.length === 0,
+        "toggles=" + D.host.favToggles.length);
 }
 
 // ---------------------------------------------------------------- case 22

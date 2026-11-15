@@ -205,7 +205,13 @@ const P = {
     clock: exprAt(src.mini, /text:(?=\s*mini\.fmt\(mini\.playPos\))/, "clock"),
     clockVisible: exprAt(src.mini, /\n\s*visible:(?=\s*!mini\.streaming)/, "clockVisible"),
     progressVisible: propIn(src.mini, "bar", "visible", "progressVisible"),
-    timer: exprAt(src.mini, /running:(?=\s*mini\.open)/, "timer")
+    timer: exprAt(src.mini, /running:(?=\s*mini\.open)/, "timer"),
+    // The star: `id: star` is stable, and the two properties read the widget's
+    // own set (BarWidget.favoriteCurrent) instead of keeping a copy.
+    starOn: exprAt(src.mini, /\n      readonly property bool on:(?=\s*!!mini\.service)/, "starOn"),
+    starVisible: propIn(src.mini, "star", "visible", "starVisible"),
+    starClick: exprAt(src.mini,
+      /onClicked:(?=\s*if \(mini\.service\) mini\.service\.toggleFavorite)/, "starClick")
   },
   card: {
     stale: exprAt(src.card, /^  readonly property bool stale:/m, "stale"),
@@ -216,7 +222,13 @@ const P = {
     seekable: exprAt(src.card, /^  readonly property bool seekable:/m, "seekable"),
     elapsed: propIn(src.card, "elapsedText", "text", "elapsed"),
     duration: propIn(src.card, "durationText", "text", "duration"),
-    progressVisible: propIn(src.card, "progressBox", "visible", "progressVisible")
+    progressVisible: propIn(src.card, "progressBox", "visible", "progressVisible"),
+    // The star sits with the title (not in the transport row, which stays five
+    // playback verbs) and asks the widget for the state, exactly like the card.
+    starOn: exprAt(src.card, /\n          readonly property bool on:(?=\s*!!card\.host)/, "starOn"),
+    starVisible: propIn(src.card, "star", "visible", "starVisible"),
+    starClick: exprAt(src.card,
+      /onClicked:(?=\s*if \(card\.host\) card\.host\.toggleFavorite)/, "starClick")
   },
   band: {
     stale: exprAt(src.band, /^  readonly property bool stale:/m, "stale"),
@@ -774,6 +786,85 @@ function caseCardAnchoredToStrip() {
     ])
 }
 
+// --- 10: the star on the two cards -----------------------------------------
+// Favourites are rows in MPD's `favorites` playlist, and the widget owns that set
+// (BarWidget.favoriteCurrent, asked in the panel test as well): the panel, the
+// hover card and the card on the wallpaper read the same star, so a card keeping
+// its own copy would disagree with the panel the moment one of them toggled. Both
+// cards draw one star for the track that is playing, take the state from the
+// widget and hand the click back to it. Not drawn while the daemon is wedged --
+// the title on the card is a memory then, and a star for it would be a write to a
+// player that is not answering.
+function caseCardStar() {
+  function favHost(opts) {
+    const o = opts || {}
+    const h = host(o)
+    h.favoriteCurrent = o.favorite === true
+    h.toggleCalls = 0
+    h.toggleFavorite = function () { h.toggleCalls++; return !h.favoriteCurrent }
+    return h
+  }
+  function miniOf(h) {
+    const mini = { service: h, hasTrack: h.hasSong === true, stale: h.stale === true }
+    const ev = function (piece, kind) {
+      return evalPiece(piece, kind || "expr", ["mini", "service"], [mini, h], "mini")
+    }
+    return { on: ev(P.mini.starOn), visible: ev(P.mini.starVisible),
+             click: function () { return ev(P.mini.starClick, "block") } }
+  }
+  function cardOf(h) {
+    const card = { host: h, stale: h.stale === true }
+    const ev = function (piece, kind) {
+      return evalPiece(piece, kind || "expr", ["card", "host", "streaming"],
+                       [card, h, h.isStream === true], "card")
+    }
+    return { on: ev(P.card.starOn), visible: ev(P.card.starVisible),
+             click: function () { return ev(P.card.starClick, "block") } }
+  }
+
+  const miniOff = miniOf(favHost({}))
+  const miniOn = miniOf(favHost({ favorite: true }))
+  const miniWedged = miniOf(favHost({ favorite: true, stale: true }))
+  const miniEmpty = miniOf(favHost({ favorite: true, hasSong: false }))
+  const cardOff = cardOf(favHost({}))
+  const cardOn = cardOf(favHost({ favorite: true }))
+  const cardWedged = cardOf(favHost({ favorite: true, stale: true }))
+  const cardEmpty = cardOf(favHost({ favorite: true, hasSong: false }))
+
+  const miniClickHost = favHost({ favorite: true })
+  miniOf(miniClickHost).click()
+  const cardClickHost = favHost({})
+  cardOf(cardClickHost).click()
+
+  const reads = [/favoriteCurrent/.test((P.mini.starOn || {}).body || ""),
+                 /favoriteCurrent/.test((P.card.starOn || {}).body || "")]
+  const ok = miniOff.on === false && miniOn.on === true
+    && miniOff.visible === true && miniWedged.visible === false && miniEmpty.visible === false
+    && cardOff.on === false && cardOn.on === true
+    && cardOff.visible === true && cardWedged.visible === false && cardEmpty.visible === false
+    && miniClickHost.toggleCalls === 1 && cardClickHost.toggleCalls === 1
+    && reads[0] && reads[1]
+
+  report("10", "the cards carry the star of what is playing",
+    ok,
+    [
+      "hover card  on: not starred -> " + JSON.stringify(miniOff.on) + ", starred -> "
+        + JSON.stringify(miniOn.on),
+      "              drawn: playing " + miniOff.visible + ", wedged " + miniWedged.visible
+        + ", nothing playing " + miniEmpty.visible,
+      "wallpaper   on: not starred -> " + JSON.stringify(cardOff.on) + ", starred -> "
+        + JSON.stringify(cardOn.on),
+      "              drawn: playing " + cardOff.visible + ", wedged " + cardWedged.visible
+        + ", nothing playing " + cardEmpty.visible,
+      "a click goes to the widget: hover card " + miniClickHost.toggleCalls
+        + " toggleFavorite, wallpaper " + cardClickHost.toggleCalls,
+      "the state is the widget's own favoriteCurrent: " + reads[0] + " / " + reads[1]
+        + " (no copy of the playlist in either card)",
+      "expected: filled when the playing uri is in `favorites`, dim when it is not,"
+        + " one write per click, and no star while nothing plays or MPD is not answering"
+    ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -783,6 +874,7 @@ caseAlbumRepeatsTitle()
 caseTransportHover()
 caseCardHoverOwnership()
 caseCardAnchoredToStrip()
+caseCardStar()
 
 console.log(failures === 0
   ? "all media-surface checks passed"

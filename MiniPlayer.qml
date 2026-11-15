@@ -115,6 +115,10 @@ PanelWindow {
       playPos = service.elapsed
       dragFrac = -1
       dragging = false
+      // The star on this card is a claim about MPD's playlist, and a saved
+      // playlist has no idle push in the bridge: ask again whenever the card
+      // comes up, so a star another client set is not missed.
+      if (service.loadFavorites) service.loadFavorites()
     }
   }
 
@@ -222,7 +226,7 @@ PanelWindow {
       spacing: Style.space(3)
 
       Text {
-        width: parent.width
+        width: parent.width - (star.visible ? star.width + Style.space(2) : 0)
         // While the daemon is wedged the last title is a memory rather than the
         // state of anything: the line says what the connection is doing instead.
         // The card stays up so the line can be read (BarWidget.stale).
@@ -416,6 +420,40 @@ PanelWindow {
       color: mini.dim
       font.family: mini.fontFamily
       font.pixelSize: Style.font.caption
+    }
+
+    // ------------------------------------------------------------------ star
+    // One star, for the track that is playing -- the row stars in the panel
+    // belong to rows, this one belongs to the song. The store is MPD's `favorites`
+    // playlist and the widget owns the set (BarWidget.favoriteCurrent), so the
+    // card only asks and draws; a click hands the write to the widget, which is
+    // also what the panel's `f` does. Not drawn while the daemon is wedged: what
+    // is named on the card then is a memory, and a star for it would be a write
+    // to a player that is not answering.
+    Item {
+      id: star
+      readonly property bool on: !!mini.service && mini.service.favoriteCurrent === true
+      visible: mini.hasTrack && !mini.stale
+      anchors { right: parent.right; rightMargin: Style.space(6)
+                top: parent.top; topMargin: Style.space(6) }
+      width: Style.space(22)
+      height: Style.space(22)
+
+      Text {
+        anchors.centerIn: parent
+        text: "★"
+        color: star.on ? Color.accent : mini.dim
+        opacity: star.on ? 1.0 : 0.5
+        font.family: mini.fontFamily
+        font.pixelSize: Style.font.subtitle
+      }
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: if (mini.service) mini.service.toggleFavorite()
+      }
     }
 
   }

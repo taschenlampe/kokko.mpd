@@ -161,31 +161,67 @@ Item {
         }
       }
 
-      // 2. Title and artist.
-      Column {
+      // 2. Title and artist, with the star on their right: one control for the
+      // track that is playing. The widget owns MPD's `favorites` playlist, so the
+      // card only draws the state and hands the click over -- the transport row
+      // below stays five buttons, because it is a row of verbs about playback.
+      RowLayout {
         Layout.fillWidth: true
-        spacing: 2
+        spacing: Style.space(6)
 
-        Text {
-          width: parent.width
-          text: card.title
-          color: card.textColor
-          font.family: Style.font.family
-          font.pixelSize: Style.font.subtitle
-          font.bold: true
-          elide: Text.ElideRight
-          maximumLineCount: 1
+        Column {
+          Layout.fillWidth: true
+          spacing: 2
+
+          Text {
+            width: parent.width
+            text: card.title
+            color: card.textColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.subtitle
+            font.bold: true
+            elide: Text.ElideRight
+            maximumLineCount: 1
+          }
+
+          Text {
+            width: parent.width
+            text: card.artist
+            color: card.faintColor
+            font.family: Style.font.family
+            font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
+            maximumLineCount: 1
+            visible: card.artist !== ""
+          }
         }
 
-        Text {
-          width: parent.width
-          text: card.artist
-          color: card.faintColor
-          font.family: Style.font.family
-          font.pixelSize: Style.font.bodySmall
-          elide: Text.ElideRight
-          maximumLineCount: 1
-          visible: card.artist !== ""
+        // The star. Hidden while nothing plays and while the daemon is wedged:
+        // the title is a memory then, and a star for it would be a write to a
+        // player that is not answering.
+        Item {
+          id: star
+          readonly property bool on: !!card.host && card.host.favoriteCurrent === true
+          visible: !!card.host && card.host.hasSong === true && !card.stale
+          Layout.alignment: Qt.AlignTop
+          width: Style.space(20)
+          height: Style.space(20)
+
+          Text {
+            anchors.centerIn: parent
+            text: "★"
+            color: star.on ? Color.accent : card.faintColor
+            opacity: star.on ? 1.0 : 0.5
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: if (card.host) card.host.toggleFavorite()
+          }
         }
       }
 

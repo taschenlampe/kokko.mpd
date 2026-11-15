@@ -168,6 +168,19 @@ Panel {
 
   readonly property string artPath: songFile === "" ? "" : String(artMap[songFile] || "")
 
+  // ------------------------------------------------------------- favorites
+  // The stars are rows in MPD's `favorites` playlist -- not a side file: every
+  // MPD client sees the same stars, and the player can play the list without
+  // knowing what a favourite is. The widget owns the set because it owns the
+  // bridge: the hover card and the card on the wallpaper draw from it, and the
+  // panel asks it instead of keeping a second copy that could disagree with a
+  // star just toggled on a card.
+  property var favSet: ({})
+  // The star on the playing track. A copy of the set is assigned on every answer
+  // and every toggle, because a var property only notifies when it is assigned --
+  // an edit in place would leave the glyph where it was.
+  readonly property bool favoriteCurrent: songFile !== "" && root.favSet[songFile] === true
+
   readonly property string stateIcon: isPlaying ? "󰐊" : (isPaused ? "󰏤" : "󰓛")
   readonly property string stateGlyph: !connected ? "󰝛" : (hasSong ? stateIcon : "󰝚")
 
@@ -1038,6 +1051,60 @@ Panel {
       })
   }
 
+  // --------------------------------------------------------------- favorites
+  // One question: the `favorites` playlist, as uris. Asked when the connection
+  // comes up, once per track (another client may have starred something while
+  // this one sat idle) and again 600 ms after a toggle -- a mutation and a query
+  // are two connections, so a query sent in the same breath can still read the
+  // playlist from before the write, and that is a star which vanishes again.
+  function loadFavorites() {
+    if (!connected) return
+    root.query("favorites", {}, "favorites", function(rows, error) {
+      if (error !== "") return
+      var next = ({})
+      for (var i = 0; i < (rows || []).length; i++) {
+        var uri = String((rows[i] || {}).file || "")
+        if (uri !== "") next[uri] = true
+      }
+      root.favSet = next
+    })
+  }
+
+  function isFavorite(uri) {
+    var key = String(uri || "")
+    return key !== "" && root.favSet[key] === true
+  }
+
+  // Star one uri -- the playing track unless another one is named. Returns the
+  // state it was set to, so a caller can say what happened; null means there was
+  // nothing to star (no connection, no file).
+  function toggleFavorite(uri) {
+    var key = String(uri === undefined || uri === null ? root.songFile : uri)
+    if (!connected || key === "") return null
+    var on = !root.isFavorite(key)
+    root.mutation("favorite", { uri: key, on: on })
+    // Optimistic: the glyph answers now, the reload below confirms it.
+    var next = ({})
+    for (var k in root.favSet) next[k] = root.favSet[k]
+    next[key] = on
+    root.favSet = next
+    favTimer.restart()
+    return on
+  }
+
+  onConnectedChanged: {
+    // A set from the last connection would claim stars this server may not have.
+    if (connected) root.loadFavorites()
+    else root.favSet = ({})
+  }
+
+  Timer {
+    id: favTimer
+    interval: 600
+    repeat: false
+    onTriggered: root.loadFavorites()
+  }
+
   // Keep only what is playing: the queue's own "delete everything else".
   function cropQueue() { root.mutation("crop") }
 
@@ -1048,6 +1115,9 @@ Panel {
   property string lastAnnouncedFile: ""
 
   onSongFileChanged: {
+    // Another client may have starred something while this one sat idle: one
+    // small query per track keeps the cards' stars true to the playlist.
+    if (connected && songFile !== "") root.loadFavorites()
     if (songFile === "" || songFile === lastAnnouncedFile) return
     lastAnnouncedFile = songFile
     announceTimer.restart()
@@ -1286,6 +1356,9 @@ Panel {
           random: root.randomOn, repeat: root.repeatOn,
           single: root.singleMode, consume: root.consumeOn
         },
+        // The star of the playing track, and how many the playlist holds -- the
+        // two numbers a card check can be read from without a screenshot.
+        favorite: { current: root.favoriteCurrent, count: Object.keys(root.favSet).length },
         panelOpen: root.panelOpen,
         look: root.coverLook,
         backdrop: root.backdrop,
@@ -1392,6 +1465,22 @@ Panel {
     function crop(): string {
       root.cropQueue()
       return "ok"
+    }
+
+    // `omarchy-shell kokko.mpd favorite toggle` stars or unstars the playing
+    // track (`on` and `off` say which way). Same store as the star on the cards:
+    // MPD's `favorites` playlist.
+    function favorite(value: string): string {
+      var v = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+      if (v !== "" && v !== "on" && v !== "off" && v !== "toggle")
+        return "usage: favorite [on|off|toggle]"
+      if (!root.connected || root.songFile === "") return "nothing playing"
+      var want = (v === "on" || v === "off") ? (v === "on") : null
+      if (want !== null && root.isFavorite(root.songFile) === want)
+        return want ? "in favorites" : "out of favorites"
+      var now = root.toggleFavorite()
+      if (now === null) return "nothing playing"
+      return now ? "in favorites" : "out of favorites"
     }
 
     function debug(value: string): string {

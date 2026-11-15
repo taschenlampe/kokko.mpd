@@ -111,10 +111,11 @@ Panel {
   // cursor back, because something keeps playing; at the end of the queue nothing
   // plays afterwards, so that row was lost for good and the cursor sat on the first
   // entry. A reload of the frame that is already showing carries the selection.
-  // The stars: the uris in MPD's `favorites` playlist. Nothing is stored here --
-  // the playlist is the store, every client sees the same stars, and this map is
-  // only how the list knows which row to draw filled.
-  property var favSet: ({})
+  // The stars: the uris in MPD's `favorites` playlist. Nothing is stored in the
+  // panel -- the widget owns the set (it owns the bridge, and the cards draw the
+  // same star), so a star toggled on the hover card is filled here too instead of
+  // waiting for the next frame load. A second copy would be a second truth.
+  readonly property var favSet: (root.host && root.host.favSet) ? root.host.favSet : ({})
   property var carrySel: null
   property var loadedFrame: null
   // A skip with < or > leaves the row playing now in the middle of the list -- and only a
@@ -700,23 +701,20 @@ Panel {
   }
 
   // ----------------------------------------------------------------- stars
+  // The list is loaded once, by the widget that owns it (see its favSet): the
+  // panel only asks it to look again, which is what the delayed reload after a
+  // toggle does as well.
   function loadFavorites() {
     if (!root.up) return
-    host.query("favorites", {}, "favorites", function(rows, error) {
-      if (error !== "") return
-      var next = ({})
-      for (var i = 0; i < (rows || []).length; i++) {
-        var uri = String((rows[i] || {}).file || "")
-        if (uri !== "") next[uri] = true
-      }
-      root.favSet = next
-    })
+    if (root.host && root.host.loadFavorites) root.host.loadFavorites()
   }
 
   function isFavorite(row) {
     if (!row) return false
     var uri = String(row.file || "")
-    return uri !== "" && root.favSet[uri] === true
+    if (uri === "") return false
+    if (root.host && root.host.isFavorite) return root.host.isFavorite(uri) === true
+    return root.favSet[uri] === true
   }
 
   // `f`: one star for the row under the cursor. An album row stars the record --
@@ -724,27 +722,25 @@ Panel {
   function toggleFavorite() {
     var row = root.rows[root.sel]
     if (!row || !root.isSelectable(row)) return
-    var on = !root.isFavorite(row)
     var uri = String(row.file || "")
     if (row.type === "startAlbum") {
+      // The album is a filter, so the album is the panel's business: only it
+      // knows what a record row stands for.
+      var on = !root.isFavorite(row)
       var filter = [["album", String(row.album || "")]]
       if (String(row.albumartist || "") !== "")
         filter.push(["albumartist", String(row.albumartist)])
       host.mutation("favoritefilter", { filter: filter, on: on })
       root.flash(on ? "album in favorites" : "album out of favorites")
-    } else if (uri !== "") {
-      host.mutation("favorite", { uri: uri, on: on })
-      root.flash(on ? "in favorites" : "out of favorites")
-    } else {
+      favTimer.restart()
       return
     }
-    // Optimistic: the glyph answers now, the reload confirms it. A copy, because
-    // the binding only re-evaluates when the property is assigned.
-    var next = ({})
-    for (var key in root.favSet) next[key] = root.favSet[key]
-    if (uri !== "") next[uri] = on
-    root.favSet = next
-    favTimer.restart()
+    if (uri === "") return
+    // One track: the widget sets it, so the click and the cards' star are the
+    // same write and the same optimistic glyph.
+    var state = host.toggleFavorite ? host.toggleFavorite(uri) : null
+    if (state === null || state === undefined) { root.flash("not connected"); return }
+    root.flash(state ? "in favorites" : "out of favorites")
   }
 
   // ------------------------------------------------------------------- start
