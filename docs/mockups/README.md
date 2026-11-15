@@ -195,3 +195,44 @@ full list, because three rows are not the answer to "what is new".
 What the pictures assume and the code does not have yet: `added-since` (MPD 0.24) for
 "neu in der Bibliothek", a 20-entry recently-played cache, a `favorites` playlist, and
 genre counts. The bridge's `SONG_FIELDS` does not carry `added` today.
+
+## Fifth round: the star in the band, Favourites on the start screen (2026-11-15)
+
+The star exists on the panel's rows and on both cards. These six pages ask where it
+goes on the band, and how a Favourites section would sit on the start screen.
+`src/favorites.py` writes them; rendered with headless chromium at the panel's own
+size (1120x740), in the running theme (`#05182e` / `#f6dcac` / `#faa968`), in the
+look that is switched on (`anchor`, 130 px cover), with the real covers.
+
+| file | what it shows |
+|---|---|
+| `fav-1-band-title.png` | the band with the star at the right end of the text column |
+| `fav-2-band-row.png` | the same band with the star as an eighth glyph in the transport row |
+| `fav-3-band-minimal.png` | the thin look (`minimal`): star as a fourth glyph, progress before the buttons |
+| `fav-4-start-after-recent.png` | Favourites between "Recently played" and "Random" |
+| `fav-5-start-under-new.png` | Favourites directly under "New in the library" |
+| `fav-6-start-albums.png` | Favourites as **album** rows (deduped), for comparison |
+| `fav-7-band-compare.png` | the two title-line placements on one sheet |
+
+What the pictures decide, read off the pixels:
+
+- **The transport row is the wrong place.** `fav-2` says why in one look: the meta line
+  loses its tail (`#…`), the spectrum drops from twelve bars to eight, and the row grows
+  a glyph that is not a verb about playback. A star belongs to the title.
+- **Title line, but attached.** `fav-7` puts the two title-line placements side by side:
+  at the column's end (A) the star floats ~150 px away from a short title; directly after
+  the title (B) it reads as part of it, and only moves when the title length changes.
+- **The thin look needs a different answer.** With no calm column (`fav-3`), the star
+  joins the three transport glyphs -- the alternative is a glyph floating between the
+  meta line and the progress bar.
+- **Track rows, not album rows.** `fav-6` and `fav-4` hold the same favourites: as albums
+  the section is a second "Recently played" (same row shape, same cover) and `enter` plays
+  a record the user only starred one track of. As tracks (`fav-4`) every row in the
+  section carries a filled star, which is what the section is about.
+- **Position is a taste question, not a layout one.** `fav-4` and `fav-5` both fit under
+  the fold with 3 + 2 + 3 + 2 + 2 rows; the section after "Recently played" keeps
+  `New` where it is, and the section under `New` puts the user's own list first.
+
+The star column at the right of the rows is the panel's own (it is drawn today);
+`fav-1`, `fav-4` and `fav-5` draw it dim, with the accent only where the uri is in
+`favorites`.
