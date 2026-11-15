@@ -1305,12 +1305,16 @@ Panel {
         var song = songs[i]
         var value = String(song[key] || "")
         if (value === "") continue
+        // A hit the bridge could not place matched a tag nobody can read (a
+        // MusicBrainz id). The current bridge drops those; this keeps an older
+        // one from filling the groups with them ("abba" once produced six artists
+        // out of UUID hex).
+        if (String(song.match || "") === "" && song.rank !== undefined) continue
         if (counts[value] === undefined) { counts[value] = 0; order.push(value) }
         counts[value] = counts[value] + 1
-        // A hit without a rank came from a bridge that does not rank (an
-        // older one, or a row the bridge could not place): it sorts last
-        // instead of jumping the queue it knows nothing about.
-        var rank = Number(song.rank === undefined ? 9 : song.rank)
+        // A hit without a rank came from a bridge that does not rank: it sorts
+        // last instead of jumping the queue it knows nothing about.
+        var rank = Number(song.rank === undefined ? 99 : song.rank)
         var seen = best[value]
         if (seen === undefined || rank < seen.rank)
           best[value] = { rank: rank, why: root.matchNote(song) }

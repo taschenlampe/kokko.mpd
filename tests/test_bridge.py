@@ -392,16 +392,49 @@ check("... and ranks behind the title",
 check("`label` travels with a search answer", search_rows[1].get("label"), "Southbound")
 check("a plain list still leaves `label` out",
       "label" in B.SONG_FIELDS, False)
-# A hit MPD matched on a tag the answer does not carry (a sort name, a
-# MusicBrainz id) is kept and ranked last rather than dropped or guessed at.
+# A hit that matched only a tag the answer does not carry (a sort name, a
+# MusicBrainz id) is dropped. It used to be kept and ranked last, which on this
+# library meant 40 of the 100 hits for "abba" were nothing but a UUID inside a
+# MusicBrainz tag -- six artists turned into groups for a query they have no part
+# in. Nobody searches for an id.
 other = CannedConn("0.24.0", pairs=[
     ("file", "x/01.mp3"), ("Artist", "IAM"), ("ArtistSort", "IAM, The"), ("Title", "Nouveau"),
+    ("MUSICBRAINZ_TRACKID", "d143abba-8c96-4aff-84d8-2120d212175d"),
 ])
-other_rows = B.Bridge().execute_query(other, "search", {"term": "iam, the"})
-check("a hit on an untravelled tag is kept",
-      len(other_rows), 1)
-check("... marked as unmatched", other_rows[0].get("match"), "")
-check("... and ranked last", other_rows[0].get("rank"), B.UNMATCHED_RANK)
+check("a hit on a tag the answer does not carry is not an answer",
+      B.Bridge().execute_query(other, "search", {"term": "iam, the"}), [])
+
+print("=== search: exact, then word start, then the middle of a word ===")
+# Measured on this library: "abba" returned 100 hits, headed by Black Sabbath
+# (34, "S**abba**th") above ABBA (15, the name that was typed) -- same tag, so the
+# hit count decided. Where the term sits now decides first (whole value, word,
+# middle of a word), and the tag only breaks a tie.
+ABBA_PAIRS = [
+    ("file", "1.mp3"), ("Artist", "Black Sabbath"), ("Title", "Black Sabbath"),
+    ("Album", "Black Sabbath"),
+    ("file", "2.mp3"), ("Artist", "ABBA"), ("Title", "Dancing Queen"), ("Album", "Arrival"),
+    ("file", "3.mp3"), ("Artist", "Sergei Prokofiev"),
+    ("AlbumArtist", "Sergei Prokofiev, Evgeny Kissin & Claudio Abbado"),
+    ("Title", "Piano Concerto no. 1"), ("Album", "Piano Concertos"),
+    ("file", "4.mp3"), ("Artist", "John Williams"),
+    ("Title", "Han Solo Returns (At the Court of Jabba the Hutt)"),
+    ("file", "5.mp3"), ("Artist", "Add N to (X)"), ("Title", "Barry 7"),
+    ("MUSICBRAINZ_ALBUMID", "e1ed87be-205a-3d04-942f-67c4eb2babba"),
+]
+abba_conn = CannedConn("0.24.0", pairs=ABBA_PAIRS)
+abba_rows = B.Bridge().execute_query(abba_conn, "search", {"term": "abba"})
+check("the name that was typed comes first",
+      [r.get("artist") for r in abba_rows], ["ABBA", "Sergei Prokofiev",
+                                             "Black Sabbath", "John Williams"])
+check("... the exact hit is position 0", abba_rows[0].get("pos"), 0)
+check("... a word start is position 1", abba_rows[1].get("pos"), 1)
+check("... the mid-word hits are position 2, whatever tag they matched",
+      [r.get("pos") for r in abba_rows][2:], [2, 2])
+check("... and they say which tag", [r.get("match") for r in abba_rows],
+      ["artist", "albumartist", "title", "title"])
+check("a row that matched nothing but a UUID is gone",
+      [r.get("file") for r in abba_rows].count("5.mp3"), 0)
+check("the rank is the pair as one number", abba_rows[0].get("rank"), B.MATCH_RANK["artist"])
 # No term, no search: the pane clears the list instead of asking.
 check("an empty term asks MPD nothing",
       CannedConn("0.24.0").calls, [])

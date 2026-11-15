@@ -240,7 +240,6 @@ MATCH_RANK = {
     "label": 4,
     "comment": 4,
 }
-UNMATCHED_RANK = 5
 
 # How many filters one `counts` query may ask about. The panel sends one per
 # artist and album group it draws -- thirty each at most -- so this only refuses
@@ -694,25 +693,53 @@ def rank_search_hits(rows: list, term: str) -> list:
     imprint. MPD answered in library order, so the one title match sat on the
     last row of twenty-seven, under every coincidence of a pressing.
 
-    Each row leaves with two added fields: `match`, the tag that made it a hit
-    ("" when it matched a tag this answer does not carry), and `rank`, where that
-    tag stands in MATCH_RANK. The pane draws the tag on rows whose match is not
-    already visible there. The sort is stable, so hits of equal strength keep
-    MPD's order.
+    Two things decide a row's place, in this order:
+
+    1. **Where the term sits inside the value** -- the whole value, a word in it,
+       or the middle of a longer word. `search any` is a substring match, so
+       "abba" is found in "Sabbath", "Abbado" and "Jabba", and on this library
+       that made Black Sabbath (34 hits, "S**abba**th") the biggest group above
+       ABBA (15, the name that was typed).
+    2. **Which tag matched**, by MATCH_RANK: a title before an artist before an
+       album, a label last.
+
+    A hit that matched only a tag this answer does not carry (a MusicBrainz id, a
+    sort name) is **dropped**: "abba" matched 40 of 100 rows on nothing but a
+    UUID, which no person searches for and which turned six artists into groups
+    for a query that has nothing to do with them.
+
+    Each row leaves with `match` (the tag), `pos` (0 exact, 1 word start, 2 mid
+    word) and `rank` (place x 10 + tag), so the pane can sort by one number. The
+    sort is stable, so hits of equal strength keep MPD's order.
     """
     needle = str(term).casefold()
+    if not needle:
+        return rows
+    kept = []
     for row in rows:
         best = ""
-        if needle:
-            for tag, place in MATCH_RANK.items():
-                if needle not in str(row.get(tag) or "").casefold():
-                    continue
-                if best == "" or place < MATCH_RANK[best]:
-                    best = tag
+        best_pos = 9
+        for tag, place in MATCH_RANK.items():
+            value = str(row.get(tag) or "").casefold()
+            at = value.find(needle)
+            if at < 0:
+                continue
+            if value == needle:
+                pos = 0
+            elif at == 0 or not value[at - 1].isalnum():
+                pos = 1
+            else:
+                pos = 2
+            if best == "" or (pos, place) < (best_pos, MATCH_RANK[best]):
+                best, best_pos = tag, pos
+        if best == "":
+            continue
         row["match"] = best
-        row["rank"] = MATCH_RANK.get(best, UNMATCHED_RANK)
-    rows.sort(key=lambda r: r["rank"])
-    return rows
+        row["pos"] = best_pos
+        row["rank"] = best_pos * 10 + MATCH_RANK[best]
+        kept.append(row)
+    kept.sort(key=lambda r: r["rank"])
+    return kept
 
 
 # ------------------------------------------------------------------- album art

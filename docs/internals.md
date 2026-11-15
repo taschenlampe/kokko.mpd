@@ -35,13 +35,20 @@ sixteen of them Millie Jackson tracks whose records carry `Label: Southbound`
 twenty-seven rows the panel draws. So the bridge ranks the hits by *where* the
 term matched (`rank_search_hits`): `title`, then `artist`/`albumartist`, then
 `album`/`name`, then `genre`/`composer`/`performer`/`date`, then
-`label`/`comment`, and last everything it matched on a tag the answer does not
-carry. The sort is stable, so hits of one strength keep MPD's order. A search
-answer therefore carries `label` and `comment` (`SEARCH_FIELDS`; the browse lists
-still do not) and adds `match` (the tag) and `rank` (its place in `MATCH_RANK`) to
-every row. The panel names the tag on any row whose match is not already visible
-there — `Label: Southbound` — and orders the artist and album groups by their
-**strongest** hit, so the artist you searched for sits above the coincidence
+`label`/`comment`. Second, **where the term sits inside the value**: the whole
+value, the start of a word in it, or the middle of a longer word — `search any` is
+a substring match, so "abba" is found in "Sabbath", "Abbado" and "Jabba", and on
+this library that made Black Sabbath (34 hits) the biggest group above ABBA (15,
+the name that was typed). The place decides first, the tag only breaks the tie; a
+row that matched only a tag the answer does not carry (a MusicBrainz id, a sort
+name) is dropped — 40 of those 100 hits were nothing but UUID hex, and they turned
+six artists into groups for a query they have no part in. The sort is stable, so
+hits of one strength keep MPD's order. A search answer therefore carries `label`
+and `comment` (`SEARCH_FIELDS`; the browse lists still do not) and adds `match`
+(the tag), `pos` (0 exact, 1 word start, 2 mid word) and `rank` (place x 10 + tag)
+to every row. The panel names the tag on any row whose match is not already
+visible there — `Label: Southbound` — and orders the artist and album groups by
+their **strongest** hit, so the artist you searched for sits above the coincidence
 whatever the hit counts say.
 
 **How much `a` appends.** A group row is an artist or an album, and `a` appends

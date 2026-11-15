@@ -2579,6 +2579,32 @@ group("case 18: a queue reload keeps the cursor on its row");
   Math.random = realRandom;
 }
 
+// ---------------------------------------------------------------- case 25
+// A search groups by its strongest hit, and a hit the bridge could not place is
+// no hit at all. "abba" on this library: Black Sabbath (34, "S**abba**th") stood
+// above ABBA (15, the name that was typed), because the bridge ranked the tag and
+// not the place inside the value; six more artists came from MusicBrainz ids.
+{
+  group("case 25: a search groups by the strongest hit");
+  const P = makePanel();
+  const hits = [
+    { file: "1.mp3", artist: "Black Sabbath", title: "Black Sabbath",
+      album: "Black Sabbath", rank: 20, match: "title" },
+    { file: "2.mp3", artist: "ABBA", title: "Dancing Queen", album: "Arrival",
+      rank: 1, match: "artist" },
+    { file: "3.mp3", artist: "Add N to (X)", title: "Barry 7", rank: 5, match: "" },
+  ];
+  const rows = P.root.groupHits(hits);
+  const artists = rows.filter(function (r) { return r.type === "group" && r.kind === "artist"; })
+    .map(function (r) { return r.value; });
+  check("the name that was typed stands above the coincidence",
+        artists[0] === "ABBA", artists.join(","));
+  check("... and a row nobody can place makes no group",
+        artists.indexOf("Add N to (X)") < 0, artists.join(","));
+  check("the group count is still the hits behind it",
+        rows.filter(function (r) { return r.type === "group"; })[0].count, 1);
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {
