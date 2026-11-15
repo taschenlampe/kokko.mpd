@@ -166,7 +166,7 @@ const FUNCTIONS = [
   // The doors behind the headings.
   "loadStartList",
   "breadcrumb",
-  "infoFor", "groupHits", "matchName", "matchNote", "isSelectable",
+  "infoFor", "groupHits", "matchName", "matchNote", "groupNote", "isSelectable",
   "firstSelectable", "lastSelectable", "carriedSelection",
   "rowIsSong", "activate", "addRow", "addOne", "addAll", "openPrompt",
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
@@ -2603,6 +2603,56 @@ group("case 18: a queue reload keeps the cursor on its row");
         artists.indexOf("Add N to (X)") < 0, artists.join(","));
   check("the group count is still the hits behind it",
         rows.filter(function (r) { return r.type === "group"; })[0].count, 1);
+}
+
+// ---------------------------------------------------------------- case 26
+// Why a row is in the results. A search matches every tag; the row prints title,
+// artist, album. Naming the matched tag is what keeps a hit from looking like a
+// mistake -- but only where the row cannot explain itself: a title hit is one
+// section lower in the same list, and a hit inside a longer word is named by the
+// word it sits in ("Black Sabbath" for "abba", which no tag column could show).
+{
+  group("case 26: a hit says why it is in the results");
+  const P = makePanel();
+  const sabbath = { file: "1.mp3", artist: "Black Sabbath", title: "The Wizard",
+                    album: "Black Sabbath", match: "artist", pos: 2, rank: 21,
+                    inword: "Sabbath" };
+  const cabbage = { file: "2.mp3", artist: "Venetian Snares", title: "Cabbage",
+                    album: "Hospitality", match: "title", pos: 2, rank: 20,
+                    inword: "Cabbage" };
+  const abba = { file: "3.mp3", artist: "ABBA", title: "Dancing Queen",
+                 album: "Arrival", match: "artist", pos: 0, rank: 1, inword: "ABBA" };
+  check("a hit inside a longer word says the word",
+        P.root.matchNote(sabbath) === "inside “Sabbath”", P.root.matchNote(sabbath));
+  check("... on a title the same way", P.root.matchNote(cabbage) === "inside “Cabbage”",
+        P.root.matchNote(cabbage));
+  check("an exact hit on a shown tag says nothing", P.root.matchNote(abba) === "",
+        P.root.matchNote(abba));
+  check("... and a track row shows it in its second line",
+        P.root.rowSub(sabbath).indexOf("inside “Sabbath”") >= 0, P.root.rowSub(sabbath));
+
+  // Group rows print one name, so a hit from another tag has to be named --
+  // "Abbado" behind "Sergei Prokofiev" is the whole reason, and nothing else on
+  // the row says it. A long value names the word instead of being cut off before
+  // the part that matters.
+  const prok = { artist: "Sergei Prokofiev", match: "albumartist", pos: 1, rank: 11,
+                 inword: "Abbado",
+                 albumartist: "Sergei Prokofiev, Evgeny Kissin, Berliner Philharmoniker & Claudio Abbado" };
+  check("the group names the tag that put it there",
+        P.root.groupNote(prok, "artist"),
+        "Album artist contains “Abbado”");
+  check("a short value is printed whole",
+        P.root.groupNote({ match: "albumartist", pos: 0, inword: "ABBA",
+                           albumartist: "ABBA" }, "artist"), "Album artist: ABBA");
+  check("the group's own tag needs no line",
+        P.root.groupNote({ match: "artist", pos: 0, artist: "ABBA" }, "artist") === "",
+        P.root.groupNote({ match: "artist", pos: 0, artist: "ABBA" }, "artist"));
+  check("a title hit explains itself a section lower",
+        P.root.groupNote({ match: "title", pos: 0, title: "Southbound" }, "artist") === "",
+        P.root.groupNote({ match: "title", pos: 0, title: "Southbound" }, "artist"));
+  check("... and a mid-word group hit names the word",
+        P.root.groupNote({ match: "title", pos: 2, inword: "Sabbath" }, "artist"),
+        "inside “Sabbath”");
 }
 
 // --------------------------------------------------------------- report

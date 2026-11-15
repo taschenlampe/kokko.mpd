@@ -1317,7 +1317,7 @@ Panel {
         var rank = Number(song.rank === undefined ? 99 : song.rank)
         var seen = best[value]
         if (seen === undefined || rank < seen.rank)
-          best[value] = { rank: rank, why: root.matchNote(song) }
+          best[value] = { rank: rank, why: root.groupNote(song, key) }
       }
       order.sort(function(a, b) {
         if (best[a].rank !== best[b].rank) return best[a].rank - best[b].rank
@@ -1386,10 +1386,45 @@ Panel {
   // the sixteen Millie Jackson tracks matched on `Label: Southbound` and read as
   // mistakes without that line -- their titles have nothing to do with the word
   // that was typed.
+  // Why a **group** row is in the results.
+  //
+  // A group row prints one thing -- an artist name, an album name -- and the hit
+  // behind it can have come from any tag. "Album artist contains “Abbado”" under
+  // `Sergei Prokofiev` is the answer to "why is this here?"; a hit inside a longer
+  // word says the word, because that is the whole reason and it is on no other
+  // line ("Black Sabbath" for "abba").
+  function groupNote(row, kind) {
+    if (!row) return ""
+    var tag = String(row.match || "")
+    if (tag === "") return ""
+    if (Number(row.pos) === 2) {
+      var word = String(row.inword || "")
+      if (word !== "") return "inside “" + word + "”"
+    }
+    // The group's own tag is its title; an album row prints its artist as well.
+    if (tag === String(kind || "")) return ""
+    if (tag === "artist" && String(kind || "") === "album") return ""
+    // A title hit explains itself one section lower: that track is in the list.
+    if (tag === "title") return ""
+    var value = String(row[tag] || "")
+    if (value === "") return ""
+    if (value.length <= 44) return root.matchName(tag) + ": " + value
+    var inword = String(row.inword || "")
+    if (inword !== "") return root.matchName(tag) + " contains “" + inword + "”"
+    return root.matchName(tag) + ": " + value.slice(0, 43) + "…"
+  }
+
   function matchNote(row) {
     if (!row) return ""
     var tag = String(row.match || "")
-    if (tag === "" || tag === "title" || tag === "artist" || tag === "album"
+    if (tag === "") return ""
+    // A shown tag needs no note -- except a hit inside a longer word: "Black
+    // Sabbath" is on the row, that the term sits in "Sabbath" is not.
+    if (Number(row.pos) === 2) {
+      var inside = String(row.inword || "")
+      if (inside !== "") return "inside “" + inside + "”"
+    }
+    if (tag === "title" || tag === "artist" || tag === "album"
         || tag === "albumartist") return ""
     var value = String(row[tag] || "")
     if (value === "") return ""

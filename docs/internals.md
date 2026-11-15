@@ -46,10 +46,20 @@ six artists into groups for a query they have no part in. The sort is stable, so
 hits of one strength keep MPD's order. A search answer therefore carries `label`
 and `comment` (`SEARCH_FIELDS`; the browse lists still do not) and adds `match`
 (the tag), `pos` (0 exact, 1 word start, 2 mid word) and `rank` (place x 10 + tag)
-to every row. The panel names the tag on any row whose match is not already
-visible there — `Label: Southbound` — and orders the artist and album groups by
+to every row, plus `inword` (the word the term sits in: "Sabbath" for
+"S**abba**th"). The panel names the tag on any row whose match is not already
+visible there — `Label: Southbound` — orders the artist and album groups by
 their **strongest** hit, so the artist you searched for sits above the coincidence
-whatever the hit counts say.
+whatever the hit counts say, and says so on the row where the reason is nowhere
+else: a hit inside a longer word is named by its word (`inside “Sabbath”`), and a
+group row names the tag it does not print (`Album artist contains “Abbado”` under
+`Sergei Prokofiev`) — a title hit needs no line, that track is one section lower.
+
+Two ideas for shortening the list were dropped after measuring them: ranking
+mid-word hits out is arbitrary (it keeps "Abbado" and drops "Sabbath", both
+accidents, and the boundary exists only in the code), and "show only exact hits
+when an exact hit exists" leaves 2 of 494 hits for "love" — a term with two exact
+matches and half the library behind it.
 
 **How much `a` appends.** A group row is an artist or an album, and `a` appends
 all of it with one `findadd`. The number beside the row used to be the hits that

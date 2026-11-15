@@ -434,6 +434,16 @@ check("... and they say which tag", [r.get("match") for r in abba_rows],
       ["artist", "albumartist", "title", "title"])
 check("a row that matched nothing but a UUID is gone",
       [r.get("file") for r in abba_rows].count("5.mp3"), 0)
+# The word the term sits in travels too: it is the explanation the pane prints
+# when the tag is not on the row ("inside "Sabbath"") -- the pane has no term of
+# its own to cut it out with.
+check("a mid-word hit says which word it sits in",
+      [r.get("inword") for r in abba_rows if r.get("artist") == "Black Sabbath"],
+      ["Sabbath"])
+check("... and a word start says its own word",
+      abba_rows[1].get("inword"), "Abbado")
+check("an exact hit carries its value as the word",
+      abba_rows[0].get("inword"), "ABBA")
 check("the rank is the pair as one number", abba_rows[0].get("rank"), B.MATCH_RANK["artist"])
 # No term, no search: the pane clears the list instead of asking.
 check("an empty term asks MPD nothing",

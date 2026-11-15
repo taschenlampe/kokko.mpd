@@ -683,6 +683,21 @@ def version_at_least(version: str, major: int, minor: int) -> bool:
         return False
 
 
+def word_around(value: str, needle: str) -> str:
+    """The word the needle sits inside ("Sabbath" for "S**abba**th")."""
+    low = str(value or "").lower()
+    at = low.find(needle)
+    if at < 0:
+        return ""
+    left = at
+    while left > 0 and low[left - 1].isalnum():
+        left -= 1
+    right = at + len(needle)
+    while right < len(low) and low[right].isalnum():
+        right += 1
+    return str(value)[left:right]
+
+
 def rank_search_hits(rows: list, term: str) -> list:
     """Sort a search answer by where the term matched, and say where that was.
 
@@ -737,6 +752,10 @@ def rank_search_hits(rows: list, term: str) -> list:
         row["match"] = best
         row["pos"] = best_pos
         row["rank"] = best_pos * 10 + MATCH_RANK[best]
+        # The word the term sits in: "Sabbath" for "S**abba**th", "Abbado" for
+        # "**Abba**do". It is what a row can print when the tag itself is not on
+        # the row -- the pane has no term of its own to cut it out with.
+        row["inword"] = word_around(str(row.get(best) or ""), needle)
         kept.append(row)
     kept.sort(key=lambda r: r["rank"])
     return kept
