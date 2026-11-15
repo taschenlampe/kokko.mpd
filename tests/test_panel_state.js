@@ -2650,6 +2650,28 @@ group("case 18: a queue reload keeps the cursor on its row");
   check("a title hit explains itself a section lower",
         P.root.groupNote({ match: "title", pos: 0, title: "Southbound" }, "artist") === "",
         P.root.groupNote({ match: "title", pos: 0, title: "Southbound" }, "artist"));
+  // A path hit: "a-ha" is found through the folder `Pop/a-ha/`, because the
+  // artist tag spells it with a Unicode hyphen. The row names the folder.
+  check("a path hit names the folder, not the path",
+        P.root.matchNote({ file: "Pop/a-ha/10 - Take On Me.mp3", match: "file", pos: 1,
+                           inword: "a-ha" }) === "Folder: a-ha",
+        P.root.matchNote({ file: "Pop/a-ha/10 - Take On Me.mp3", match: "file", pos: 1,
+                           inword: "a-ha" }));
+  check("... and a group says it the same way",
+        P.root.groupNote({ match: "file", pos: 1, inword: "a-ha",
+                           file: "Pop/a-ha/x.mp3" }, "artist") === "Folder: a-ha",
+        P.root.groupNote({ match: "file", pos: 1, inword: "a-ha",
+                           file: "Pop/a-ha/x.mp3" }, "artist"));
+  // ... once: the second row of the same folder repeats nothing (eighty rows from
+  // one folder would otherwise say "Folder: a-ha" eighty times).
+  const first = { file: "Pop/a-ha/01.mp3", title: "Take On Me", artist: "a‐ha",
+                  album: "25", match: "file", pos: 1, inword: "a-ha" };
+  const second = { file: "Pop/a-ha/02.mp3", title: "The Blue Sky", artist: "a‐ha",
+                   album: "25", match: "file", pos: 1, inword: "a-ha" };
+  check("the reason is said once, not on every row",
+        P.root.rowSub(second, first).indexOf("Folder") < 0, P.root.rowSub(second, first));
+  check("... but the first row of the run still says it",
+        P.root.rowSub(first).indexOf("Folder: a-ha") >= 0, P.root.rowSub(first));
   check("... and a mid-word group hit names the word",
         P.root.groupNote({ match: "title", pos: 2, inword: "Sabbath" }, "artist"),
         "inside “Sabbath”");

@@ -1375,7 +1375,7 @@ Panel {
     var names = ({ title: "Title", artist: "Artist", albumartist: "Album artist",
                    album: "Album", name: "Name", genre: "Genre",
                    composer: "Composer", performer: "Performer", date: "Date",
-                   label: "Label", comment: "Comment" })
+                   label: "Label", comment: "Comment", file: "Folder" })
     return String(names[tag] || tag)
   }
 
@@ -1397,6 +1397,12 @@ Panel {
     if (!row) return ""
     var tag = String(row.match || "")
     if (tag === "") return ""
+    // A hit in the file path names the folder it sits in -- the whole path would
+    // fill the line, and the folder is the part somebody recognises.
+    if (tag === "file") {
+      var folder = String(row.inword || "")
+      return folder !== "" ? "Folder: " + folder : ""
+    }
     if (Number(row.pos) === 2) {
       var word = String(row.inword || "")
       if (word !== "") return "inside “" + word + "”"
@@ -1418,6 +1424,12 @@ Panel {
     if (!row) return ""
     var tag = String(row.match || "")
     if (tag === "") return ""
+    // A hit in the file path names the folder it sits in -- the whole path would
+    // fill the line, and the folder is the part somebody recognises.
+    if (tag === "file") {
+      var folder = String(row.inword || "")
+      return folder !== "" ? "Folder: " + folder : ""
+    }
     // A shown tag needs no note -- except a hit inside a longer word: "Black
     // Sabbath" is on the row, that the term sits in "Sabbath" is not.
     if (Number(row.pos) === 2) {
@@ -1835,8 +1847,14 @@ Panel {
     // whose albums carry no tag) the frame has no album and the genre stays.
     if (row.genre && root.frameMode === "find" && root.frameAlbum === "") bits.push(String(row.genre))
     // A hit that matched on a tag the row does not show gets that tag named:
-    // without it, the row answers a word that appears nowhere on it.
+    // without it, the row answers a word that appears nowhere on it. Said once:
+    // eighty rows from one folder repeat the same reason eighty times, so the
+    // note stays with the first row that carries it -- the rule the album column
+    // one line up follows.
     var because = root.matchNote(row)
+    if (because !== "" && prev
+        && String(prev.match || "") === String(row.match || "")
+        && String(prev.inword || "") === String(row.inword || "")) because = ""
     if (because !== "") bits.push(because)
     // No track number here: the list is already in track order and the number
     // usually leads the title anyway -- it was noise on every single row.

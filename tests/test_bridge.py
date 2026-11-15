@@ -434,6 +434,21 @@ check("... and they say which tag", [r.get("match") for r in abba_rows],
       ["artist", "albumartist", "title", "title"])
 check("a row that matched nothing but a UUID is gone",
       [r.get("file") for r in abba_rows].count("5.mp3"), 0)
+# The path is not a tag, but MPD's `any contains` matches it -- and on this library
+# that is the only way "a-ha" is found at all: the artist tag reads "a‐ha" (a
+# Unicode hyphen), the folder reads "a-ha". Dropping path hits dropped the band.
+PATH_PAIRS = [
+    ("file", "Pop/a-ha/Scoundrel Days/06 - The Sun Always Shines on T.V..mp3"),
+    ("Artist", "a\u2010ha"), ("AlbumArtist", "a\u2010ha"),
+    ("Title", "The Sun Always Shines on T.V."), ("Album", "Scoundrel Days"),
+]
+path_rows = B.Bridge().execute_query(CannedConn("0.24.0", pairs=PATH_PAIRS),
+                                     "search", {"term": "a-ha"})
+check("a hit only in the file path is still a hit", len(path_rows), 1)
+check("... it says the path matched", path_rows[0].get("match"), "file")
+check("... the folder is the word", path_rows[0].get("inword"), "a-ha")
+check("... and it ranks below every tag",
+      path_rows[0].get("rank"), 10 + B.FILE_RANK)
 # The word the term sits in travels too: it is the explanation the pane prints
 # when the tag is not on the row ("inside "Sabbath"") -- the pane has no term of
 # its own to cut it out with.

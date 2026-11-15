@@ -42,7 +42,11 @@ this library that made Black Sabbath (34 hits) the biggest group above ABBA (15,
 the name that was typed). The place decides first, the tag only breaks the tie; a
 row that matched only a tag the answer does not carry (a MusicBrainz id, a sort
 name) is dropped — 40 of those 100 hits were nothing but UUID hex, and they turned
-six artists into groups for a query they have no part in. The sort is stable, so
+six artists into groups for a query they have no part in. The **file path** is the one
+exception: MPD's `any contains` matches it too, and on this library that is the only way
+"a-ha" is found at all — the artist tag spells it `a‐ha` (U+2010), the folder `a-ha`.
+A path hit ranks below every tag (`FILE_RANK`) and says which folder it sits in
+(`Folder: a-ha`). The sort is stable, so
 hits of one strength keep MPD's order. A search answer therefore carries `label`
 and `comment` (`SEARCH_FIELDS`; the browse lists still do not) and adds `match`
 (the tag), `pos` (0 exact, 1 word start, 2 mid word) and `rank` (place x 10 + tag)
@@ -53,7 +57,8 @@ their **strongest** hit, so the artist you searched for sits above the coinciden
 whatever the hit counts say, and says so on the row where the reason is nowhere
 else: a hit inside a longer word is named by its word (`inside “Sabbath”`), and a
 group row names the tag it does not print (`Album artist contains “Abbado”` under
-`Sergei Prokofiev`) — a title hit needs no line, that track is one section lower.
+`Sergei Prokofiev`) — a title hit needs no line, that track is one section lower, and
+a reason that repeats said once: eighty rows out of one folder name it on the first.
 
 Two ideas for shortening the list were dropped after measuring them: ranking
 mid-word hits out is arbitrary (it keeps "Abbado" and drops "Sabbath", both

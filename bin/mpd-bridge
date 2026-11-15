@@ -222,6 +222,12 @@ ENTRY_MARKERS = ("file", "directory", "playlist")
 # tracks answer a search for the Thin Lizzy song "Southbound".
 SEARCH_FIELDS = SONG_FIELDS + ("label", "comment")
 
+# A file path is not a tag, but MPD's ``any contains`` matches it as well -- and on
+# a library whose artist tag reads "a‐ha" (U+2010) while the folder reads "a-ha",
+# the path is the only thing an ASCII search finds. Ranked below every tag: a folder
+# name is a filing decision, not what the record says.
+FILE_RANK = 4
+
 # Where a hit's match counts, best first. A title match is the song somebody
 # typed; a label or comment match is a coincidence of the pressing, and it once
 # buried the title match under sixteen others. Hits MPD matched on a tag this
@@ -698,6 +704,19 @@ def word_around(value: str, needle: str) -> str:
     return str(value)[left:right]
 
 
+def path_segment(value: str, needle: str) -> str:
+    """The folder (or file) name the term sits in: "a-ha" for "Pop/a-ha/…"."""
+    low = str(value or "").casefold()
+    at = low.find(needle)
+    if at < 0:
+        return ""
+    start = low.rfind("/", 0, at) + 1
+    end = low.find("/", at)
+    if end < 0:
+        end = len(low)
+    return str(value)[start:end]
+
+
 def rank_search_hits(rows: list, term: str) -> list:
     """Sort a search answer by where the term matched, and say where that was.
 
@@ -718,10 +737,12 @@ def rank_search_hits(rows: list, term: str) -> list:
     2. **Which tag matched**, by MATCH_RANK: a title before an artist before an
        album, a label last.
 
-    A hit that matched only a tag this answer does not carry (a MusicBrainz id, a
-    sort name) is **dropped**: "abba" matched 40 of 100 rows on nothing but a
-    UUID, which no person searches for and which turned six artists into groups
-    for a query that has nothing to do with them.
+    A hit that matched neither a tag nor the file path is **dropped**: those are
+    MusicBrainz ids and sort names -- "abba" matched 40 of 100 rows on nothing but
+    a UUID, which no person searches for and which turned six artists into groups
+    for a query that has nothing to do with them. The path counts, though (FILE_RANK,
+    below every tag): a folder called "a-ha" is how an artist whose tag says
+    "a‐ha" (U+2010) is still found by typing "a-ha".
 
     Each row leaves with `match` (the tag), `pos` (0 exact, 1 word start, 2 mid
     word) and `rank` (place x 10 + tag), so the pane can sort by one number. The
@@ -748,14 +769,24 @@ def rank_search_hits(rows: list, term: str) -> list:
             if best == "" or (pos, place) < (best_pos, MATCH_RANK[best]):
                 best, best_pos = tag, pos
         if best == "":
-            continue
+            # No tag of this answer holds the term. The path may: that is a real
+            # hit (the folder is where the artist's name lives on disk), while a
+            # MatchBrainz id or a sort name is not -- nobody types one.
+            path = str(row.get("file") or "")
+            low_path = path.casefold()
+            at_path = low_path.find(needle)
+            if at_path < 0:
+                continue
+            best = "file"
+            best_pos = 1 if at_path == 0 or not low_path[at_path - 1].isalnum() else 2
         row["match"] = best
         row["pos"] = best_pos
-        row["rank"] = best_pos * 10 + MATCH_RANK[best]
+        row["rank"] = best_pos * 10 + (FILE_RANK if best == "file" else MATCH_RANK[best])
         # The word the term sits in: "Sabbath" for "S**abba**th", "Abbado" for
         # "**Abba**do". It is what a row can print when the tag itself is not on
         # the row -- the pane has no term of its own to cut it out with.
-        row["inword"] = word_around(str(row.get(best) or ""), needle)
+        row["inword"] = (path_segment(str(row.get("file") or ""), needle) if best == "file"
+                         else word_around(str(row.get(best) or ""), needle))
         kept.append(row)
     kept.sort(key=lambda r: r["rank"])
     return kept
