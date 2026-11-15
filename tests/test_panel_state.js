@@ -166,7 +166,8 @@ const FUNCTIONS = [
   // The doors behind the headings.
   "loadStartList",
   "breadcrumb",
-  "infoFor", "groupHits", "matchName", "matchNote", "groupNote", "isSelectable",
+  "infoFor", "groupHits", "coverFor", "matchName", "matchNote", "groupNote",
+  "isSelectable",
   "firstSelectable", "lastSelectable", "carriedSelection",
   "rowIsSong", "activate", "addRow", "addOne", "addAll", "openPrompt",
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
@@ -2588,8 +2589,8 @@ group("case 18: a queue reload keeps the cursor on its row");
   group("case 25: a search groups by the strongest hit");
   const P = makePanel();
   const hits = [
-    { file: "1.mp3", artist: "Black Sabbath", title: "Black Sabbath",
-      album: "Black Sabbath", rank: 20, match: "title" },
+    { file: "1.mp3", artist: "Black Sabbath", albumartist: "Black Sabbath",
+      title: "Black Sabbath", album: "Black Sabbath", rank: 20, match: "title" },
     { file: "2.mp3", artist: "ABBA", title: "Dancing Queen", album: "Arrival",
       rank: 1, match: "artist" },
     { file: "3.mp3", artist: "Add N to (X)", title: "Barry 7", rank: 5, match: "" },
@@ -2603,6 +2604,21 @@ group("case 18: a queue reload keeps the cursor on its row");
         artists.indexOf("Add N to (X)") < 0, artists.join(","));
   check("the group count is still the hits behind it",
         rows.filter(function (r) { return r.type === "group"; })[0].count, 1);
+
+  // A record stands in the album row, so it carries a cover: one of the album's
+  // hits supplies the file, and the delegate asks the widget's art cache with it.
+  // An artist row stands for several records and carries none.
+  const albums = rows.filter(function (r) { return r.type === "group" && r.kind === "album"; });
+  const sabbathAlbum = albums.filter(function (r) { return r.value === "Black Sabbath"; })[0];
+  check("an album row carries the file its cover is looked up with",
+        sabbathAlbum && sabbathAlbum.file === "1.mp3" && sabbathAlbum.album === "Black Sabbath",
+        JSON.stringify(sabbathAlbum));
+  check("... and the album artist the cache is keyed by",
+        sabbathAlbum && sabbathAlbum.albumartist === "Black Sabbath",
+        JSON.stringify(sabbathAlbum));
+  const artistRow = rows.filter(function (r) { return r.type === "group" && r.kind === "artist"; })[0];
+  check("an artist row carries no cover -- it is several records",
+        !artistRow.file && !artistRow.album, JSON.stringify(artistRow));
 }
 
 // ---------------------------------------------------------------- case 26

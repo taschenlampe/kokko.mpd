@@ -1358,9 +1358,17 @@ Panel {
           else if (credit !== artist) { artist = ""; break }
           seen++
         }
+        // The cover of the record. One hit of the album supplies it -- the same
+        // `art` query the start screen uses, cached by album and album artist, so
+        // a second search costs nothing. A group row is where a *record* stands in
+        // this list, which is what a thumbnail is for (docs/mockups, round seven:
+        // on every track row it was the same sleeve nine times while the second
+        // column already named the album).
+        var cover = root.coverFor(songs, album)
         rows.push({ type: "group", kind: "album", value: album, artist: artist,
                     count: albums.counts[album], rank: albums.best[album].rank,
-                    why: albums.best[album].why })
+                    why: albums.best[album].why,
+                    file: cover.file, album: album, albumartist: cover.albumartist })
       }
     }
 
@@ -1368,6 +1376,19 @@ Panel {
       + (songs.length >= 800 ? "+" : "") + " hits" })
     for (var t = 0; t < songs.length && t < 300; t++) rows.push(songs[t])
     return rows
+  }
+
+  // Which file stands in for an album's cover: the first hit of it that has one.
+  function coverFor(songs, album) {
+    var list = songs || []
+    for (var i = 0; i < list.length; i++) {
+      var song = list[i]
+      if (String(song.album || "") !== album) continue
+      var file = String(song.file || "")
+      if (file === "") continue
+      return { file: file, albumartist: String(song.albumartist || "") }
+    }
+    return { file: "", albumartist: "" }
   }
 
   // The tag that made a hit a hit, spelled the way MPD spells it.
@@ -3165,16 +3186,22 @@ Panel {
           // recycled is dropped by comparing the file it was asked for.
           readonly property bool startRow: rowItem.rowType === "startAlbum"
             || rowItem.rowType === "startTrack"
+          // The album rows of a search: a record stands there, so it carries the
+          // cover (round seven of the mockups). Only in the search -- the album
+          // rows of a find frame are its result, not a list of records.
+          readonly property bool searchAlbumRow: root.frameMode === "search"
+            && rowItem.rowType === "group"
+            && String((rowItem.modelData || {}).kind || "") === "album"
           property string thumb: ""
           function loadThumb() {
             rowItem.thumb = ""
             var r = rowItem.modelData
-            if (!rowItem.startRow || !r || !root.host) return
+            if (!(rowItem.startRow || rowItem.searchAlbumRow) || !r || !root.host) return
             var file = String(r.file || "")
             if (file === "") return
             root.host.artFor(file, String(r.album || ""), String(r.albumartist || ""),
               function(path) {
-                if (!rowItem.startRow) return
+                if (!(rowItem.startRow || rowItem.searchAlbumRow)) return
                 if (String((rowItem.modelData || {}).file || "") !== file) return
                 rowItem.thumb = String(path || "")
               })
@@ -3302,7 +3329,7 @@ Panel {
           // there to be recognised, not to be looked at.
           Rectangle {
             id: thumbFrame
-            visible: rowItem.startRow && rowItem.thumb !== ""
+            visible: (rowItem.startRow || rowItem.searchAlbumRow) && rowItem.thumb !== ""
             anchors { left: parent.left; leftMargin: Style.space(8)
                       verticalCenter: parent.verticalCenter }
             width: Style.space(24)
@@ -3323,7 +3350,8 @@ Panel {
           Row {
             visible: !rowItem.isHeader
             anchors { left: parent.left
-                      leftMargin: Style.space(8) + (rowItem.startRow ? Style.space(32) : 0)
+                      leftMargin: Style.space(8)
+                        + (rowItem.startRow || rowItem.searchAlbumRow ? Style.space(32) : 0)
                       right: root.frameMode === "settings" ? stepMinus.left
                         : (trashButton.visible ? trashButton.left
                           : (starButton.visible ? starButton.left : addButton.left))

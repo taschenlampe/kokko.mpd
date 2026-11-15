@@ -54,7 +54,11 @@ to every row, plus `inword` (the word the term sits in: "Sabbath" for
 "S**abba**th"). The panel names the tag on any row whose match is not already
 visible there — `Label: Southbound` — orders the artist and album groups by
 their **strongest** hit, so the artist you searched for sits above the coincidence
-whatever the hit counts say, and says so on the row where the reason is nowhere
+whatever the hit counts say. An **album** row of a search carries the record's cover
+(24 px, the size the start screen uses): one `art` query per album, cached by album and
+album artist, so the second search costs nothing -- a track row gets none, because
+twenty hits of one record would be the same sleeve twenty times while the column beside
+it already names the album. The panel also says so on the row where the reason is nowhere
 else: a hit inside a longer word is named by its word (`inside “Sabbath”`), and a
 group row names the tag it does not print (`Album artist contains “Abbado”` under
 `Sergei Prokofiev`) — a title hit needs no line, that track is one section lower, and

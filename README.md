@@ -61,7 +61,7 @@ artist, track count and total time. A compilation keeps its second column, since
 there the artist is the answer.
 - **Search like on the web** — results ranked by what matched (a title before a
 Label or a Comment), grouped by artist/album as you type, one key appends a track,
-album, or artist. A row that only matched on a tag it does not show says which
+album, or artist. Each album row carries its cover. A row that only matched on a tag it does not show says which
 (`Label: Southbound`), and a group row says how many tracks `a` will append. The
 section headers (Artists, Albums, Tracks) are quiet labels rather than another
 accent, and a run of hits from the same album names it once.
