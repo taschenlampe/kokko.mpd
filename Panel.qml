@@ -756,17 +756,32 @@ Panel {
   // A section whose answer is empty is left out instead of drawn as a dead
   // heading. The recent list is the only thing stored, it is a cache, and it says
   // so in `bin/mpd-bridge` (RECENT_LIMIT).
-  readonly property int startNewest: 3
-  readonly property int startRecent: 2
-  // The user's own list gets the same room as "new": three tracks, newest first.
-  // One number -- the mockups (docs/mockups/fav-4) drew three.
-  readonly property int startFavorites: 3
-  readonly property int startPicks: 2
-  readonly property int startGenres: 2
+  // How the screen is built: five switches and one row count, set in the settings
+  // tab (tab 9) and owned by the widget (BarWidget.startNew ... startRows). The
+  // fallbacks are manifest.json's defaults, so a host without them -- an older
+  // widget, the test model -- draws the screen this always drew.
+  readonly property bool startNewOn: !root.host || root.host.startNew !== false
+  readonly property bool startRecentOn: !root.host || root.host.startRecent !== false
+  readonly property bool startFavoritesOn: !root.host || root.host.startFavorites !== false
+  readonly property bool startRandomOn: !root.host || root.host.startRandom !== false
+  readonly property bool startGenresOn: !root.host || root.host.startGenres !== false
+  readonly property int startRowCount: {
+    var h = root.host
+    var n = Number(h && h.startRows !== undefined && h.startRows !== null ? h.startRows : 3)
+    if (isNaN(n)) n = 3
+    return Math.max(1, Math.min(6, Math.round(n)))
+  }
+  // The one section that is not a list of albums: two genre rows are a choice,
+  // three are a list. They stay at two whatever the number says.
+  readonly property int startGenreRows: Math.min(2, root.startRowCount)
   // Genres are picked from a wider pool and then counted: 228 genre names in this
   // library include "Singer & Songwriter" with one track, and three of those are a
-  // decoration, not a way in. The three largest of eight candidates are the section.
+  // decoration, not a way in. The largest of eight candidates are the section.
   readonly property int startGenrePool: 8
+  // Nothing switched on is a setting, not an empty library: the screen says where
+  // the switch is instead of standing empty (see startRows).
+  readonly property bool startAllOff: !root.startNewOn && !root.startRecentOn
+    && !root.startFavoritesOn && !root.startRandomOn && !root.startGenresOn
 
   // YYYY-MM-DD, the form MPD's added-since takes.
   function isoDay(daysAgo) {
@@ -793,7 +808,7 @@ Panel {
   function loadStart(gen) {
     var year = (new Date()).getFullYear()
     var parts = { added: [], recent: [], released: [], albums: [], genres: [],
-                  favs: [], picks: [], counts: [], genreNames: [], left: 6 }
+                  favs: [], picks: [], counts: [], genreNames: [], left: 0 }
     function one(slot, rows, error) {
       parts[slot] = (error === "" && rows) ? rows : []
       parts.left = parts.left - 1
@@ -801,24 +816,39 @@ Panel {
       if (gen !== root.loadGeneration) { root.staleAnswers = root.staleAnswers + 1; return }
       root.startPicksStage(gen, parts)
     }
+    // One question, counted: `left` is how many answers this screen is still
+    // waiting for, so a switched-off section cannot leave it waiting forever.
+    function ask(slot, kind, args, channel) {
+      parts.left = parts.left + 1
+      host.query(kind, args, channel, function(rows, error) { one(slot, rows, error) })
+    }
     // "New here" is the question people ask; the year answer is the fallback for
     // a library that was added in one go, where nothing is recent. On a server
     // before 0.24 the first one is refused and the second carries the section.
-    host.query("find", { added_since: root.isoDay(60), sort: "added", limit: 400 },
-               "start:added", function(rows, error) { one("added", rows, error) })
-    host.query("recent", {}, "start:recent",
-               function(rows, error) { one("recent", rows, error) })
-    host.query("find", { regex: [["date", "^(" + (year - 1) + "|" + year + ")"]],
-                         sort: "date", limit: 300 }, "start:released",
-               function(rows, error) { one("released", rows, error) })
-    host.query("list", { tag: "album", limit: 3000 }, "start:albums",
-               function(rows, error) { one("albums", rows, error) })
-    host.query("list", { tag: "genre", limit: 3000 }, "start:genres",
-               function(rows, error) { one("genres", rows, error) })
-    // The list the user built. Asked last: the five library questions keep their
-    // order, so this one can be the slowest without holding the screen back.
-    host.query("favorites", { limit: 400 }, "start:favorites",
-               function(rows, error) { one("favs", rows, error) })
+    //
+    // Only what is switched on is asked (settings tab, 9). A section that is off
+    // costs no round trip -- and the two `list ... limit 3000` behind Random and
+    // Genres are the expensive ones on a library this size.
+    if (root.startNewOn) {
+      ask("added", "find", { added_since: root.isoDay(60), sort: "added", limit: 400 },
+          "start:added")
+    }
+    if (root.startRecentOn)
+      ask("recent", "recent", {}, "start:recent")
+    if (root.startNewOn) {
+      ask("released", "find", { regex: [["date", "^(" + (year - 1) + "|" + year + ")"]],
+                                sort: "date", limit: 300 }, "start:released")
+    }
+    if (root.startRandomOn)
+      ask("albums", "list", { tag: "album", limit: 3000 }, "start:albums")
+    if (root.startGenresOn)
+      ask("genres", "list", { tag: "genre", limit: 3000 }, "start:genres")
+    // The list the user built. Asked last: the library questions keep their order,
+    // so this one can be the slowest without holding the screen back.
+    if (root.startFavoritesOn)
+      ask("favs", "favorites", { limit: 400 }, "start:favorites")
+    // Nothing switched on: no answers are coming, so paint now.
+    if (parts.left === 0) root.paintStart(gen, parts)
   }
 
   // One row per album from a song list, walked from the front (`newestFirst`) or
@@ -853,9 +883,9 @@ Panel {
       if (album === "") return
       used[album] = true
     }
-    root.startAlbumsFrom(parts.added, root.startNewest, true).forEach(mark)
-    root.startAlbumsFrom(parts.released, root.startNewest, false).forEach(mark)
-    var recentRows = (parts.recent || []).slice(0, root.startRecent)
+    root.startAlbumsFrom(parts.added, root.startRowCount, true).forEach(mark)
+    root.startAlbumsFrom(parts.released, root.startRowCount, false).forEach(mark)
+    var recentRows = (parts.recent || []).slice(0, root.startRowCount)
     recentRows.forEach(mark)
 
     var allGenres = parts.genres || []
@@ -869,7 +899,7 @@ Panel {
 
     var all = parts.albums || []
     var names = []
-    for (var i = 0; i < 80 && names.length < root.startPicks && all.length > 0; i++) {
+    for (var i = 0; i < 80 && names.length < root.startRowCount && all.length > 0; i++) {
       var pick = String((all[Math.floor(Math.random() * all.length)] || {}).value || "")
       if (pick === "" || names.indexOf(pick) >= 0 || used[pick] === true) continue
       names.push(pick)
@@ -893,7 +923,7 @@ Panel {
           if (isFinite(n) && n > 0) ranked.push({ name: pool[k], tracks: n })
         }
         ranked.sort(function(a, b) { return b.tracks - a.tracks })
-        ranked = ranked.slice(0, root.startGenres)
+        ranked = ranked.slice(0, root.startGenreRows)
         for (var q = 0; q < ranked.length; q++) {
           parts.genreNames.push(ranked[q].name)
           parts.counts.push(ranked[q].tracks)
@@ -971,13 +1001,13 @@ Panel {
   function startRows(parts) {
     var rows = []
 
-    var added = root.startAlbumsFrom(parts.added, root.startNewest, true)
+    var added = root.startNewOn ? root.startAlbumsFrom(parts.added, root.startRowCount, true) : []
     if (added.length > 0) {
       rows.push({ type: "header", title: "New in the library · " + added.length + "  ›",
                   door: { mode: "startList", section: "new", title: "New in the library" } })
       rows = rows.concat(added)
-    } else {
-      var released = root.startAlbumsFrom(parts.released, root.startNewest, false)
+    } else if (root.startNewOn) {
+      var released = root.startAlbumsFrom(parts.released, root.startRowCount, false)
       if (released.length > 0) {
         rows.push({ type: "header", title: "New releases · " + released.length + "  ›",
                     door: { mode: "startList", section: "released", title: "New releases" } })
@@ -986,8 +1016,8 @@ Panel {
     }
 
     var recent = []
-    var cache = parts.recent || []
-    for (var r = 0; r < cache.length && recent.length < root.startRecent; r++) {
+    var cache = root.startRecentOn ? (parts.recent || []) : []
+    for (var r = 0; r < cache.length && recent.length < root.startRowCount; r++) {
       var rec = cache[r] || {}
       if (String(rec.album || "") === "") continue
       var row = root.startAlbumRow(rec)
@@ -1006,8 +1036,8 @@ Panel {
     // is what `l` opens (docs/mockups/fav-6 shows the album version as the one
     // that reads like a second "Recently played").
     var favs = []
-    var favSrc = parts.favs || []
-    for (var fav = favSrc.length - 1; fav >= 0 && favs.length < root.startFavorites; fav--) {
+    var favSrc = root.startFavoritesOn ? (parts.favs || []) : []
+    for (var fav = favSrc.length - 1; fav >= 0 && favs.length < root.startRowCount; fav--) {
       var favRow = root.startTrackRow(favSrc[fav] || {})
       if (favRow.file !== "") favs.push(favRow)
     }
@@ -1017,13 +1047,13 @@ Panel {
       rows = rows.concat(favs)
     }
 
-    var picks = parts.picks || []
+    var picks = root.startRandomOn ? (parts.picks || []) : []
     if (picks.length > 0) {
       rows.push({ type: "header", title: "Random · " + picks.length })
       for (var p = 0; p < picks.length; p++) rows.push(root.startAlbumRow(picks[p] || {}))
     }
 
-    var names = parts.genreNames || []
+    var names = root.startGenresOn ? (parts.genreNames || []) : []
     var counts = parts.counts || []
     if (names.length > 0) {
       rows.push({ type: "header", title: "Genres  ›", tab: "genres" })
@@ -1033,6 +1063,12 @@ Panel {
                     tracks: (isFinite(n) && n > 0) ? n : 0 })
       }
     }
+
+    // Every switch off is a setting, not an empty library -- so the screen says
+    // where the switch is instead of standing empty. An empty *library* still
+    // paints nothing: that is information, and no setting causes it.
+    if (rows.length === 0 && root.startAllOff)
+      rows.push({ type: "header", title: "every section is off — 9 opens the settings" })
     return rows
   }
 
@@ -1574,6 +1610,30 @@ Panel {
         hint: "desktop = under the windows, above = always visible" },
       { type: "setting", kind: "bool", key: "desktopDimOnPause", title: "Dim when paused",
         value: h.desktopDimOnPause === true || String(h.desktopDimOnPause) === "true" },
+
+      // The start screen is a fixed order of sections and one row count -- the
+      // order is the story (new -> last -> your stars -> random -> genres), so it
+      // is not a setting; what is worth switching is which parts of the story
+      // this library tells, and how many rows each gets.
+      { type: "header", title: "On the start screen" },
+      { type: "setting", kind: "bool", key: "startNew", title: "New in the library",
+        value: h.startNew === true,
+        hint: "what entered the library lately — off also skips its two queries" },
+      { type: "setting", kind: "bool", key: "startRecent", title: "Recently played",
+        value: h.startRecent === true,
+        hint: "the last records this player touched, from its own cache" },
+      { type: "setting", kind: "bool", key: "startFavorites", title: "Favorites",
+        value: h.startFavorites === true,
+        hint: "the tracks you starred, newest first — the heading opens them all" },
+      { type: "setting", kind: "bool", key: "startRandom", title: "Random",
+        value: h.startRandom === true,
+        hint: "a few records from the whole library — off skips the slowest query" },
+      { type: "setting", kind: "bool", key: "startGenres", title: "Genres",
+        value: h.startGenres === true,
+        hint: "the biggest genres as doors into the genre tab" },
+      { type: "setting", kind: "int", key: "startRows", title: "Rows per section",
+        min: 1, max: 6, step: 1, value: Number(h.startRows),
+        hint: "1–6 rows each — genres stay at two, 4+ scrolls the screen" },
 
       { type: "header", title: "Music library" },
       { type: "setting", kind: "action", action: "update", title: "Update",

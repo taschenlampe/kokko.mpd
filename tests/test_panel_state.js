@@ -58,8 +58,7 @@ function freshTabOrder() {
 // panel.
 const START_SIZES = (function () {
   const out = {};
-  ["startNewest", "startRecent", "startFavorites", "startPicks", "startGenres",
-   "startGenrePool"]
+  ["startGenrePool"]
     .forEach(function (name) {
     const m = new RegExp("^  readonly property int " + name + ": (\\d+)$", "m").exec(SRC);
     if (!m) throw new Error("Panel.qml has no int property " + name);
@@ -301,11 +300,9 @@ function makePanel(opts) {
     sentQueries: 0,
     answeredLoads: 0,
     staleAnswers: 0,
-    startNewest: START_SIZES.startNewest,
-    startRecent: START_SIZES.startRecent,
-    startFavorites: START_SIZES.startFavorites,
-    startPicks: START_SIZES.startPicks,
-    startGenres: START_SIZES.startGenres,
+    // Panel.qml now reads the shape from the widget (`host.startRows`,
+    // `host.startNew` ...), with manifest defaults as the fallback. The model
+    // gives the fake host those keys, so a test can switch a section off.
     startGenrePool: START_SIZES.startGenrePool,
     settingRows: settingRows,
     note: function () {},
@@ -371,6 +368,30 @@ function makePanel(opts) {
   // Panel.qml: readonly property bool up: !!host && host.connected === true
   Object.defineProperty(root, "up", {
     get: function () { return host.connected === true; }
+  });
+  // Panel.qml: readonly property bool startNewOn: !root.host || root.host.startNew !== false
+  //   (and the other four, the same way) plus startRowCount / startGenreRows /
+  //   startAllOff. Modelled as getters on the same fake host the panel reads.
+  ["New", "Recent", "Favorites", "Random", "Genres"].forEach(function (name) {
+    Object.defineProperty(root, "start" + name + "On", {
+      get: function () { return !host || host["start" + name] !== false; }
+    });
+  });
+  Object.defineProperty(root, "startRowCount", {
+    get: function () {
+      var n = Number(host && host.startRows !== undefined ? host.startRows : 3);
+      if (isNaN(n)) n = 3;
+      return Math.max(1, Math.min(6, Math.round(n)));
+    }
+  });
+  Object.defineProperty(root, "startGenreRows", {
+    get: function () { return Math.min(2, root.startRowCount); }
+  });
+  Object.defineProperty(root, "startAllOff", {
+    get: function () {
+      return !root.startNewOn && !root.startRecentOn && !root.startFavoritesOn
+        && !root.startRandomOn && !root.startGenresOn;
+    }
   });
   // Panel.qml: readonly property var favSet: (root.host && root.host.favSet)
   //   ? root.host.favSet : ({})
@@ -2481,6 +2502,80 @@ group("case 18: a queue reload keeps the cursor on its row");
   check("... and the footer counts favorites, not albums",
         P.root.infoFor("startList", P.root.frame, P.root.rows) === "2 favorites",
         P.root.infoFor("startList", P.root.frame, P.root.rows));
+  Math.random = realRandom;
+}
+
+// ---------------------------------------------------------------- case 24
+// The start screen follows the settings tab (9): five switches and one row count.
+// A section that is off is not drawn -- and, since it is switched off, it is not
+// asked either (Random's `list album` and Genres' `list genre` are the two slow
+// questions on a library this size). Every switch off is a setting, not an empty
+// library: the screen says where the switch is instead of standing empty.
+{
+  group("case 24: the start screen follows the switches");
+  const realRandom = Math.random;
+  Math.random = function () { return 0 };
+
+  const P = makePanel();
+  P.host.startGenres = false;
+  P.host.startRandom = false;
+  P.root.setTab("start");
+  check("a switched-off section is not asked",
+        P.queries.map(function (q) { return q.kind; }).join(",") === "find,recent,find,favorites",
+        P.queries.map(function (q) { return q.kind; }).join(","));
+  P.answer([{ album: "New One", albumartist: "B", date: "2026", file: "b/1.mp3" }]);
+  P.answer([{ album: "Last Played", albumartist: "D", file: "d/1.mp3" }]);
+  P.answer([]);
+  P.answer([{ file: "f/1.mp3", title: "Povo", artist: "F", album: "Pulp Fusion" }]);
+  const titles = P.rowsTitles();
+  check("... and draws no section for it",
+        titles.join(" | ") === "New in the library · 1  › | New One | Recently played · 1  › | Last Played | Favorites · 1  › | Povo",
+        titles.join(" | "));
+
+  // Every switch off: nothing is asked, nothing is pending, and the screen says
+  // where the switch is -- one line, not an empty panel.
+  const A = makePanel();
+  ["startNew", "startRecent", "startFavorites", "startRandom", "startGenres"]
+    .forEach(function (key) { A.host[key] = false; });
+  A.root.setTab("start");
+  check("all off asks nothing at all", A.queries.length === 0,
+        "queries=" + A.queries.length);
+  check("... and says where the switch is",
+        A.rowsTitles().join(" | ") === "every section is off — 9 opens the settings",
+        A.rowsTitles().join(" | "));
+  check("... and the line is not a row you can stand on",
+        A.root.isSelectable(A.root.rows[0]) === false && !A.root.rows[0].door,
+        "selectable=" + A.root.isSelectable(A.root.rows[0]));
+
+  // The number: one row per section, and genres follow it down to one.
+  const R = makePanel();
+  R.host.startRows = 1;
+  R.root.setTab("start");
+  R.answer([{ album: "New One", albumartist: "B", date: "2026", file: "b/1.mp3" },
+            { album: "Fresh Two", albumartist: "C", date: "2026", file: "c/1.mp3" }]);
+  R.answer([{ album: "Last Played", albumartist: "D", file: "d/1.mp3" },
+            { album: "Older Play", albumartist: "E", file: "e/1.mp3" }]);
+  R.answer([]);
+  R.answer([{ value: "Pick A" }, { value: "Pick B" }]);
+  R.answer([{ value: "Ambient" }, { value: "Blues" }, { value: "Techno" }]);
+  R.answer([{ file: "f/1.mp3", title: "Povo" }, { file: "f/2.mp3", title: "Bananie" }]);
+  R.answer([105, 257, 12]);
+  R.answer([{ album: "Pick A", albumartist: "F", date: "1999", file: "f/1.mp3" }]);
+  const albums = R.root.rows.filter(function (r) { return r.type === "startAlbum"; });
+  check("one row per section when the number is 1",
+        albums.length === 3 && R.root.rows.filter(function (r) { return r.type === "startTrack"; }).length === 1,
+        "albums=" + albums.length);
+  check("... genres follow it down, not up",
+        R.root.rows.filter(function (r) { return r.type === "startGenre"; }).length === 1,
+        "genres=" + R.root.rows.filter(function (r) { return r.type === "startGenre"; }).length);
+  check("... and genres never grow past two",
+        (function () { R.host.startRows = 6; return R.root.startGenreRows === 2; })(),
+        "startGenreRows=" + R.root.startGenreRows);
+  R.host.startRows = 99;
+  check("a number above the range is clamped", R.root.startRowCount === 6,
+        "99 -> " + R.root.startRowCount);
+  R.host.startRows = 0;
+  check("... and below it", R.root.startRowCount === 1, "0 -> " + R.root.startRowCount);
   Math.random = realRandom;
 }
 

@@ -51,8 +51,10 @@ runs along, left click = play/pause, middle click = next, scroll = volume.
 - **On hover** — a card with cover, draggable progress, big transport buttons.
 - **On the wallpaper** (optional) — the same card, sitting on your desktop.
 - **A start screen when nothing is queued** — what just entered the library, what you
-played last, three random albums and your genres, each with its cover; `enter` plays an
-album, `l` opens it, a heading opens the whole list, `r` reshuffles the picks.
+played last, the tracks you starred, a few random albums and your genres, each with its
+cover; `enter` plays an album, `l` opens it, a heading opens the whole list, `r`
+reshuffles the picks. Which sections appear, and how many rows each shows, is set in the
+settings tab (9).
 - **The full panel** — queue, search, library, playlists, all in one view.
 - **An album is a track list** — open one and the rows are number, title and
 duration, because the frame already says which album it is; the footer carries
@@ -187,6 +189,8 @@ text field. No JSON editing needed for any of this.
 | Position | which screen corner |
 | Layer | `desktop` (under windows) or `above` (over them) |
 | Dim when paused | fades the wallpaper card while nothing plays |
+| Start screen sections | New in the library · Recently played · Favorites · Random · Genres — each one on or off; an off section also costs no query |
+| Rows per section | 1–6 rows for every section; genres stay at two, and 4+ scrolls the screen |
 | Update / Rescan | library maintenance — update after adding music, rescan after deleting or renaming |
 
 **The 7 cover looks** — same data, seven pictures:

@@ -153,6 +153,14 @@ appends, so the last row is the most recent star), the heading a door onto the w
 list. The rows are track rows on purpose: `enter` plays the starred track, `l` opens the
 album it came from.
 
+**The start screen** is five sections and one row count, both switched in the settings
+tab (9): New in the library (its two questions are one switch), Recently played,
+Favorites, Random, Genres, and 1-6 rows for each (genres stay at two -- they are doors,
+not a list). A section that is off is not *asked* either, which is where the speed comes
+from: Random and Genres each cost a `list ... limit 3000`. Every switch off is a setting,
+so the screen then carries one line pointing at tab 9 instead of standing empty; an empty
+*library* still paints nothing, because that is information about the library.
+
 **Settings** live in `~/.config/omarchy/shell.json` in the widget entry — host, port,
 password, label format, the card and desktop-card options. The plugin's settings tab
 writes them there too (`setBarWidget`), so there is only ever one writer.

@@ -35,7 +35,13 @@
       "osdOnHover": false,
       "osdDuration": 4200,
       "notifyTrack": false,
-      "coverLook": "classic"
+      "coverLook": "classic",
+      "startNew": true,
+      "startRecent": true,
+      "startFavorites": true,
+      "startRandom": true,
+      "startGenres": true,
+      "startRows": 3
     },
     "schema": [
       {
@@ -218,6 +224,51 @@
         "label": "Dim the card when paused",
         "defaultValue": true,
         "description": "Fade the card while playback is stopped."
+      },
+      {
+        "key": "startNew",
+        "type": "boolean",
+        "label": "New in the library (start screen)",
+        "defaultValue": true,
+        "description": "The section that answers what just entered the library. Off also skips its two queries."
+      },
+      {
+        "key": "startRecent",
+        "type": "boolean",
+        "label": "Recently played (start screen)",
+        "defaultValue": true,
+        "description": "The last albums this player touched, from the bridge's own cache."
+      },
+      {
+        "key": "startFavorites",
+        "type": "boolean",
+        "label": "Favorites (start screen)",
+        "defaultValue": true,
+        "description": "The tracks you starred, newest first; the heading opens the whole playlist."
+      },
+      {
+        "key": "startRandom",
+        "type": "boolean",
+        "label": "Random (start screen)",
+        "defaultValue": true,
+        "description": "A few records from the whole library. Off skips the `list album` question, the slowest of the five."
+      },
+      {
+        "key": "startGenres",
+        "type": "boolean",
+        "label": "Genres (start screen)",
+        "defaultValue": true,
+        "description": "The biggest genres as doors into the genre tab. Off skips the `list genre` question."
+      },
+      {
+        "key": "startRows",
+        "type": "integer",
+        "label": "Rows per section (start screen)",
+        "min": 1,
+        "max": 6,
+        "step": 1,
+        "defaultValue": 3,
+        "description": "How many rows each section shows, 1-6. Genres stay at two. 4 or more scrolls the screen."
       }
     ]
   }

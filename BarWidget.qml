@@ -57,6 +57,21 @@ Panel {
   readonly property bool notifyTrack: setting("notifyTrack", false) === true
   readonly property bool hoverCard: setting("hoverCard", true) === true
 
+  // ------------------------------------------------ the start screen (tab 9)
+  // Five switches and one row count. The settings tab writes them (they land in
+  // shell.json like every other), and the panel mirrors them:
+  // Panel.startNewOn ... Panel.startRows read these properties, so there is one
+  // owner and one place a default can go stale.
+  readonly property bool startNew: setting("startNew", true) === true
+  readonly property bool startRecent: setting("startRecent", true) === true
+  readonly property bool startFavorites: setting("startFavorites", true) === true
+  readonly property bool startRandom: setting("startRandom", true) === true
+  readonly property bool startGenres: setting("startGenres", true) === true
+  readonly property int startRows: {
+    var n = Number(setting("startRows", 3))
+    return isNaN(n) ? 3 : Math.max(1, Math.min(6, Math.round(n)))
+  }
+
   // Which look the panel's player band shows: classic | sharp | hero | anchor.
   // The panel picks its band component from this and decides what the cover
   // behind it does.
