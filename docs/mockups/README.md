@@ -196,10 +196,10 @@ What the pictures assume and the code does not have yet: `added-since` (MPD 0.24
 "neu in der Bibliothek", a 20-entry recently-played cache, a `favorites` playlist, and
 genre counts. The bridge's `SONG_FIELDS` does not carry `added` today.
 
-## Fifth round: the star in the band, Favourites on the start screen (2026-11-15)
+## Fifth round: the star in the band, Favorites on the start screen (2026-11-15)
 
-The star exists on the panel's rows and on both cards. These six pages ask where it
-goes on the band, and how a Favourites section would sit on the start screen.
+The star exists on the panel's rows and on both cards. These seven pages ask where it
+goes on the band, and how a Favorites section would sit on the start screen.
 `src/favorites.py` writes them; rendered with headless chromium at the panel's own
 size (1120x740), in the running theme (`#05182e` / `#f6dcac` / `#faa968`), in the
 look that is switched on (`anchor`, 130 px cover), with the real covers.
@@ -209,10 +209,10 @@ look that is switched on (`anchor`, 130 px cover), with the real covers.
 | `fav-1-band-title.png` | the band with the star at the right end of the text column |
 | `fav-2-band-row.png` | the same band with the star as an eighth glyph in the transport row |
 | `fav-3-band-minimal.png` | the thin look (`minimal`): star as a fourth glyph, progress before the buttons |
-| `fav-4-start-after-recent.png` | Favourites between "Recently played" and "Random" |
-| `fav-5-start-under-new.png` | Favourites directly under "New in the library" |
-| `fav-6-start-albums.png` | Favourites as **album** rows (deduped), for comparison |
-| `fav-7-band-compare.png` | the two title-line placements on one sheet |
+| `fav-4-start-after-recent.png` | Favorites between "Recently played" and "Random" |
+| `fav-5-start-under-new.png` | Favorites directly under "New in the library" |
+| `fav-6-start-albums.png` | Favorites as **album** rows (deduped), for comparison |
+| `fav-7-band-compare.png` | the two title-line placements on one sheet (drawn at 1120x470) |
 
 What the pictures decide, read off the pixels:
 

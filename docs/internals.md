@@ -134,24 +134,23 @@ this compositor.
 track — an artist with 900 tracks costs one query. Every action reports in the
 footer.
 
-**Favourites** are rows in MPD's saved playlist `favorites`, not a side file: every
-MPD client sees the same stars, and the player can play the list without knowing what
-a favourite is. The **widget** owns that set (`favSet`, `favoriteCurrent`) because it
-owns the bridge — the panel, the hover card and the wallpaper card all read it, and
-every write goes through `toggleFavorite`, so the three surfaces cannot drift apart.
-The set is asked for when the connection comes up, once per track change (another
-client may have starred something), when the hover card opens, and again 600 ms after a
-toggle: the mutation and the query are two connections, and asking too early reads the
-playlist from before the write. An album is starred as its filter (`favoritefilter`),
-because an album row carries only the one track its cover came from.
+**Favorites** are rows in MPD's saved playlist `favorites`, not a side file: every MPD
+client sees the same stars, and the player can play the list without knowing what a
+favorite is. The **widget** owns that set (`favSet`, `favoriteCurrent`) because it owns
+the bridge — the panel, the two cards and the band all read it, and every write goes
+through `toggleFavorite`, so the surfaces cannot drift apart. The set is asked for when
+the connection comes up, once per track change (another client may have starred
+something), when the hover card opens, and again 600 ms after a toggle: the mutation and
+the query are two connections, and asking too early reads the playlist from before the
+write. An album is starred as its filter (`favoritefilter`), because an album row carries
+only the one track its cover came from.
 
-Three surfaces draw that one star: the **band** (right behind the title; on the thin
-`minimal` line as a fourth transport glyph, because the line has no column beside the
-title), the **hover card** and the **card on the wallpaper**. On the start screen
-`Favorites` is a section of its own -- three track rows, newest first (the playlist
-appends, so the last row is the most recent star), the heading a door onto the whole
-list. The rows are track rows on purpose: `enter` plays the starred track, `l` opens the
-album it came from.
+The star is drawn where the playing track is named: on the **band** right behind the
+title (on the thin `minimal` line as a fourth transport glyph — that line has no column
+beside the title), on the **hover card** and on the **card on the wallpaper**. The start
+screen's `Favorites` section shows track rows, newest first (the playlist appends, so the
+last row is the most recent star); its heading is a door onto the whole list, and `enter`
+plays the starred track rather than the album it came from (`l` opens that album).
 
 **The start screen** is five sections and one row count, both switched in the settings
 tab (9): New in the library (its two questions are one switch), Recently played,

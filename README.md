@@ -51,10 +51,9 @@ runs along, left click = play/pause, middle click = next, scroll = volume.
 - **On hover** — a card with cover, draggable progress, big transport buttons.
 - **On the wallpaper** (optional) — the same card, sitting on your desktop.
 - **A start screen when nothing is queued** — what just entered the library, what you
-played last, the tracks you starred, a few random albums and your genres, each with its
-cover; `enter` plays an album, `l` opens it, a heading opens the whole list, `r`
-reshuffles the picks. Which sections appear, and how many rows each shows, is set in the
-settings tab (9).
+played last, the tracks you starred, a few random albums (with their covers) and your
+genres; `enter` plays an album, `l` opens it, a heading opens the whole list, `r`
+reshuffles the picks. Which sections show, and how many rows, is set in the settings tab (9).
 - **The full panel** — queue, search, library, playlists, all in one view.
 - **An album is a track list** — open one and the rows are number, title and
 duration, because the frame already says which album it is; the footer carries
@@ -67,12 +66,10 @@ album, or artist. A row that only matched on a tag it does not show says which
 section headers (Artists, Albums, Tracks) are quiet labels rather than another
 accent, and a run of hits from the same album names it once.
 - **Quick cleanup** — clear a row, clear the queue, or keep only what's playing.
-- **Favorites** — `f` stars the row under the cursor (a track, or the whole album a
-start-screen row stands for), `F` stars whatever is playing, and the star sits on the
-playing track everywhere it is drawn: in the panel band, on the hover card, on the card
-on the wallpaper. The store is MPD's saved playlist `favorites` — no side file, so every
-MPD client sees the same stars and the list plays like any other. The start screen shows
-the three most recent stars as its own section, and the heading opens the whole list.
+- **Favorites** — `f` stars the row under the cursor (a track, or the album a start-screen
+row stands for), `F` stars what is playing; the same star shows on the band and on both
+cards. The stars are MPD's playlist `favorites`, so other clients see them too, and the
+list plays like any other.
 - **Track-change popup** — a brief card (and optional desktop notification) whenever
 a new song starts.
 - **Internet radio** — browse by country or genre, or search the public
@@ -96,8 +93,8 @@ no seek bar.
 
 [![Search](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-suche.png)](docs/panel-suche.png)
 
-**Start** — what an empty queue opens on: new in the library, recently played, three
-random albums, genres. `enter` plays, `l` opens, and a heading opens the section's
+**Start** — what an empty queue opens on: new in the library, recently played, favorites,
+a few random albums, genres. `enter` plays, `l` opens, and a heading opens the section's
 full list.
 
 [![Start](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-start.png)](docs/panel-start.png)
@@ -189,8 +186,8 @@ text field. No JSON editing needed for any of this.
 | Position | which screen corner |
 | Layer | `desktop` (under windows) or `above` (over them) |
 | Dim when paused | fades the wallpaper card while nothing plays |
-| Start screen sections | New in the library · Recently played · Favorites · Random · Genres — each one on or off; an off section also costs no query |
-| Rows per section | 1–6 rows for every section; genres stay at two, and 4+ scrolls the screen |
+| Start screen sections | which of the five sections the start screen shows |
+| Rows per section | how many rows each one shows (1–6); genres stay at two |
 | Update / Rescan | library maintenance — update after adding music, rescan after deleting or renaming |
 
 **The 7 cover looks** — same data, seven pictures:
