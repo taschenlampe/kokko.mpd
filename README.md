@@ -244,8 +244,9 @@ for every key. No restart needed.
 - **A remote MPD plays, but cover files are missing** — the address may point at another host,
   the fallback that finds `folder.jpg` does not follow it: it reads `music_directory` from the
   *local* `mpd.conf`. Against a remote server only what `albumart` (`cover.*`) and
-  `readpicture` return can be shown. Full covers come from a local MPD whose library is
-  mounted here.
+  `readpicture` return can be shown. Two ways out: run MPD on this machine, or set
+  `musicRoot` in `shell.json` to a local mount of that library — then the fallback finds
+  `folder.jpg` again.
 - **A library on a network mount** (NFS/SMB): `auto_update` relies on inotify, which such
   mounts do not provide — new files show up only after *Update* (settings, tab 9). The first
   index of a big library takes minutes (measured: 14 105 tracks, 345 s over NFSv4) and is

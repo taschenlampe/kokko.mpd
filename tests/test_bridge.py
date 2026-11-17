@@ -819,6 +819,44 @@ try:
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
+print("=== the cover folder can be set from the widget (musicRoot) ===")
+# An MPD on another host never tells this machine where its library is: its
+# mpd.conf is not readable here, so the disk fallback that finds `folder.jpg`
+# was dead there -- silently. `musicRoot` is that library as mounted here.
+tmp = tempfile.mkdtemp(prefix="music-root-")
+try:
+    mounted = os.path.join(tmp, "mounted")
+    os.makedirs(os.path.join(mounted, "Album"))
+    with open(os.path.join(mounted, "Album", "folder.jpg"), "wb") as handle:
+        handle.write(jpeg(700))
+    with open(os.path.join(tmp, "outside.jpg"), "wb") as handle:
+        handle.write(jpeg(700))
+
+    B.set_music_root(mounted)
+    check("musicRoot is the folder the bridge searches", B.music_directory(), mounted)
+    check("... and a cover beside the track is found through it",
+          len(B.local_cover("Album/track.mp3")[0]), 700)
+    # The URI comes from the server, so it must not walk out of the library.
+    check("a URI that climbs out of the library finds nothing",
+          B.local_cover("../outside.jpg")[0], b"")
+    check("... nor with the climb buried behind a folder",
+          B.local_cover("Album/../../outside.jpg")[0], b"")
+
+    # The wiring, not the function: a `config` line from the widget has to land.
+    bridge = B.Bridge()
+    bridge.apply_config({"host": "10.0.0.9", "port": 6600, "password": "",
+                         "musicRoot": mounted})
+    check("apply_config carries the cover folder through", B.music_directory(), mounted)
+
+    B.set_music_root(os.path.join(tmp, "not-there"))
+    check("a cover folder that is not a directory disables the fallback",
+          B.music_directory(), "")
+    B.set_music_root("")
+    check("an empty value goes back to reading mpd.conf", B._MUSIC_ROOT, "")
+finally:
+    B.set_music_root("")
+    shutil.rmtree(tmp, ignore_errors=True)
+
 print("=== command retry (with_cmd) ===")
 # A reply that never comes back is no proof that the command did not run. The
 # old rule refused to repeat anything that had reached the wire, and against a

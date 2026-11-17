@@ -41,6 +41,11 @@ Panel {
   readonly property string host: String(setting("host", "")).trim()
   readonly property int port: Math.max(0, Number(setting("port", 6600)) || 0)
   readonly property string password: String(setting("password", ""))
+  // The library as *this* machine sees it (a mount of the same directory). Empty
+  // means the bridge reads MPD's own mpd.conf -- right for a local server, of no
+  // use for a remote one, whose folder.jpg covers would otherwise stay invisible.
+  readonly property string musicRoot: String(setting("musicRoot", "")).trim()
+  onMusicRootChanged: sendConfig()
   readonly property string connectionKey: host + "\u0000" + port + "\u0000" + password
 
   readonly property string format: String(setting("format", "[%artist% - ][%title%|%filename%]"))
@@ -329,7 +334,7 @@ Panel {
 
   function sendConfig() {
     if (!bridge.running) return
-    send("config " + JSON.stringify({ host: host, port: port, password: password }))
+    send("config " + JSON.stringify({ host: host, port: port, password: password, musicRoot: musicRoot }))
   }
 
   // Commands with no answer of their own.
@@ -1376,6 +1381,9 @@ Panel {
         favorite: { current: root.favoriteCurrent, count: Object.keys(root.favSet).length },
         panelOpen: root.panelOpen,
         look: root.coverLook,
+        // Where the cover fallback searches -- the one value to read when covers
+        // are missing and the server is not on this machine.
+        musicRoot: root.musicRoot,
         backdrop: root.backdrop,
         osd: { visible: root.osdVisible, on: root.osdOn, hovering: root.hovering },
         hover: { open: root.miniOpen, hovered: root.miniHovered, allowed: root.miniAllowed },

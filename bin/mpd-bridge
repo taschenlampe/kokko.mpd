@@ -1041,6 +1041,26 @@ COVER_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
 COVER_WEAK = ("back", "inside", "inlay", "booklet", "small", "disc", "thumb", "cd")
 
 _MUSIC_DIR = None  # cached result of music_directory()
+# The widget's `musicRoot` setting: a path on this machine that mirrors MPD's
+# `music_directory`. Empty means "read the local mpd.conf" -- right when MPD
+# runs here, useless when it runs on another host, because that file is not
+# readable from here and the disk fallback for cover files hangs on the path.
+_MUSIC_ROOT = ""
+
+
+def set_music_root(value: str) -> None:
+    """Point the cover fallback at the library as *this* machine sees it.
+
+    An MPD on another host knows its own `music_directory`, and that path means
+    nothing here -- but the same library can be mounted, and this is what keeps
+    the disk fallback alive: `folder.jpg` is what most libraries use, and MPD's
+    own `albumart` refuses that name. A value that is not a directory disables
+    the fallback instead of quietly answering from a local `mpd.conf` that
+    describes a different library; an empty value goes back to that file.
+    """
+    global _MUSIC_ROOT, _MUSIC_DIR
+    _MUSIC_ROOT = os.path.expanduser(str(value or "").strip())
+    _MUSIC_DIR = None                       # the override may have changed it
 
 
 def music_directory() -> str:
@@ -1052,6 +1072,11 @@ def music_directory() -> str:
     """
     global _MUSIC_DIR
     if _MUSIC_DIR is not None:
+        return _MUSIC_DIR
+    if _MUSIC_ROOT:
+        # Set by the widget: the library as mounted here. No mpd.conf is read --
+        # a wrong path is the user's own answer and is not papered over.
+        _MUSIC_DIR = _MUSIC_ROOT if os.path.isdir(_MUSIC_ROOT) else ""
         return _MUSIC_DIR
     config_root = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     candidates = (
@@ -1092,7 +1117,13 @@ def local_cover(uri: str) -> tuple:
     base = music_directory()
     if not base or not uri:
         return b"", ""
-    directory = os.path.join(base, os.path.dirname(uri))
+    # The URI comes from the server, so it may not walk out of the library:
+    # `../../etc/passwd` would otherwise turn any readable file into a cover.
+    root_dir = os.path.realpath(base)
+    directory = os.path.realpath(os.path.join(root_dir, os.path.dirname(uri)))
+    if directory != root_dir and not directory.startswith(root_dir + os.sep):
+        return b"", ""
+
     try:
         names = os.listdir(directory)
     except OSError:
@@ -1556,6 +1587,9 @@ class Bridge:
         host = str(payload.get("host", "") or "").strip()
         port = payload.get("port", 6600)
         password = str(payload.get("password", "") or "")
+        # Before the "nothing changed" return below: a new cover folder is a
+        # change even when the server stays the same one.
+        set_music_root(payload.get("musicRoot", ""))
 
         # An empty host means "wherever the rest of this user's MPD clients
         # look", which is MPD_HOST -- including its `password@host` spelling

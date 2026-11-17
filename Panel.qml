@@ -1626,6 +1626,15 @@ Panel {
   // built here from what the widget reports. Writing goes through the widget,
   // which asks the shell (the owner of shell.json) to change the key, and the
   // shell pushes the new value back: one writer, live, no restart.
+  // The library path the bridge searches for cover files. A setting, but one
+  // typed in shell.json rather than here: a path is no thing to hunt for with
+  // -/+ and enter, so the row below only says what is in force.
+  readonly property string musicRootText: {
+    if (root.host === null) return ""
+    var raw = root.host.musicRoot
+    return String(raw === undefined || raw === null ? "" : raw).trim()
+  }
+
   readonly property var settingRows: {
     var h = root.host
     if (h === null) return []
@@ -1708,6 +1717,9 @@ Panel {
         hint: "1–6 rows each — genres stay at two, 4+ scrolls the screen" },
 
       { type: "header", title: "Music library" },
+      { type: "setting", kind: "info", key: "musicRoot", title: "Cover folder",
+        value: root.musicRootText === "" ? "mpd.conf" : root.musicRootText,
+        hint: "where cover files are looked for — empty = MPD's own mpd.conf; set musicRoot in shell.json for a remote server" },
       { type: "setting", kind: "action", action: "update", title: "Update",
         hint: "reads new and changed files — the everyday one" },
       { type: "setting", kind: "action", action: "rescan", title: "Rescan",
@@ -1967,6 +1979,14 @@ Panel {
 
     // Before the connection check: the settings tab works without MPD.
     if (mode === "settings") {
+      // An information row: it carries a value and nothing to press. It says
+      // where the value comes from instead of pretending to be a control.
+      if (row.kind === "info") {
+        root.flash(root.musicRootText === ""
+          ? "Cover files: MPD's own mpd.conf — musicRoot is empty"
+          : "Cover files: " + root.musicRootText)
+        return
+      }
       // An action row: it carries no value and no steppers, it does something
       // when it is taken.
       if (row.kind === "action") { root.runLibraryAction(row); return }

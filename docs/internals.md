@@ -203,6 +203,16 @@ so the screen then carries one line pointing at tab 9 instead of standing empty;
 password, label format, the card and desktop-card options. The plugin's settings tab
 writes them there too (`setBarWidget`), so there is only ever one writer.
 
+`musicRoot` is the one setting the tab only reports: a path is no thing to hunt for with
+`-/+` and enter, and typing one in the panel's search field would fight the search. It
+holds the library as *this* machine sees it, for cover files — set it to a local mount
+when the address points at another host, because then there is no local `mpd.conf` to
+read. A path that is not a directory disables the fallback rather than quietly answering
+from a `mpd.conf` that describes a different library. The list the tab shows says
+`mpd.conf` while it is empty, which is the truth: the fallback reads that file. The URI
+that arrives with a song is checked against the root before anything is read, so a
+`../..` in it cannot turn an arbitrary file into a cover.
+
 **From the command line:**
 
 ```bash

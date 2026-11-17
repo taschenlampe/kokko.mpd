@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "kokko.mpd",
   "name": "MPD",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "author": "kokko",
   "description": "MPD player for the bar and a full panel: queue, library search, playlists, internet radio. Needs a running MPD; it speaks the protocol itself over TCP or a Unix socket, with idle push instead of polling.",
   "license": "MIT",
@@ -23,6 +23,7 @@
       "host": "",
       "port": 6600,
       "password": "",
+      "musicRoot": "",
       "format": "[%artist% - ][%title%|%filename%]",
       "maxWidth": 240,
       "overflow": "scroll",
@@ -67,6 +68,13 @@
         "label": "MPD password",
         "defaultValue": "",
         "description": "Only if the server asks for one. Stored as plain text in shell.json."
+      },
+      {
+        "key": "musicRoot",
+        "type": "string",
+        "label": "Cover folder on this machine",
+        "defaultValue": "",
+        "description": "The library as mounted here, for cover files: empty reads MPD's own mpd.conf, which only helps when MPD runs on this machine. Set it to a local mount when the address above points at another host, so folder.jpg covers are found. A path that is not a directory disables the fallback."
       },
       {
         "key": "format",
