@@ -106,7 +106,8 @@ full list.
 
 [![Start](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/panel-start.png)](docs/panel-start.png)
 
-**Settings** — everything you'd actually tweak, with a live preview.
+**Settings** — the start screen's sections, where covers come from, and the rest of what
+you'd actually tweak.
 
 [![Settings](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/einstellungen.png)](docs/einstellungen.png)
 
