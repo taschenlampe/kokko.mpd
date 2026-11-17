@@ -10,9 +10,10 @@ A little bar widget for your music: cover + title always visible, a click opens 
 full player — queue, search, your whole library, playlists, internet radio, your
 favorites, and a start screen when nothing is queued. Mouse-first, keyboard if you want it.
 
-It needs a running MPD with a music directory — nothing else. No extra package: the
-widget talks the protocol itself, and the state arrives by MPD's own `idle` push instead
-of polling.
+It needs a running MPD with a music directory, and one Qt module that Omarchy does not
+always ship (`qt6-5compat` — see [Requirements](#requirements)). Beyond that: no extra
+package, the widget talks the protocol itself, and the state arrives by MPD's own `idle`
+push instead of polling.
 
 ## Get it running
 
@@ -22,9 +23,15 @@ omarchy plugin enable kokko.mpd --section center
 omarchy restart shell
 ```
 
-That's it. Open the panel any time with **`SUPER + CTRL + M`** — or bind
-`omarchy-shell kokko.mpd panel` to a key of your own. What it needs is
-[below](#requirements).
+That's it. Click the label in the bar and the panel opens — the plugin brings no keyboard
+shortcut of its own. To have one, bind it yourself in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + CTRL + M", "MPD player", "omarchy-shell kokko.mpd panel")
+```
+
+(`SUPER + M` is Omarchy's *minimize to dock*, which is why this one takes `CTRL`.) What it
+needs is [below](#requirements).
 
 <details>
 <summary>Prefer a folder you control, or need to update/remove it?</summary>
@@ -207,7 +214,12 @@ for every key. No restart needed.
 ## Requirements
 
 - A running MPD on `127.0.0.1:6600` — address and password are changeable in the settings
-- Nothing else — the bridge is pure Python standard library; `cava` is optional, for the spectrum
+- Qt 6's `Qt5Compat.GraphicalEffects` — on Arch/Omarchy the package `qt6-5compat`. The band and
+  the desktop card both import it, so without it the widget does not load at all (the shell log
+  says `Type DesktopCard unavailable` and `module "Qt5Compat.GraphicalEffects" is not installed`)
+- `cava`, for the spectrum — a package of its own, not bundled; the widget runs without it,
+  there is just no spectrum
+- Nothing else on the Python side — the bridge is standard library only
 - The radio tab asks [radio-browser.info](https://www.radio-browser.info/) over HTTPS (the search
   term and an optional country or genre — no key, no account, nothing about your library);
   playing a station needs MPD built with its `curl` input plugin
@@ -226,6 +238,18 @@ for every key. No restart needed.
   server/port in the settings; a running player keeps playing through it.
 - **No covers** — MPD needs to know its library: run *Update* in the settings once
   after adding music.
+- **The widget is gone and the log says `Type … unavailable`** — that is a missing Qt module,
+  not the plugin. The one it needs is `qt6-5compat` (`Qt5Compat.GraphicalEffects`);
+  `journalctl --user --since "-2 min" | grep -i kokko` names the module in the second line.
+- **A remote MPD plays, but cover files are missing** — the address may point at another host,
+  the fallback that finds `folder.jpg` does not follow it: it reads `music_directory` from the
+  *local* `mpd.conf`. Against a remote server only what `albumart` (`cover.*`) and
+  `readpicture` return can be shown. Full covers come from a local MPD whose library is
+  mounted here.
+- **A library on a network mount** (NFS/SMB): `auto_update` relies on inotify, which such
+  mounts do not provide — new files show up only after *Update* (settings, tab 9). The first
+  index of a big library takes minutes (measured: 14 105 tracks, 345 s over NFSv4) and is
+  incomplete until it finishes.
 
 ## More
 

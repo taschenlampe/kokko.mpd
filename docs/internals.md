@@ -103,6 +103,19 @@ them, because it is usually the bigger one — the same order MPD itself chooses
 Important: the files have to be readable for the user the bridge runs as (usually
 no problem with a library on a NAS).
 
+Two limits of that fallback, because each of them costs an hour of searching:
+
+- **It searches *this* machine.** The path comes from a local `mpd.conf`, so against a remote
+  MPD (any address but `127.0.0.1`) only `albumart` and `readpicture` can answer — a
+  `folder.jpg` next to the files stays invisible, with nothing in the log about it. The full
+  treatment needs the library mounted here and MPD running locally.
+- **`Qt5Compat.GraphicalEffects` is a hard dependency, not decoration.** `BandChrome.qml` and
+  `DesktopCard.qml` import it for `OpacityMask`: `MultiEffect`'s `maskSource` did not cut the
+  band down to a shape in this runtime (the mask was ignored and the cover stayed a
+  rectangle), so the Qt 5 module is the proven way. The package behind it is `qt6-5compat`,
+  which neither Omarchy nor Quickshell pulls in — and a machine without it loses the whole
+  widget, not just the band.
+
 ## When MPD stops answering
 
 A broken internet-radio stream can wedge MPD so that it accepts connections on its
