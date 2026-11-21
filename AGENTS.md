@@ -13,8 +13,9 @@ the source would be German on screen for everyone.
 ## Check before claiming anything
 
 ```sh
-qmllint -I /tmp/qslint <file>     # expect 0 lines containing error] or syntax]
 bash tests/run.sh --fast          # bridge unit tests, state tests, lint, manifest
+                                  # (also prepares /tmp/qslint for the next line)
+qmllint -I /tmp/qslint <file>     # expect 0 lines containing error] or syntax]
 omarchy plugin validate
 ```
 
