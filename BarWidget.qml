@@ -446,9 +446,20 @@ Panel {
     if (name === "art") {
       var uri = String(event.uri || "")
       if (uri === "" || !event.path) return
+      var cover = String(event.path)
+      // A repeat of the same answer is not news: skip the copy, the var property
+      // would notify for an assignment that changed nothing.
+      if (String(artMap[uri] || "") === cover) return
       var next = ({})
       for (var key in artMap) next[key] = artMap[key]
-      next[uri] = String(event.path)
+      // Bounded like artCache (64): a long session with streams would otherwise
+      // keep every cover path it ever saw, and copy that dictionary on every
+      // insert. Deleting first moves a re-seen uri to the end, so the eviction
+      // always drops the least recently seen entry.
+      delete next[uri]
+      next[uri] = cover
+      var keys = Object.keys(next)
+      while (keys.length > 64) delete next[keys.shift()]
       artMap = next
       return
     }

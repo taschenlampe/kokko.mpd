@@ -1180,6 +1180,69 @@ function caseCardBarPosition() {
     ])
 }
 
+// --- 15: the cover-path map is bounded like the cover cache ------------------
+// Every `art` event added one entry to `artMap` and never removed one, while the
+// fetch cache next to it is deliberately capped at 64. A long session with
+// streams grew the map without bound, and it is copied on every insert. Drive
+// N+ inserts through the shipped event handler: the map has to stay at the cap
+// and the newest entry has to survive.
+function caseArtMapCap() {
+  if (!barSrc) {
+    report("15", "the cover-path map stays bounded", false,
+      ["BarWidget.qml not found beside the surfaces -- nothing to check"])
+    return
+  }
+  const block = blockAt(barSrc, /if \(name === "art"\) \{/, "artEvent")
+  if (!block) {
+    report("15", "the cover-path map stays bounded", false,
+      ["not found in BarWidget.qml: the `art` event handler"])
+    return
+  }
+  const run = new Function("event", block.body)
+  // The extracted block is the body of `if (name === "art")` and ends in a bare
+  // `return`; it reads and writes `artMap` as a free name. In a non-strict
+  // Function body that is the global object -- the same way the widget's own
+  // scope resolves it -- so hand the map over through it.
+  let map = {}
+  function insert(uri, path) {
+    global.artMap = map
+    run({ uri: uri, path: path })
+    map = global.artMap
+  }
+
+  const N = 70
+  for (let i = 0; i < N; i++) insert("stream/" + i, "/cover/" + i)
+  const size = Object.keys(map).length
+  const newest = map["stream/" + (N - 1)] === "/cover/" + (N - 1)
+  const oldestGone = map["stream/0"] === undefined
+
+  // Re-seeing an entry that is already there must not grow the map either.
+  insert("stream/" + (N - 1), "/cover/" + (N - 1))
+  const sizeAgain = Object.keys(map).length
+
+  // An entry that was evicted comes back as the newest one and pushes the
+  // oldest surviving entry out.
+  insert("stream/10", "/cover/10")
+  const sizeRevived = Object.keys(map).length
+  const revivedNewest = map["stream/10"] === "/cover/10"
+
+  const cap = 64
+  const ok = size === cap && newest && oldestGone && sizeAgain === cap
+    && sizeRevived === cap && revivedNewest
+
+  report("15", "the cover-path map stays bounded", ok, [
+    "art event " + (block ? "lines " + block.first + "-" + block.last
+      + " sha256:" + block.hash : "absent"),
+    N + " inserts -> " + size + " entries (want " + cap + "), newest \"stream/"
+      + (N - 1) + "\" present: " + newest + ", oldest \"stream/0\" gone: " + oldestGone,
+    "the same entry again -> " + sizeAgain + " entries",
+    "an evicted entry re-inserted -> " + sizeRevived + " entries, it is the newest: "
+      + revivedNewest,
+    "expected: at most " + cap + " paths, the most recent ones kept -- the same bound"
+      + " the fetch cache already has, so a session with streams cannot grow forever"
+  ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -1194,6 +1257,7 @@ caseBandStar()
 caseDesktopCardPresence()
 caseFavoritesEpoch()
 caseCardBarPosition()
+caseArtMapCap()
 
 console.log(failures === 0
   ? "all media-surface checks passed"
