@@ -2775,6 +2775,50 @@ group("case 18: a queue reload keeps the cursor on its row");
         JSON.stringify(Q.root.detailRow));
 }
 
+// ---------------------------------------------------------------- case 29
+// `carrySel` belongs to the queue frame that is being re-read. It was cleared
+// only when the next list arrived, so a tab switch during a queue reload left it
+// set: the stale queue answer was dropped by the generation guard, and the
+// albums answer then used the carry -- an index of 70 on a list of three -- and
+// landed the cursor on the last album instead of the first.
+{
+  group("case 29: a queue reload's carry does not follow into another tab");
+  function entry(n) {
+    return { type: "file", file: "q/" + n + ".mp3", id: 100 + n, pos: n - 1,
+             artist: "A", album: "X", title: "T" + n, time: "100" };
+  }
+  const QUEUE = [];
+  for (let n = 1; n <= 80; n++) QUEUE.push(entry(n));
+  const ALBUMS = [{ type: "value", value: "One" }, { type: "value", value: "Two" },
+                  { type: "value", value: "Three" }];
+
+  const P = makePanel();
+  P.root.stack = [P.root.rootFrameFor("queue")];
+  P.answer(QUEUE);
+  P.root.sel = 70;
+  P.root.loadFrame();                          // the queue is re-read under the cursor
+  check("the reload keeps the cursor for the queue it belongs to",
+        P.root.carrySel !== null && P.root.carrySel.index === 70,
+        JSON.stringify(P.root.carrySel));
+
+  P.key(0, "3");                               // the albums tab, mid-reload
+  P.answer(QUEUE);                             // the old queue answer lands (stale)
+  P.answer(ALBUMS);                            // and the albums answer
+  check("the new frame selects its own first row", P.root.sel === 0,
+        "sel=" + P.root.sel + " (" + P.root.rowTitle(P.root.rows[P.root.sel]) + ")");
+
+  // The error branch ends a queue reload as well: nothing arrived to carry the
+  // cursor into, so the wish must not lie in wait for the next frame.
+  const E = makePanel();
+  E.root.stack = [E.root.rootFrameFor("queue")];
+  E.answer(QUEUE);
+  E.root.sel = 5;
+  E.root.loadFrame();
+  E.answer([], "connection lost");
+  check("a failed reload leaves no carry behind", E.root.carrySel === null,
+        JSON.stringify(E.root.carrySel));
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {

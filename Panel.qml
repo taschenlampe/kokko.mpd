@@ -574,10 +574,15 @@ Panel {
     if (!f) return
     var mode = String(f.mode || "")
 
+    // The carry belongs to the queue frame that is being re-read, nowhere else.
+    // Clearing it on every other load is what keeps a queue reload's cursor
+    // wish from landing on the list of the tab the user switched to.
+    var carrying = mode === "queue" && root.loadedFrame === f
+    if (!carrying) root.carrySel = null
     // A reload of the queue that is on screen: remember the row under the cursor
     // before the new list replaces it. By song id, because positions move as soon as
     // `consume` takes a row out; the index is the fallback for a row that is gone.
-    if (mode === "queue" && root.loadedFrame === f && root.rows.length > 0) {
+    if (carrying && root.rows.length > 0) {
       var under = root.rows[root.sel]
       root.carrySel = {
         id: (under && under.id !== undefined) ? Number(under.id) : -1,
@@ -649,6 +654,8 @@ Panel {
       root.answeredLoads++
       if (error !== "") {
         root.loading = false
+        // A reload that failed has no list to carry the cursor into.
+        root.carrySel = null
         root.setInfo(error)
         return
       }
