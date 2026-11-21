@@ -296,8 +296,29 @@ def error_text(exc: BaseException) -> str:
     return str(exc) or exc.__class__.__name__
 
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def checked_text(value, what: str) -> str:
+    """Text that may go into one MPD command line, or a refusal.
+
+    MPD reads its input a line at a time and has no escape for a line break
+    inside a quoted argument. A value with one would end the command early and
+    turn whatever follows into a separate command -- an MPD `file:` tag with a
+    newline in it could send `clear` next. No caller may bypass this, so both
+    quoting layers pass through here.
+    """
+    text = str(value)
+    found = _CONTROL_CHARS.search(text)
+    if found:
+        raise MPDCommandError(
+            "%s contains a control character (U+%04X), which MPD cannot carry "
+            "on one command line" % (what, ord(found.group(0))))
+    return text
+
+
 def quote(value) -> str:
-    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return '"' + checked_text(value, "value").replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def parse_target(host: str, port) -> tuple:
@@ -665,7 +686,7 @@ def quote_filter_value(value) -> str:
     out. Applying them in this order is what makes an apostrophe in a band name
     arrive intact.
     """
-    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return checked_text(value, "filter value").replace("\\", "\\\\").replace("'", "\\'")
 
 
 def contains_expression(tag: str, term: str) -> str:

@@ -324,6 +324,20 @@ check("apostrophe in an artist name",
       B.quote_filter_value("O'Brien"), "O\\'Brien")
 check("backslash is doubled", B.quote_filter_value("a\\b"), "a\\\\b")
 
+# MPD reads its input a line at a time. A quote cannot carry a line break, so a
+# value that has one used to end its command there and whatever followed became
+# the next command -- a `file:` tag with a newline in it could run `clear`.
+# Both quoting layers refuse it rather than pass it through.
+check("a quoted value is unchanged", B.quote('a"b\\c'), '"a\\"b\\\\c"')
+for label, bad in (("line break", "a\nb"),
+                   ("carriage return", "a\rb"),
+                   ("NUL byte", "a\x00b")):
+    check("a quoted value with a %s is refused" % label,
+          raised_by(lambda value=bad: B.quote(value)), "MPDCommandError")
+    check("a filter value with a %s is refused" % label,
+          raised_by(lambda value=bad: B.quote_filter_value(value)),
+          "MPDCommandError")
+
 print("=== a list search inside a filter keeps both conditions ===")
 # The panel narrows a nested list -- one artist, one genre -- and searches
 # inside it, and it sends both in one request (Panel.qml applyCategorySearch:
