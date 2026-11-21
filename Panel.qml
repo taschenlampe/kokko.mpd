@@ -57,6 +57,9 @@ Panel {
   readonly property color accent: Color.accent
   readonly property color dim: Qt.darker(fg, 1.35)
   readonly property color faint: Qt.rgba(fg.r, fg.g, fg.b, 0.28)
+  // The footer's key hints were at the same 0.28 as placeholders and the
+  // details' "esc closes"; the keys need to be read, so they get their own tone.
+  readonly property color footerHint: Qt.rgba(fg.r, fg.g, fg.b, 0.45)
   readonly property color line: Qt.rgba(fg.r, fg.g, fg.b, 0.14)
   readonly property color selBg: Color.menu.selectedBackground
   readonly property color selFg: Color.menu.selectedText
@@ -3262,11 +3265,25 @@ Panel {
           required property int index
           width: list.width
           height: rowItem.startRow ? Style.space(27)
-            : (rowItem.sectionHeader ? Style.space(29)
+            : (rowItem.sectionHeader ? Style.space(30)
               : (rowItem.isHeader ? Style.space(22) : Style.space(26)))
 
           readonly property string rowType: String(rowItem.modelData.type || "")
           readonly property bool isHeader: rowItem.rowType === "header"
+          readonly property bool isSettingRow: rowItem.rowType === "setting"
+          // The right rail. The length is a share of the row with a floor and a
+          // ceiling, so a short queue row and a wide panel do not put the clock in
+          // a different place each time; the gutter behind it is three square
+          // slots, wide enough for the glyphs and narrow enough to stay a margin.
+          readonly property real lengthWidth: Math.max(Style.space(40), Math.min(rowItem.width * 0.05 + Style.space(12), Style.space(56)))
+          readonly property real glyphGutter: Math.max(Style.space(56), Math.min(rowItem.width * 0.07, Style.space(76)))
+          readonly property real glyphSlot: rowItem.glyphGutter / 3
+          // The settings label column: a fixed share so the hints line up down
+          // the tab instead of starting wherever the longest label ends.
+          readonly property real labelWidth: Math.max(Style.space(140), Math.min(rowItem.width * 0.18, Style.space(180)))
+          // A section head is structure, not a row: quiet, and one opacity for
+          // every head (the setting and the delegate read the same number).
+          readonly property real sectionHeadOpacity: rowItem.sectionHeader ? 0.62 : 0.9
           // An album row of the start screen carries a cover: the one thing the title
           // cannot say, and the difference between "a list of words" and "what the
           // library has". The host hands out art from its cache by song uri, so a
@@ -3371,29 +3388,48 @@ Panel {
             id: groupRule
             visible: rowItem.sectionHeader && index > 0
             x: Style.space(8)
-            y: Style.space(6)
+            y: 0
             width: parent.width - Style.space(16)
             height: 1
-            color: root.dim
-            opacity: 0.35
+            color: root.fg
+            opacity: 0.14
           }
 
-          // A section label: artists / albums / tracks.
+          // A section label: artists / albums / tracks. Same type as the group
+          // heads of the settings: 11 px, tracked out, at 0.62 -- structure, not
+          // content, so it stays below the rows' newly raised title step.
           Text {
             visible: rowItem.isHeader
             anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
             anchors.verticalCenterOffset: rowItem.sectionHeader && index > 0 ? Style.space(3) : 0
             text: rowItem.isHeader ? String(rowItem.modelData.title || "") : ""
             color: rowItem.sectionHeader ? root.dim : root.accent
-            opacity: rowItem.sectionHeader ? 1 : 0.9
+            opacity: rowItem.sectionHeadOpacity
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.bodySmall
             font.bold: !rowItem.sectionHeader
             // Capitalisation is a display choice, not data: the row keeps "In the
             // bar" (so the README and the search tab stay untouched) and reads as
             // a heading here.
             font.capitalization: rowItem.sectionHeader ? Font.AllUppercase : Font.MixedCase
-            font.letterSpacing: rowItem.sectionHeader ? 1.1 : 0
+            font.letterSpacing: rowItem.sectionHeader ? 1.7 : 0
+          }
+
+          // A head that already carries a right-hand note keeps it there, in the
+          // quieter caption tone -- the title is the heading, this only qualifies
+          // it.
+          Text {
+            visible: rowItem.isHeader
+              && String((rowItem.modelData || {}).hint || "") !== ""
+            anchors { right: parent.right; rightMargin: Style.space(8)
+                      verticalCenter: parent.verticalCenter }
+            text: rowItem.isHeader ? String((rowItem.modelData || {}).hint || "") : ""
+            color: root.fg
+            opacity: 0.30
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+            width: Math.min(implicitWidth, parent.width * 0.45)
           }
 
           // The row's click target: declared before the `+` so the button keeps
@@ -3435,241 +3471,357 @@ Panel {
             }
           }
 
-          Row {
-            visible: !rowItem.isHeader
+          // The row's text: a flexible title with the meta inline behind it. Both
+          // stop at the length column, so neither can run under the clock or the
+          // glyph gutter.
+          Item {
+            id: rowText
+            visible: !rowItem.isHeader && !rowItem.isSettingRow
             anchors { left: parent.left
                       leftMargin: Style.space(8)
                         + (rowItem.startRow || rowItem.searchAlbumRow ? Style.space(32) : 0)
-                      right: root.frameMode === "settings" ? stepMinus.left
-                        : (trashButton.visible ? trashButton.left
-                          : (starButton.visible ? starButton.left : addButton.left))
+                      right: lengthText.left
                       rightMargin: Style.space(8)
                       verticalCenter: parent.verticalCenter }
-            spacing: Style.space(10)
+            height: Style.space(18)
 
             // The number on the record, where the row *is* a track of the album
             // the frame stands for -- there it is information. Anywhere else it
             // leads the title already or lies about the order.
             Text {
+              id: trackNoText
               readonly property string no: root.frameAlbum === ""
                 ? "" : root.trackNo(rowItem.modelData)
               visible: no !== ""
               text: no
+              width: visible ? Style.space(18) : 0
+              anchors { left: parent.left; verticalCenter: parent.verticalCenter }
               color: rowItem.selected ? root.selFg : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
-              width: visible ? Style.space(18) : 0
             }
 
             Text {
+              id: titleText
+              readonly property real trackOffset: trackNoText.visible
+                ? trackNoText.width + Style.space(10) : 0
+              // The meta keeps a share of the line even when the title is long;
+              // it is the answer to "why is this here" in the search.
+              readonly property real metaRoom: metaText.visible
+                ? Math.min(metaText.implicitWidth,
+                    Math.max(0, rowText.width - trackOffset) * 0.45) + Style.space(10)
+                : 0
+              anchors { left: parent.left; leftMargin: trackOffset
+                        verticalCenter: parent.verticalCenter }
               text: root.rowTitle(rowItem.modelData)
               color: root.isActiveRow(rowItem.modelData) ? root.accent
                 : (rowItem.selected ? root.selFg : root.fg)
               font.family: root.fontFamily
-              font.pixelSize: rowItem.startRow ? Style.font.body : Style.font.caption
-              font.bold: root.isActiveRow(rowItem.modelData) || rowItem.rowType === "group"
+              font.pixelSize: Style.font.subtitle
+              font.weight: Font.DemiBold
               elide: Text.ElideRight
-              width: Math.max(Style.space(80), parent.width * 0.40)
+              width: Math.min(implicitWidth,
+                Math.max(0, rowText.width - trackOffset - metaRoom))
+            }
+
+            // `artist · album` (and the search's reason) on the same line, ten
+            // pixels behind the title. One line, plain text, elided on the right --
+            // the old column cut the reason mid-word and read as broken data.
+            Text {
+              id: metaText
+              anchors { left: titleText.right; leftMargin: Style.space(10)
+                        right: parent.right; verticalCenter: parent.verticalCenter }
+              text: root.rowSub(rowItem.modelData,
+                                rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
+              visible: text !== ""
+              color: rowItem.selected ? root.selFg : root.dim
+              opacity: 0.40
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              elide: Text.ElideRight
+              textFormat: Text.PlainText
+              wrapMode: Text.NoWrap
+            }
+          }
+
+          // The length column: a fixed share of the row, right-aligned, at the
+          // quiet 0.50 -- and the accent on the track that plays, like the title.
+          Text {
+            id: lengthText
+            visible: !rowItem.isHeader && !rowItem.isSettingRow
+            anchors { right: glyphRail.left; rightMargin: Style.space(8)
+                      verticalCenter: parent.verticalCenter }
+            width: rowItem.lengthWidth
+            horizontalAlignment: Text.AlignRight
+            text: root.rowRight(rowItem.modelData)
+            color: root.isActiveRow(rowItem.modelData) ? root.accent
+              : (rowItem.selected ? root.selFg : root.dim)
+            opacity: root.isActiveRow(rowItem.modelData) ? 1.0 : 0.50
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          // In the settings tab the row is a label column, a hint that takes the
+          // free space, and the value on the right. The label column is a share of
+          // the row, so the hints start on one line down the whole tab.
+          Item {
+            id: settingsText
+            visible: rowItem.isSettingRow
+            anchors { left: parent.left; leftMargin: Style.space(8)
+                      right: settingValueRow.left; rightMargin: Style.space(12)
+                      verticalCenter: parent.verticalCenter }
+            height: Style.space(18)
+
+            Text {
+              id: settingLabel
+              anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+              width: rowItem.labelWidth
+              text: root.rowTitle(rowItem.modelData)
+              color: rowItem.selected ? root.selFg : root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.subtitle
+              font.weight: Font.DemiBold
+              elide: Text.ElideRight
             }
 
             Text {
+              id: settingHint
+              anchors { left: settingLabel.right; leftMargin: Style.space(8)
+                        right: parent.right; verticalCenter: parent.verticalCenter }
               text: root.rowSub(rowItem.modelData,
                                 rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
               color: rowItem.selected ? root.selFg : root.dim
+              opacity: 0.35
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Style.font.bodySmall
               elide: Text.ElideRight
-              width: Math.max(Style.space(60), parent.width * 0.44)
+              textFormat: Text.PlainText
+              wrapMode: Text.NoWrap
             }
+          }
+
+          // Value and controls, right-aligned: a switch for a boolean, the value
+          // text plus `−`/`+` for a number or an enum. The steppers stay the same
+          // calls as the -/+ keys (stepSetting); only their tone changes.
+          Row {
+            id: settingValueRow
+            visible: rowItem.isSettingRow
+            anchors { right: parent.right; rightMargin: Style.space(8)
+                      verticalCenter: parent.verticalCenter }
+            spacing: Style.space(12)
 
             Text {
+              id: settingValueText
+              visible: rowItem.modelData.kind !== "bool"
+              width: visible ? implicitWidth : 0
               text: root.rowRight(rowItem.modelData)
-              color: rowItem.selected ? root.selFg : root.dim
+              color: rowItem.selected ? root.selFg : root.fg
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            // `−`: the mouse half of the - key. Glyph checked against the font
+            // (U+2212 in JetBrainsMono Nerd Font), not guessed.
+            Item {
+              id: stepMinus
+              opacity: (rowItem.glyphsHot || minusArea.containsMouse) ? 0.70 : 0.30
+              visible: rowItem.modelData.kind === "int" || rowItem.modelData.kind === "enum"
+              width: Style.space(20)
+              height: Style.space(18)
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: minusArea.containsMouse ? root.accent : "transparent"
+                border.width: Math.max(1, Style.normalBorderWidth)
+                border.color: rowItem.selected ? root.selFg : root.line
+              }
+
+              Text {
+                anchors.centerIn: parent
+                text: "−"
+                color: minusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+
+              MouseArea {
+                id: minusArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, -1) }
+              }
+            }
+
+            // `+`: the mouse half of the + key (U+002B).
+            Item {
+              id: stepPlus
+              opacity: (rowItem.glyphsHot || plusArea.containsMouse) ? 0.70 : 0.30
+              visible: stepMinus.visible
+              width: Style.space(20)
+              height: Style.space(18)
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: plusArea.containsMouse ? root.accent : "transparent"
+                border.width: Math.max(1, Style.normalBorderWidth)
+                border.color: rowItem.selected ? root.selFg : root.line
+              }
+
+              Text {
+                anchors.centerIn: parent
+                text: "+"
+                color: plusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+
+              MouseArea {
+                id: plusArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, 1) }
+              }
+            }
+
+            // The boolean is a switch now. It has no MouseArea of its own: the
+            // row's click is the click, so the switch cannot fire a second time.
+            Switch {
+              id: settingSwitch
+              visible: rowItem.isSettingRow && rowItem.modelData.kind === "bool"
+              checked: rowItem.modelData.value === true
+              foreground: root.fg
+              accentColor: root.accent
             }
           }
 
-          // In the settings tab the row carries its own steppers: `−` and `+`, the
-          // mouse half of the -/+ keys. Glyphs checked against the font (U+2212,
-          // U+002B in JetBrainsMono Nerd Font), not guessed.
+          // The glyph gutter: three fixed slots for the row's actions (the bin,
+          // the star, `+`), so the eye has one edge instead of three glyphs at
+          // whatever offset their neighbours happen to need. Quiet at rest -- a
+          // wall of stars and pluses on 2000 rows is noise -- and fully there when
+          // the pointer is on the row or the row is the one that plays (then in
+          // the accent). The hit areas are the slots; nothing was made smaller.
           Item {
-            id: stepPlus
-              opacity: (rowItem.glyphsHot || plusArea.containsMouse) ? 1.0 : 0.32
-            visible: root.frameMode === "settings"
-              && (rowItem.modelData.kind === "int" || rowItem.modelData.kind === "enum")
-            anchors { right: parent.right; rightMargin: Style.space(5)
+            id: glyphRail
+            visible: !rowItem.isHeader && !rowItem.isSettingRow
+            anchors { right: parent.right; rightMargin: Style.space(6)
                       verticalCenter: parent.verticalCenter }
-            width: Style.space(20)
-            height: Style.space(18)
+            width: rowItem.glyphGutter
+            height: rowItem.glyphSlot
 
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.cornerRadius
-              color: plusArea.containsMouse ? root.accent : "transparent"
-              border.width: Math.max(1, Style.normalBorderWidth)
-              border.color: rowItem.selected ? root.selFg : root.line
+            // The bin, where something can actually be thrown away: a queue entry
+            // or a song inside a stored playlist. Glyph checked against the font
+            // (U+F01B4 in JetBrainsMono Nerd Font), not guessed.
+            Item {
+              id: trashButton
+              x: 0
+              width: rowItem.glyphSlot
+              height: rowItem.glyphSlot
+              visible: root.frameMode === "queue" || root.frameMode === "plist"
+              opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
+                || trashArea.containsMouse) ? 1.0 : 0.0
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: trashArea.containsMouse ? root.accent : "transparent"
+                border.width: Math.max(1, Style.normalBorderWidth)
+                border.color: rowItem.selected ? root.selFg : root.line
+              }
+
+              Text {
+                anchors.centerIn: parent
+                text: "󰆴"
+                color: root.isActiveRow(rowItem.modelData) ? root.accent
+                  : (trashArea.containsMouse ? root.bg
+                    : (rowItem.selected ? root.selFg : root.fg))
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+
+              MouseArea {
+                id: trashArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) { root.sel = rowItem.index; root.removeRow() }
+              }
             }
 
-            Text {
-              anchors.centerIn: parent
-              text: "+"
-              color: plusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
+            // `f`: the star. Filled in the accent when it is set; otherwise it
+            // appears with the row's other glyphs and takes the accent while the
+            // row is the one that plays.
+            Item {
+              id: starButton
+              readonly property bool on: root.isFavorite(rowItem.modelData)
+              x: rowItem.glyphSlot
+              width: rowItem.glyphSlot
+              height: rowItem.glyphSlot
+              visible: String((rowItem.modelData || {}).file || "") !== ""
+              opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
+                || starArea.containsMouse) ? 1.0 : 0.0
+
+              Text {
+                anchors.centerIn: parent
+                text: "★"
+                color: starButton.on || root.isActiveRow(rowItem.modelData) ? root.accent
+                  : (rowItem.selected ? root.selFg : root.dim)
+                opacity: starButton.on || root.isActiveRow(rowItem.modelData) ? 1.0 : 0.45
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              MouseArea {
+                id: starArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) { root.sel = rowItem.index; root.toggleFavorite() }
+              }
             }
 
-            MouseArea {
-              id: plusArea
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, 1) }
-            }
-          }
+            // `+`: append what this row stands for -- the track, the album, the
+            // artist, the folder. The mouse half of `a`.
+            Item {
+              id: addButton
+              x: rowItem.glyphSlot * 2
+              width: rowItem.glyphSlot
+              height: rowItem.glyphSlot
+              visible: true
+              opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
+                || addArea.containsMouse) ? 1.0 : 0.0
 
-          Item {
-            id: stepMinus
-              opacity: (rowItem.glyphsHot || minusArea.containsMouse) ? 1.0 : 0.32
-            visible: stepPlus.visible
-            anchors { right: stepPlus.left; rightMargin: Style.space(5)
-                      verticalCenter: parent.verticalCenter }
-            width: Style.space(20)
-            height: Style.space(18)
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: addArea.containsMouse ? root.accent : "transparent"
+                border.width: Math.max(1, Style.normalBorderWidth)
+                border.color: rowItem.selected ? root.selFg : root.line
+              }
 
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.cornerRadius
-              color: minusArea.containsMouse ? root.accent : "transparent"
-              border.width: Math.max(1, Style.normalBorderWidth)
-              border.color: rowItem.selected ? root.selFg : root.line
-            }
+              Text {
+                anchors.centerIn: parent
+                text: "+"
+                color: root.isActiveRow(rowItem.modelData) ? root.accent
+                  : (addArea.containsMouse ? root.bg
+                    : (rowItem.selected ? root.selFg : root.fg))
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
 
-            Text {
-              anchors.centerIn: parent
-              text: "−"
-              color: minusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-            }
-
-            MouseArea {
-              id: minusArea
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, -1) }
-            }
-          }
-
-          // `f`: the star. Always visible where a row is a song or an album -- a
-          // favourite you have to hover to find is not one -- filled in the accent
-          // when it is set, dim when it is not.
-          Item {
-            id: starButton
-            readonly property bool on: root.isFavorite(rowItem.modelData)
-            visible: !rowItem.isHeader && root.frameMode !== "settings"
-              && String((rowItem.modelData || {}).file || "") !== ""
-            anchors { right: addButton.left; rightMargin: Style.space(6)
-                      verticalCenter: parent.verticalCenter }
-            width: Style.space(18)
-            height: Style.space(18)
-
-            Text {
-              anchors.centerIn: parent
-              text: "★"
-              color: starButton.on ? root.accent
-                : (rowItem.selected ? root.selFg : root.dim)
-              opacity: starButton.on ? 1.0 : 0.45
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-            }
-
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: function(mouse) { root.sel = rowItem.index; root.toggleFavorite() }
-            }
-          }
-
-          // `+`: append what this row stands for — the track, the album, the
-          // artist, the folder. The mouse half of `a`.
-          Item {
-            id: addButton
-              opacity: (rowItem.glyphsHot || addArea.containsMouse) ? 1.0 : 0.32
-            // Not in the settings tab: appending a setting to the queue makes no
-            // sense, and the button would only be a stray glyph there.
-            visible: !rowItem.isHeader && root.frameMode !== "settings"
-            anchors { right: parent.right; rightMargin: Style.space(5)
-                      verticalCenter: parent.verticalCenter }
-            width: Style.space(22)
-            height: Style.space(18)
-
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.cornerRadius
-              color: addArea.containsMouse ? root.accent : "transparent"
-              border.width: Math.max(1, Style.normalBorderWidth)
-              border.color: rowItem.selected ? root.selFg : root.line
-            }
-
-            Text {
-              anchors.centerIn: parent
-              text: "+"
-              color: addArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-            }
-
-            MouseArea {
-              id: addArea
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: function(mouse) { root.sel = rowItem.index; root.addOne(rowItem.modelData) }
-            }
-          }
-
-          // The bin, where something can actually be thrown away: a queue entry or
-          // a song inside a stored playlist. Glyph checked against the font
-          // (U+F01B4 in JetBrainsMono Nerd Font), not guessed.
-          Item {
-            id: trashButton
-              opacity: (rowItem.glyphsHot || trashArea.containsMouse) ? 1.0 : 0.32
-            visible: !rowItem.isHeader
-              && (root.frameMode === "queue" || root.frameMode === "plist")
-            anchors { right: starButton.visible ? starButton.left : addButton.left
-                      rightMargin: Style.space(6)
-                      verticalCenter: parent.verticalCenter }
-            width: Style.space(22)
-            height: Style.space(18)
-
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.cornerRadius
-              color: trashArea.containsMouse ? root.accent : "transparent"
-              border.width: Math.max(1, Style.normalBorderWidth)
-              border.color: rowItem.selected ? root.selFg : root.line
-            }
-
-            Text {
-              anchors.centerIn: parent
-              text: "󰆴"
-              color: trashArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            MouseArea {
-              id: trashArea
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: function(mouse) { root.sel = rowItem.index; root.removeRow() }
+              MouseArea {
+                id: addArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) { root.sel = rowItem.index; root.addOne(rowItem.modelData) }
+              }
             }
           }
         }
@@ -3907,7 +4059,7 @@ Panel {
               id: hintText
               // The pointer explains a glyph button; otherwise the keys.
               text: root.hoverHint !== "" ? root.hoverHint : root.hint
-              color: root.hoverHint !== "" ? root.accent : root.faint
+              color: root.hoverHint !== "" ? root.accent : root.footerHint
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               height: Style.space(22)

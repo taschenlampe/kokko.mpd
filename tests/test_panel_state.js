@@ -135,15 +135,18 @@ function grabRootHandler(name) {
   return m[1].trim();
 }
 
-// One `readonly property <type> <name>: <expression>` binding out of the row
-// delegate, verbatim. The expression may wrap onto the following line (Panel.qml
-// breaks it where it would get long), so it is run on while the line so far ends
-// with an operator or the next line opens with one.
-function grabRowBinding(name) {
-  const m = new RegExp("^[ \\t]+readonly property (?:bool|string) " + name + ": (.+)$", "m").exec(SRC);
-  if (!m) throw new Error("Panel.qml has no row binding " + name);
+// One `<name>: <expression>` binding out of a QML file, verbatim. The
+// expression may wrap onto the following line (the QML breaks it where it would
+// get long), so it is run on while the line so far ends with an operator or the
+// next line opens with one. The type list covers what the panel and its
+// components declare; the name has to match exactly, so a longer property that
+// starts with the same word is not picked up.
+function grabBindingFrom(source, name) {
+  const m = new RegExp("^[ \\t]+(?:readonly )?property (?:bool|string|real|color|int) "
+    + name + ": (.+)$", "m").exec(source);
+  if (!m) throw new Error("no property binding " + name);
   let text = m[1].trim();
-  const rest = SRC.slice(m.index + m[0].length).split("\n");
+  const rest = source.slice(m.index + m[0].length).split("\n");
   for (let i = 1; i < rest.length; i++) {
     const line = rest[i].trim();
     if (line === "") break;
@@ -152,6 +155,20 @@ function grabRowBinding(name) {
     text += " " + line;
   }
   return text;
+}
+
+// The row delegate's bindings, taken out of Panel.qml.
+function grabRowBinding(name) {
+  return grabBindingFrom(SRC, name);
+}
+
+// Evaluate a QML expression with the names it reads (Style, Qt, rowItem ...).
+// The point of the layout checks below: the expectation is the expression, not
+// a second copy of the number it happens to produce today.
+function evalExpr(expr, scope) {
+  const names = Object.keys(scope);
+  const fn = new Function(names.join(", "), "return (" + expr + ");");
+  return fn.apply(null, names.map(function (name) { return scope[name]; }));
 }
 
 const FUNCTIONS = [
@@ -215,6 +232,22 @@ const RELOAD_HANDLER = grabTimerHandler("reloadTimer");
 const ROW_TYPE = grabRowBinding("rowType");
 const ROW_IS_HEADER = grabRowBinding("isHeader");
 const ROW_SELECTED = grabRowBinding("selected");
+// The two rail widths and the section head's alpha, also verbatim -- but these
+// arrived with a layout change: a Panel.qml without them must read as a failed
+// check below, not as a crash that takes every later check with it. Same for the
+// switch, whose file may be missing entirely in an older checkout.
+function grabOptical(source, name) {
+  try { return grabBindingFrom(source, name); } catch (err) { return ""; }
+}
+const ROW_LENGTH_WIDTH = grabOptical(SRC, "lengthWidth");
+const ROW_GLYPH_GUTTER = grabOptical(SRC, "glyphGutter");
+const ROW_SECTION_HEAD_OPACITY = grabOptical(SRC, "sectionHeadOpacity");
+// The footer's key-hint tone and the switch beside the other components.
+const FOOTER_HINT = grabOptical(SRC, "footerHint");
+const SWITCH = path.join(__dirname, "..", "Switch.qml");
+const SWITCH_SRC = fs.existsSync(SWITCH) ? fs.readFileSync(SWITCH, "utf8") : "";
+const SWITCH_TRACK_WIDTH = grabOptical(SWITCH_SRC, "trackWidth");
+const SWITCH_TRACK_HEIGHT = grabOptical(SWITCH_SRC, "trackHeight");
 
 const BUILD = new Function(
   "root", "host", "Qt", "settingRows", "timers", "promptDebounce",
@@ -3014,6 +3047,69 @@ group("case 18: a queue reload keeps the cursor on its row");
   R.answer(playlist(6));
   check("control: another playlist opens on its first row", R.root.sel === 0,
         "sel=" + R.root.sel);
+}
+
+// ---------------------------------------------------------------- case 34
+// The approved picture is at ~1.24x, so its pixels are ratios. These checks pin
+// the ratios the QML actually carries: the expressions are read out of Panel.qml
+// and Switch.qml and evaluated, never copied as numbers. A later edit that
+// changes the rail, the footer tone, a section head or the switch size turns
+// them red instead of quietly drifting away from the picture.
+{
+  group("case 34: the right rail, section heads and switch sizes");
+  const style = { space: function (n) { return n; } };
+  function rowAt(expr, width) {
+    return evalExpr(expr, { Style: style, rowItem: { width: width } });
+  }
+
+  // A missing binding is a failed check with a name, not a TypeError that kills
+  // the run: this block is the only place that reads them, and an older
+  // Panel.qml is exactly the state a reviewer wants to see go red.
+  const OPTICAL = [
+    ["Panel.qml lengthWidth", ROW_LENGTH_WIDTH],
+    ["Panel.qml glyphGutter", ROW_GLYPH_GUTTER],
+    ["Panel.qml sectionHeadOpacity", ROW_SECTION_HEAD_OPACITY],
+    ["Panel.qml footerHint", FOOTER_HINT],
+    ["Switch.qml trackWidth", SWITCH_TRACK_WIDTH],
+    ["Switch.qml trackHeight", SWITCH_TRACK_HEIGHT]
+  ];
+  OPTICAL.forEach(function (pair) {
+    check("the source carries `" + pair[0] + "`",
+          pair[1] !== "", "not found -- the layout below cannot be checked");
+  });
+
+  if (OPTICAL.every(function (pair) { return pair[1] !== ""; })) {
+  // Small rows hit the floor, wide rows the ceiling: both ends are clamps in the
+  // expression, not values that only happen to round to one of them.
+  check("length column: a narrow row gets the floor",
+        rowAt(ROW_LENGTH_WIDTH, 100) === 40,
+        String(rowAt(ROW_LENGTH_WIDTH, 100)));
+  check("length column: a wide row gets the ceiling",
+        rowAt(ROW_LENGTH_WIDTH, 2000) === 56,
+        String(rowAt(ROW_LENGTH_WIDTH, 2000)));
+  check("glyph gutter: a narrow row gets the floor",
+        rowAt(ROW_GLYPH_GUTTER, 100) === 56,
+        String(rowAt(ROW_GLYPH_GUTTER, 100)));
+  check("glyph gutter: a wide row gets the ceiling",
+        rowAt(ROW_GLYPH_GUTTER, 2000) === 76,
+        String(rowAt(ROW_GLYPH_GUTTER, 2000)));
+
+  const footer = evalExpr(FOOTER_HINT, {
+    fg: { r: 1, g: 1, b: 1 },
+    Qt: { rgba: function (r, g, b, a) { return { r: r, g: g, b: b, a: a }; } }
+  });
+  check("footer key hints sit at alpha 0.45", footer.a === 0.45, String(footer.a));
+
+  check("section heads sit at alpha 0.62",
+        evalExpr(ROW_SECTION_HEAD_OPACITY, { rowItem: { sectionHeader: true } }) === 0.62,
+        String(evalExpr(ROW_SECTION_HEAD_OPACITY, { rowItem: { sectionHeader: true } })));
+
+  const trackWidth = evalExpr(SWITCH_TRACK_WIDTH, { Style: style });
+  const trackHeight = evalExpr(SWITCH_TRACK_HEIGHT, { Style: style });
+  check("the switch track is Style.space(24) x Style.space(13)",
+        trackWidth === 24 && trackHeight === 13,
+        trackWidth + " x " + trackHeight);
+  }
 }
 
 // --------------------------------------------------------------- report
