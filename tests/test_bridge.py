@@ -341,6 +341,10 @@ for label, bad in (("line break", "a\nb"),
     check("a filter value with a %s is refused" % label,
           raised_by(lambda value=bad: B.quote_filter_value(value)),
           "MPDCommandError")
+# Only the framing characters are refused. A tab inside a quote is legal and a
+# file name may have one -- refusing it would make that file unplayable.
+check("a tab is not a line break", B.quote("a\tb"), '"a\tb"')
+check("a tab survives the filter quoting", B.quote_filter_value("a\tb"), "a\tb")
 
 print("=== a list search inside a filter keeps both conditions ===")
 # The panel narrows a nested list -- one artist, one genre -- and searches

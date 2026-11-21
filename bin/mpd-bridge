@@ -306,7 +306,7 @@ def error_text(exc: BaseException) -> str:
     return str(exc) or exc.__class__.__name__
 
 
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_LINE_CHARS = re.compile(r"[\x00\r\n]")
 
 
 def checked_text(value, what: str) -> str:
@@ -317,12 +317,17 @@ def checked_text(value, what: str) -> str:
     turn whatever follows into a separate command -- an MPD `file:` tag with a
     newline in it could send `clear` next. No caller may bypass this, so both
     quoting layers pass through here.
+
+    Only the three characters that break the framing are refused: NUL, CR and
+    LF. Everything else -- a tab, say -- is legal inside a quote and is passed
+    through, because refusing it would make a file with a tab in its name
+    unplayable for no reason the protocol gives.
     """
     text = str(value)
-    found = _CONTROL_CHARS.search(text)
+    found = _LINE_CHARS.search(text)
     if found:
         raise MPDCommandError(
-            "%s contains a control character (U+%04X), which MPD cannot carry "
+            "%s contains a line break or NUL (U+%04X), which MPD cannot carry "
             "on one command line" % (what, ord(found.group(0))))
     return text
 
