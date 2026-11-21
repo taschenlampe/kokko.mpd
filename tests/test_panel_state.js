@@ -3112,6 +3112,51 @@ group("case 18: a queue reload keeps the cursor on its row");
   }
 }
 
+// ---------------------------------------------------------------- case 35
+// A playlist can be called "3am mix". Digits are tab switches only while a field
+// is empty and was not asked for with `/` -- the save and rename prompts ask for
+// a *name*, so a leading digit has to land in the term there.
+{
+  group("case 35: a playlist named after a digit is typed, not swallowed");
+  const P = makePanel();
+  P.key(0, "1");                              // the queue tab
+  P.press("s");                               // its save prompt
+  check("the save prompt is up", P.root.promptMode === "save", P.root.promptMode);
+  P.type("3am mix");
+  check("the term carries the digit", P.root.promptText === "3am mix",
+        JSON.stringify(P.root.promptText));
+  check("... and no tab was switched underneath it", P.root.tab === "queue",
+        P.root.tab);
+
+  // The control: an empty search field that was *not* asked for with `/` still
+  // treats the digit as a tab key -- that behaviour is deliberate and stays.
+  const Q = makePanel();
+  Q.key(0, "2");                              // the search tab, its field up
+  const third = Q.root.tabForNumber("3");
+  Q.press("3");
+  check("an empty search field still lets a digit switch the tab",
+        Q.root.tab === third && Q.root.promptMode === "",
+        Q.root.tab + " (want " + third + ") / " + Q.root.promptMode);
+}
+
+// ---------------------------------------------------------------- case 36
+// The radio field's own hint promises "↓/↑ goes to the list". The handler knew
+// the search, category and filter prompts but not this one, so the key the hint
+// advertises did nothing.
+{
+  group("case 36: the radio field hands ↓ over to the list, as its hint says");
+  const P = makePanel();
+  P.key(0, "8");                              // the radio tab
+  P.root.openPrompt("radio", "", true, true);
+  check("the hint line still promises ↓/↑ for this field",
+        SRC.indexOf("↓/↑ goes to the list") >= 0, "the hint is gone from the source");
+  P.key(P.Qt.Key_Down, "");
+  check("↓ closes the field", P.root.promptMode === "", P.root.promptMode);
+  check("... and leaves the cursor on a row of the list",
+        P.root.sel === P.root.firstSelectable(0),
+        "sel=" + P.root.sel + " first=" + P.root.firstSelectable(0));
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {

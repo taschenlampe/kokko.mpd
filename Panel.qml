@@ -2749,7 +2749,8 @@ Panel {
       // The term stays, so `/` brings the field back where it was, and everything
       // the list offers (a, enter, i, j/k) works from here on.
       if ((root.promptMode === "search" || root.promptMode === "category"
-           || root.promptMode === "filter") && (key === Qt.Key_Down || key === Qt.Key_Up)) {
+           || root.promptMode === "filter" || root.promptMode === "radio")
+          && (key === Qt.Key_Down || key === Qt.Key_Up)) {
         var wasMode = root.promptMode
         var goLast = (key === Qt.Key_Up)
         var hadTerm = root.promptText.trim() !== ""
@@ -2959,7 +2960,7 @@ Panel {
     }
     if (text === "J") { root.moveRow(1); event.accepted = true; return }
     if (text === "K") { root.moveRow(-1); event.accepted = true; return }
-    if (text === "s" && root.frameMode !== "search") { root.openPrompt("save", "", true); event.accepted = true; return }
+    if (text === "s" && root.frameMode !== "search") { root.openPrompt("save", "", true, true); event.accepted = true; return }
     // The start screen's own reshuffle: the picks are random per load, so this just
     // asks again -- one key, and the section is different music.
     if (text === "r" && root.frameMode === "start") { root.loadFrame(); event.accepted = true; return }
@@ -2977,7 +2978,7 @@ Panel {
     if (text === "r" && root.frameMode === "playlists") {
       var row = root.rows[root.sel]
       root.promptTarget = row ? String(row.playlist || "") : ""
-      root.openPrompt("rename", root.promptTarget, true)
+      root.openPrompt("rename", root.promptTarget, true, true)
       event.accepted = true
       return
     }
