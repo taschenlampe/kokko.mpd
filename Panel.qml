@@ -146,6 +146,11 @@ Panel {
   property var detailRow: null
   property string detailTitle: ""
   property bool detailLoading: false
+  // Which details request is still wanted. The query answers later, and the
+  // user can close the overlay or leave the frame before it does -- an answer
+  // from that generation must not reopen it (with the tags of whichever row
+  // the cursor has moved on to).
+  property int detailGeneration: 0
 
   readonly property var frame: stack.length > 0 ? stack[stack.length - 1] : null
 
@@ -296,7 +301,7 @@ Panel {
     // file list where the settings belong, and the settings became unreachable.
     root.closePrompt()
     root.tab = String(name)
-    root.detailRow = null
+    root.closeDetails()
     root.sel = 0
     root.stack = [root.rootFrameFor(root.tab)]
     if (root.tab === "search") {
@@ -308,14 +313,14 @@ Panel {
   function pushFrame(nextFrame) {
     root.stack = root.stack.concat([nextFrame])
     root.sel = 0
-    root.detailRow = null
+    root.closeDetails()
   }
 
   function popFrame() {
     if (root.stack.length <= 1) return false
     root.stack = root.stack.slice(0, root.stack.length - 1)
     root.sel = 0
-    root.detailRow = null
+    root.closeDetails()
     return true
   }
 
@@ -523,7 +528,7 @@ Panel {
     var top = root.topFrame()
     if (top && String(top.mode) === "radioStations") {
       root.sel = 0
-      root.detailRow = null
+      root.closeDetails()
       root.stack = root.stack.slice(0, root.stack.length - 1).concat([nextFrame])
       return
     }
@@ -2102,7 +2107,7 @@ Panel {
             filter: [["artist", byArtist], ["album", albumName]] }
         ])
         root.sel = 0
-        root.detailRow = null
+        root.closeDetails()
         return
       }
       root.pushFrame({ mode: "find", title: albumName + " — tracks", sort: "track",
@@ -2375,10 +2380,18 @@ Panel {
     list.positionViewAtIndex(root.sel, ListView.Contain)
   }
 
+  // Closing the overlay is also what invalidates a request still in flight: its
+  // answer may only fill an overlay that is still wanted (see detailGeneration).
+  function closeDetails() {
+    root.detailGeneration = root.detailGeneration + 1
+    root.detailRow = null
+    root.detailLoading = false
+  }
+
   function showDetails() {
     var row = root.rows[root.sel]
     if (!row) return
-    if (root.detailRow !== null) { root.detailRow = null; return }
+    if (root.detailRow !== null) { root.closeDetails(); return }
     // A start row stands for a collection, not a song: its `file` is only the track
     // the cover came from, and that track's tags would answer a question nobody
     // asked. Say which way the details are, instead of showing the wrong ones.
@@ -2388,8 +2401,11 @@ Panel {
     }
     // A station is in nobody's library: there is nothing for MPD to look up, and
     // the row already carries everything the pane can say. So this needs no
-    // connection either.
+    // connection either -- and it invalidates any songinfo answer still in
+    // flight, which would otherwise paint another row's tags over it.
     if (row.type === "radioStation") {
+      root.detailGeneration = root.detailGeneration + 1
+      root.detailLoading = false
       root.detailTitle = root.stationTitle(row)
       root.detailRow = root.stationDetail(row)
       return
@@ -2397,9 +2413,13 @@ Panel {
     if (!root.up) return
     var uri = String(row.file || root.host.songFile || "")
     if (uri === "") return
+    var gen = ++root.detailGeneration
     root.detailLoading = true
     root.detailTitle = root.rowTitle(row)
     host.query("songinfo", { file: uri }, "detail", function(list, error) {
+      // The overlay was closed or the frame left while MPD was answering: this
+      // is no longer the row the user is looking at.
+      if (gen !== root.detailGeneration) return
       root.detailLoading = false
       if (error !== "") { root.setInfo(error); return }
       root.detailRow = list.length > 0 ? list[0] : null
@@ -2523,7 +2543,7 @@ Panel {
       var next = root.stack.slice(0, root.stack.length - 1)
       next.push(nextFrame)
       root.sel = 0
-      root.detailRow = null
+      root.closeDetails()
       root.stack = next
       return
     }
@@ -2551,7 +2571,7 @@ Panel {
                       title: trimmed === "" ? base : base + " · " + trimmed }
     if (top && String(top.mode) === "list" && top.search !== undefined) {
       root.sel = 0
-      root.detailRow = null
+      root.closeDetails()
       root.stack = root.stack.slice(0, root.stack.length - 1).concat([nextFrame])
       return
     }
@@ -2748,7 +2768,7 @@ Panel {
     // The details overlay owns it next.
     if (root.detailRow !== null) {
       if (key === Qt.Key_Escape || text === "i" || key === Qt.Key_Return || key === Qt.Key_Enter) {
-        root.detailRow = null
+        root.closeDetails()
         event.accepted = true
       }
       return
@@ -2761,7 +2781,7 @@ Panel {
       // In the order of what is on top: the details overlay, then a set filter,
       // then one frame back, then closing the panel. Closing the whole panel from
       // three levels deep is not what somebody pressing `esc` means.
-      if (root.detailRow !== null) { root.detailRow = null; event.accepted = true; return }
+      if (root.detailRow !== null) { root.closeDetails(); event.accepted = true; return }
       if (root.filterText !== "") {
         root.filterText = ""
         root.refreshFilteredRows()

@@ -185,7 +185,7 @@ const FUNCTIONS = [
   "isStream", "radioFrame", "radioRowsFor", "radioCountries", "radioGenres",
   "dedupeStations", "stationTitle", "stationSub", "applyRadioSearch",
   "stationRow", "stationDetail", "streamPlaying", "openRadioLevel", "showDetails",
-  "detailPairs", "labelFor"
+  "closeDetails", "detailPairs", "labelFor"
 ];
 
 const MISSING = [];
@@ -298,6 +298,7 @@ function makePanel(opts) {
     pendingSelect: "",
     pendingCenter: -1,
     loadGeneration: 0,
+    detailGeneration: 0,
     sentQueries: 0,
     answeredLoads: 0,
     staleAnswers: 0,
@@ -2735,6 +2736,43 @@ group("case 18: a queue reload keeps the cursor on its row");
           && P.calls.filter(function (c) { return c.indexOf("applySearch(") === 0; }).length === 0,
         "text=" + JSON.stringify(P.root.promptText)
           + " timer=" + P.timers.promptDebounce.running + " calls=" + P.calls.join(", "));
+}
+
+// ---------------------------------------------------------------- case 28
+// The songinfo answer belongs to the row that asked for it. Every other query
+// carries a generation and drops an answer from a view the user has left; this
+// one did not, so closing the overlay (or switching tab) while MPD was still
+// answering made it reappear a moment later -- possibly with another track's
+// tags, because the cursor had moved on.
+{
+  group("case 28: a stale songinfo answer cannot reopen the details");
+  const P = makePanel();
+  P.root.rows = [{ type: "file", file: "a/01.mp3", title: "One" }];
+  P.root.sel = 0;
+  P.root.showDetails();
+  check("the details are asked for", P.queries.length === 1
+        && P.queries[0].kind === "songinfo" && P.queries[0].channel === "detail",
+        P.queries.map(function (q) { return q.kind; }).join(","));
+  check("the overlay says it is loading", P.root.detailLoading === true,
+        String(P.root.detailLoading));
+
+  P.root.setTab("albums");                     // the user moves on
+  P.answer([{ file: "a/01.mp3", title: "One", artist: "A" }]);
+  check("the answer to the left view opens nothing", P.root.detailRow === null,
+        JSON.stringify(P.root.detailRow));
+  check("... and does not leave the overlay loading", P.root.detailLoading === false,
+        String(P.root.detailLoading));
+
+  // Control: an answer that still belongs to the open view does open it.
+  const Q = makePanel();
+  Q.root.rows = [{ type: "file", file: "b/02.mp3", title: "Two" }];
+  Q.root.sel = 0;
+  Q.root.showDetails();
+  Q.answer([{ file: "b/02.mp3", title: "Two", artist: "B" }]);
+  check("control: the row that is still on screen shows its tags",
+        Q.root.detailRow !== null && Q.root.detailRow.title === "Two"
+          && Q.root.detailLoading === false,
+        JSON.stringify(Q.root.detailRow));
 }
 
 // --------------------------------------------------------------- report
