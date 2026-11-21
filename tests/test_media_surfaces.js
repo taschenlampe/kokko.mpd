@@ -1412,6 +1412,56 @@ function caseBandHeadingLift() {
   ])
 }
 
+// --- 19: the wallpaper card is a card, not a window pane ---------------------
+// The card's own surface (0.86) and the pause dim (0.55) multiplied to ~0.47, and
+// while paused the window text behind the card read straight through it. Both
+// numbers are pinned here by running the shipped expressions: the surface has to
+// stay opaque enough to be a card over arbitrary windows, and the pause dim has
+// to be visible without turning the card into a ghost. The 220 ms fade and the
+// `dimWhenPaused` switch are part of the contract and are checked as well.
+function caseCardSurfaceAndDim() {
+  const surface = propIn(src.card, "frame", "color", "cardSurface")
+  const dim = exprAt(src.card, /\n  opacity:/, "pauseDim")
+  const Util = { alpha: function (c, a) { return { color: c, alpha: a } } }
+  const Color = { background: "background" }
+  const surfaceValue = evalPiece(surface, "expr", ["Util", "Color"],
+    [Util, Color], "cardSurface")
+  const surfaceAlpha = surfaceValue && typeof surfaceValue === "object"
+    ? surfaceValue.alpha : surfaceValue
+
+  function dimFor(dimWhenPaused, playing) {
+    return evalPiece(dim, "expr", ["dimWhenPaused", "playing"],
+      [dimWhenPaused, playing], "pauseDim")
+  }
+  const paused = dimFor(true, false)
+  const playing = dimFor(true, true)
+  const undimmed = dimFor(false, false)
+  const switchKept = /property bool dimWhenPaused:\s*true/.test(src.card)
+  const fadeKept = /Behavior on opacity\s*\{\s*NumberAnimation\s*\{\s*duration:\s*220\s*\}\s*\}/.test(src.card)
+  const effective = typeof surfaceAlpha === "number" && typeof paused === "number"
+    ? surfaceAlpha * paused : null
+
+  const ok = surface !== null && surfaceAlpha === 0.94
+    && dim !== null && paused === 0.72 && playing === 1.0 && undimmed === 1.0
+    && switchKept && fadeKept
+
+  report("19", "the wallpaper card keeps its surface while paused", ok, [
+    "surface " + (surface ? "line " + surface.first + " sha256:" + surface.hash
+      + "  " + JSON.stringify(surface.body.trim()) : "absent")
+      + " -> alpha " + JSON.stringify(surfaceAlpha) + " (want 0.94)",
+    "pause dim " + (dim ? "line " + dim.first + " sha256:" + dim.hash
+      + "  " + JSON.stringify(dim.body.trim()) : "absent"),
+    "  paused -> " + JSON.stringify(paused) + " (want 0.72), playing -> "
+      + JSON.stringify(playing) + ", switch off -> " + JSON.stringify(undimmed),
+    "  surface x dim while paused -> " + JSON.stringify(effective)
+      + " (was 0.86 x 0.55 = 0.473)",
+    "220 ms Behavior on opacity kept: " + fadeKept + ", dimWhenPaused default true: "
+      + switchKept,
+    "expected: a 0.94 surface and a 0.72 pause dim -- dimmed on purpose, still a card"
+      + " over arbitrary windows rather than a pane the window text reads through"
+  ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -1430,6 +1480,7 @@ caseArtMapCap()
 caseOsdTitle()
 caseFormatOwnProperties()
 caseBandHeadingLift()
+caseCardSurfaceAndDim()
 
 console.log(failures === 0
   ? "all media-surface checks passed"

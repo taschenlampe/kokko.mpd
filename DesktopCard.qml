@@ -83,8 +83,10 @@ Item {
   property real dragFrac: -1
   readonly property real displayFrac: (dragging && dragFrac >= 0) ? dragFrac : progress
 
-  // Taken back while paused, not hidden: the card stays readable.
-  opacity: (dimWhenPaused && !playing) ? 0.55 : 1.0
+  // Taken back while paused, not hidden: the card stays readable. 0.72 rather
+  // than 0.55 because it multiplies with the 0.94 surface below -- two fades
+  // stacked were a ghost the window text read through.
+  opacity: (dimWhenPaused && !playing) ? 0.72 : 1.0
   Behavior on opacity { NumberAnimation { duration: 220 } }
 
   implicitWidth: cardWidth
@@ -94,7 +96,10 @@ Item {
     id: frame
     anchors.fill: parent
     radius: card.cardRadius
-    color: Util.alpha(Color.background, 0.86)
+    // 0.94, not a wallpaper weight: this is a card floating over arbitrary
+    // windows, not a surface painted into the wallpaper, so it has to stay
+    // opaque enough that their text does not read through it.
+    color: Util.alpha(Color.background, 0.94)
     borderSpec: Border.flat(card.lineColor, Style.normalBorderWidth)
 
     ColumnLayout {
