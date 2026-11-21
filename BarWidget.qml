@@ -1666,58 +1666,76 @@ Panel {
   // the widget access to it (panelLoaders holds only the built-in panels,
   // panelEntries only our manifest entry). This way the surface has the state
   // because the same object owns both.
+  //
+  // The switch from the settings tab creates or destroys the window instead of
+  // switching it invisible: a PanelWindow with `visible: false` stays mapped, and
+  // a mapped layer surface that never drew a buffer is enough to block screencopy
+  // (grim hung until timeout) -- and the orphan surface survives a shell restart.
+  // The OSD and the hover card above are built through a Loader for the same
+  // reason; off means there is no window at all.
   Variants {
     model: Quickshell.screens
     delegate: Component {
-      PanelWindow {
+      Loader {
         required property var modelData
-        screen: modelData
-        // The switch from the settings tab: off means there is no surface at
-        // all, not merely an invisible one.
-        visible: root.desktopWidget
-        color: "transparent"
-        // Position from the settings. For "center" every edge stays unanchored
-        // on purpose: the layer shell then centres it by itself.
-        anchors {
-          top: root.dcTop
-          bottom: root.dcBottom
-          left: root.dcLeft
-          right: root.dcRight
-        }
-        margins {
-          top: root.dcMargin
-          bottom: root.dcMargin
-          left: root.dcMargin
-          right: root.dcMargin
-        }
-        exclusiveZone: 0
+        active: root.desktopWidget
+        sourceComponent: desktopCardWindow
+        onLoaded: item.modelData = modelData
+      }
+    }
+  }
 
-        // Input region: by default the surface takes NO clicks, so it never
-        // steals one meant for the desktop or a window. The mask returns exactly
-        // the card's rectangle and nothing else, which keeps the card usable
-        // without a setting that could silence it.
-        mask: Region {
-          id: inputMask
-          x: 0
-          y: 0
-          width: desktopCard.width
-          height: desktopCard.height
-        }
+  Component {
+    id: desktopCardWindow
 
-        WlrLayershell.namespace: "kokko-mpd-desktop"
-        // Bottom: the card lies on the wallpaper, under every window. The
-        // setting may lift it above them, for fullscreen video for instance.
-        WlrLayershell.layer: root.desktopLayer === "above" ? WlrLayer.Top : WlrLayer.Bottom
-        implicitWidth: desktopCard.implicitWidth
-        implicitHeight: desktopCard.implicitHeight
+    PanelWindow {
+      // The screen comes from the Variants delegate through the Loader's
+      // onLoaded; `screen` would otherwise bind to a name this component cannot
+      // see.
+      property var modelData: null
+      screen: modelData
+      color: "transparent"
+      // Position from the settings. For "center" every edge stays unanchored
+      // on purpose: the layer shell then centres it by itself.
+      anchors {
+        top: root.dcTop
+        bottom: root.dcBottom
+        left: root.dcLeft
+        right: root.dcRight
+      }
+      margins {
+        top: root.dcMargin
+        bottom: root.dcMargin
+        left: root.dcMargin
+        right: root.dcMargin
+      }
+      exclusiveZone: 0
 
-        DesktopCard {
-          id: desktopCard
-          host: root
-          cardWidth: root.desktopSize === "mini" ? 200 : 300
-          showWave: root.desktopSize !== "mini"
-          dimWhenPaused: root.desktopDimOnPause
-        }
+      // Input region: by default the surface takes NO clicks, so it never
+      // steals one meant for the desktop or a window. The mask returns exactly
+      // the card's rectangle and nothing else, which keeps the card usable
+      // without a setting that could silence it.
+      mask: Region {
+        id: inputMask
+        x: 0
+        y: 0
+        width: desktopCard.width
+        height: desktopCard.height
+      }
+
+      WlrLayershell.namespace: "kokko-mpd-desktop"
+      // Bottom: the card lies on the wallpaper, under every window. The
+      // setting may lift it above them, for fullscreen video for instance.
+      WlrLayershell.layer: root.desktopLayer === "above" ? WlrLayer.Top : WlrLayer.Bottom
+      implicitWidth: desktopCard.implicitWidth
+      implicitHeight: desktopCard.implicitHeight
+
+      DesktopCard {
+        id: desktopCard
+        host: root
+        cardWidth: root.desktopSize === "mini" ? 200 : 300
+        showWave: root.desktopSize !== "mini"
+        dimWhenPaused: root.desktopDimOnPause
       }
     }
   }

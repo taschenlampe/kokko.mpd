@@ -63,6 +63,15 @@ const src = {
   band: fs.readFileSync(bandFile, "utf8")
 }
 
+// The widget itself (its surfaces live here: the OSD, the wallpaper card) and
+// the label's format language. Read lazily so a copy that holds only the three
+// sibling surfaces still runs every case that does not need them.
+function readBeside(name) {
+  try { return fs.readFileSync(path.join(root, name), "utf8") } catch (e) { return "" }
+}
+const barSrc = readBeside("BarWidget.qml")
+const formatSrc = readBeside("Format.js")
+
 // --- verbatim extraction ----------------------------------------------------
 function matchBraces(text, open) {
   let depth = 0
@@ -924,6 +933,67 @@ function caseBandStar() {
     ])
 }
 
+// --- 12: the wallpaper card exists only while the setting is on -------------
+// `visible: root.desktopWidget` left the PanelWindow mapped in a hidden state,
+// and a mapped layer surface that never draws is enough to block screencopy --
+// grim hangs until timeout -- and the orphan surface survives a shell restart.
+// The OSD and the hover card above already create their window through a Loader;
+// the wallpaper card has to do the same. This case asserts the presence rule (the
+// boolean that drives `active`), not a window: off means no window is built.
+function caseDesktopCardPresence() {
+  if (!barSrc) {
+    report("12", "the wallpaper card is created, not switched invisible", false,
+      ["BarWidget.qml not found beside the surfaces -- nothing to check"])
+    return
+  }
+  const m = /Variants\s*\{/.exec(barSrc)
+  let block = null
+  if (m) {
+    const open = barSrc.indexOf("{", m.index)
+    block = mkPiece(barSrc, open, matchBraces(barSrc, open) + 1, "desktopVariants")
+  }
+  const presence = blockAt(barSrc, /^  readonly property bool desktopWidget:/m, "desktopWidget")
+  const active = block ? exprAt(block.body, /\n\s*active:/, "desktopActive") : null
+  const stillVisible = block ? /\bvisible:\s*root\.desktopWidget/.test(block.body) : false
+  const loader = block ? /Loader\s*\{/.test(block.body) : false
+  const source = block ? /sourceComponent:\s*\w+/.test(block.body) : false
+
+  function presenceFor(v) {
+    if (!presence) return "<absent>"
+    try {
+      const f = new Function("setting", "return (function () " + presence.body + ")()")
+      return f(function (key, fallback) { return v === undefined ? fallback : v })
+    } catch (e) {
+      return "<error:" + e.message + ">"
+    }
+  }
+  function activeFor(v) {
+    if (!active) return "<absent>"
+    return evalPiece(active, "expr", ["root"], [{ desktopWidget: v }], "desktopActive")
+  }
+  const offRule = presenceFor(false)
+  const onRule = presenceFor(true)
+  const offActive = activeFor(false)
+  const onActive = activeFor(true)
+  const driven = !!active && /desktopWidget/.test(active.body)
+  const ok = !!block && loader && source && driven && !stillVisible
+    && offRule === false && onRule === true
+    && offActive === false && onActive === true
+
+  report("12", "the wallpaper card is created, not switched invisible", ok, [
+    "Variants block " + (block ? "lines " + block.first + "-" + block.last
+      + " sha256:" + block.hash : "absent"),
+    "  delegate is a Loader: " + loader + "   sourceComponent set: " + source,
+    "  window still switched with `visible: root.desktopWidget`: " + stillVisible,
+    "setting `desktopWidget` off/on -> " + JSON.stringify(offRule) + " / " + JSON.stringify(onRule),
+    "Loader `active:` " + (active ? "line " + active.first + " sha256:" + active.hash
+      + "  " + JSON.stringify(active.body.trim()) : "absent")
+      + "   off/on -> " + JSON.stringify(offActive) + " / " + JSON.stringify(onActive),
+    "expected: a Loader whose `active` is the setting's boolean, so off builds no"
+      + " window at all -- not a mapped window with `visible: false`"
+  ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -935,6 +1005,7 @@ caseCardHoverOwnership()
 caseCardAnchoredToStrip()
 caseCardStar()
 caseBandStar()
+caseDesktopCardPresence()
 
 console.log(failures === 0
   ? "all media-surface checks passed"
