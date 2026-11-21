@@ -1311,6 +1311,67 @@ function caseOsdTitle() {
   ])
 }
 
+// --- 17: the format language reads only the values it was given -------------
+// `_value` did `values[name]`, so `%constructor%` printed
+// "function Object() { [native code] }" and `%__proto__%` printed
+// "[object Object]": the prototype leaked into the label. Only own properties
+// are tags now; everything else is empty, and a real tag still renders.
+function caseFormatOwnProperties() {
+  if (!formatSrc) {
+    report("17", "the format language reads only its own values", false,
+      ["Format.js not found beside the surfaces -- nothing to check"])
+    return
+  }
+  let Format = null
+  try {
+    const source = formatSrc.replace(/^\s*\.pragma library\s*$/m, "")
+    Format = new Function(source
+      + "\nreturn { render: render, parse: parse, _value: _value }")()
+  } catch (e) {
+    report("17", "the format language reads only its own values", false,
+      ["Format.js did not evaluate: " + e.message])
+    return
+  }
+  const values = { artist: "Boards of Canada", title: "Dayvan Cowboy" }
+  // A null-prototype map for the results: `rendered["__proto__"] = …` on a plain
+  // object would set the prototype instead of an entry, hiding the very leak this
+  // case is about.
+  const rendered = Object.create(null)
+  for (const tag of ["constructor", "__proto__", "hasOwnProperty", "toString",
+                     "valueOf", "artist", "title"]) {
+    rendered[tag] = Format.render("%" + tag + "%", values)
+  }
+  const empty = ["constructor", "__proto__", "hasOwnProperty", "toString", "valueOf"]
+  const leaked = empty.filter(function (tag) { return rendered[tag] !== "" })
+  const ownTagWorks = rendered.artist === "Boards of Canada"
+    && rendered.title === "Dayvan Cowboy"
+  const direct = Format._value("constructor", values) === ""
+    && Format._value("__proto__", values) === ""
+    && Format._value("artist", values) === "Boards of Canada"
+  // A tag that is genuinely present but empty is still "not resolved": the
+  // bracket rule must keep dropping `[%album% - ]` for it.
+  const bracketed = Format.render("[%constructor% - ]%artist%", values)
+
+  const ok = leaked.length === 0 && ownTagWorks && direct
+    && bracketed === "Boards of Canada"
+
+  report("17", "the format language reads only its own values", ok, [
+    "prototype names rendered: " + empty.map(function (tag) {
+      return "%" + tag + "% -> " + JSON.stringify(rendered[tag])
+    }).join(", "),
+    "  anything leaked: " + (leaked.length ? leaked.join(", ") : "no"),
+    "own tags still render: %artist% -> " + JSON.stringify(rendered.artist)
+      + ", %title% -> " + JSON.stringify(rendered.title),
+    "_value direct: constructor -> " + JSON.stringify(Format._value("constructor", values))
+      + ", __proto__ -> " + JSON.stringify(Format._value("__proto__", values))
+      + ", artist -> " + JSON.stringify(Format._value("artist", values)),
+    "[%constructor% - ]%artist% -> " + JSON.stringify(bracketed)
+      + " (the unknown tag is empty, as a missing tag always was)",
+    "expected: only own properties of `values` are tags -- Object.prototype is not"
+      + " part of the format language"
+  ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -1327,6 +1388,7 @@ caseFavoritesEpoch()
 caseCardBarPosition()
 caseArtMapCap()
 caseOsdTitle()
+caseFormatOwnProperties()
 
 console.log(failures === 0
   ? "all media-surface checks passed"
