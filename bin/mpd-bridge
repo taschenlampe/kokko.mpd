@@ -530,7 +530,10 @@ class MPDConn:
                     continue
                 key, value = line.split(": ", 1)
                 if key == "binary":
-                    count = int(value)
+                    try:
+                        count = int(value)
+                    except ValueError:
+                        raise MPDError("malformed binary chunk length")
                     if count < 0 or count > ART_LIMIT:
                         raise MPDError("refusing a %d byte binary chunk" % count)
                     binary = self.read_bytes(count)

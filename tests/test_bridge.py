@@ -1051,6 +1051,33 @@ nosock = REAL_MPDConn(("tcp", "127.0.0.1", 6600))
 check("a write on a connection without a socket is a connection error",
       raised_by(lambda: nosock.send("status")), "MPDError")
 
+print("=== a malformed binary length is a protocol error, not a crash ===")
+# A proxy or a foreign server answering `binary: nope` used to raise ValueError
+# from int() inside the response reader. Nothing in the chain catches a
+# ValueError, so on the query worker the thread died mid-answer: the frame
+# waited forever and the socket stayed one answer behind, handing every later
+# query the previous answer's lines. It is a protocol error, and the command
+# path drops the socket like any other.
+bad = FakeConn(("tcp", "127.0.0.1", 6600), script=[b"binary: nope\n"])
+bad.connect()
+try:
+    check("a binary length that is not a number is a protocol error",
+          raised_by(bad.read_response), "MPDError")
+finally:
+    bad.close()
+
+factory, saved, bridge, events = connected_cmd([{"script": [b"binary: nope\n"]}])
+try:
+    check("... and a command reading one does not escape as ValueError",
+          raised_by(lambda: bridge.with_cmd(lambda conn: conn.command("status"))), "")
+    check("... the connection is dropped", bridge.cmd, None)
+    check("... its socket is closed", factory.made[0].sock, None)
+    check("... and the user hears a disconnected event",
+          [e.get("event") for e in events], ["disconnected"])
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
 # And a bridge whose worker is gone -- the state the drop above used to leave it
 # in for good. The next request has to start one rather than queue behind a
 # thread that will never look at the queue again.
