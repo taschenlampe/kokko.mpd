@@ -138,7 +138,8 @@ class FakeConn(B.MPDConn):
     """The real MPDConn on a fake transport: `connect()` dials nothing."""
 
     def __init__(self, target, password="", script=None, gate=None,
-                 connect_gate=None, block=False, wire=None, fail_send_at=None):
+                 connect_gate=None, block=False, wire=None, fail_send_at=None,
+                 connect_error=None):
         # The captured class, not B.MPDConn: that name is the factory by now.
         REAL_MPDConn.__init__(self, target, password)
         self.script = script
@@ -147,12 +148,15 @@ class FakeConn(B.MPDConn):
         self.block = block
         self.wire = wire if wire is not None else []
         self.fail_send_at = fail_send_at
+        self.connect_error = connect_error
         self.connecting = False
 
     def connect(self, timeout=None):
         self.connecting = True
         if self.connect_gate is not None:
             self.connect_gate.wait(3.0)  # a connect that is still in flight
+        if self.connect_error is not None:
+            raise self.connect_error
         self.sock = FakeSock(self.wire, self.target[1], self.fail_send_at)
         self.fh = FakeFile(self.script, self.gate, self.block)
         self.version = "0.23.5"
@@ -1144,6 +1148,83 @@ finally:
     for conn in factory.made:
         if conn.fh is not None:
             conn.fh.release.set()
+    stop_bridge(bridge)
+    manager.join(2.0)
+    B.MPDConn = saved
+
+print("=== a greeting that never arrives closes what was opened ===")
+# MPD accepting a connection and then saying nothing is the documented wedge.
+# `connect()` closed its handles only for a greeting it did not recognise; a
+# readline that timed out or hit a reset left the socket and its file object
+# open for good. The failure is re-raised unchanged -- this is about what is
+# left behind, not about what is reported.
+class GreetingFile:
+    def __init__(self, failure):
+        self.failure = failure
+        self.closed = False
+
+    def readline(self):
+        raise self.failure
+
+    def close(self):
+        self.closed = True
+
+
+class GreetingSock(FakeSock):
+    def __init__(self, failure):
+        FakeSock.__init__(self, [])
+        self.failure = failure
+        self.made_file = None
+
+    def makefile(self, mode):
+        self.made_file = GreetingFile(self.failure)
+        return self.made_file
+
+
+saved_create = B.socket.create_connection
+try:
+    for label, failure in (("a timeout", socket.timeout("timed out")),
+                           ("a reset", OSError(104, "Connection reset by peer"))):
+        fake = GreetingSock(failure)
+        B.socket.create_connection = lambda *args, **kwargs: fake
+        conn = REAL_MPDConn(("tcp", "127.0.0.1", 6600))
+        check("connect() surfaces %s" % label,
+              raised_by(conn.connect), type(failure).__name__)
+        check("... and closes the socket", fake.closed, True)
+        check("... and the file it opened", fake.made_file.closed, True)
+        check("... leaving no handles behind", (conn.sock, conn.fh), (None, None))
+finally:
+    B.socket.create_connection = saved_create
+
+print("=== a failed idle connect closes the command connection it already has ===")
+factory, saved = planted([
+    {},                                                       # command: comes up
+    {"connect_error": OSError(111, "Connection refused")},    # idle: does not
+])
+bridge = B.Bridge()
+bridge.request_art = lambda song: None
+events = []
+
+
+def stopped_on_disconnect(payload):
+    events.append(payload)
+    if payload.get("event") == "disconnected":
+        bridge.stop.set()
+        bridge.wake.set()
+
+
+bridge.emit = stopped_on_disconnect
+manager = threading.Thread(target=bridge.manager, daemon=True)
+manager.start()
+try:
+    check("the manager reached the idle connect",
+          wait_for(lambda: len(factory.made) >= 2), True)
+    manager.join(2.0)
+    check("... and left its loop", manager.is_alive(), False)
+    cmd_conn = factory.made[0]
+    check("the command connection it had opened is closed",
+          (cmd_conn.sock, cmd_conn.fh), (None, None))
+finally:
     stop_bridge(bridge)
     manager.join(2.0)
     B.MPDConn = saved

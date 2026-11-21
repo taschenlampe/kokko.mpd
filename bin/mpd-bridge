@@ -397,7 +397,15 @@ class MPDConn:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.sock = sock
         self.fh = sock.makefile("rb")
-        greeting = self.readline()
+        try:
+            greeting = self.readline()
+        except (MPDError, OSError):
+            # A server that accepts and then says nothing (the documented
+            # wedge) or a reset during the greeting used to leave the socket
+            # and its file object open. Close first, then re-raise what
+            # happened; the message does not change.
+            self.close()
+            raise
         if not greeting.startswith("OK MPD "):
             self.close()
             raise MPDError("unexpected greeting from server")
@@ -1746,6 +1754,8 @@ class Bridge:
             # new one.
             target, password = self.target, self.password
             self.wake.clear()
+            cmd = None
+            idle = None
             try:
                 cmd = MPDConn(target, password)
                 cmd.connect()
@@ -1757,6 +1767,13 @@ class Bridge:
                 # readline reports, and TCP keepalive backs that up.
                 idle.sock.settimeout(None)
             except (MPDError, OSError) as exc:
+                # Whatever came up before the failure is this round's, and
+                # leaving it to the finally below would leak it: the finally
+                # only knows the objects of a round that got that far.
+                if cmd is not None:
+                    cmd.close()
+                if idle is not None:
+                    idle.close()
                 if generation == self.generation:
                     self.emit({
                         "event": "disconnected",
