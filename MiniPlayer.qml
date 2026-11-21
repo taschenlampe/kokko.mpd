@@ -40,6 +40,13 @@ PanelWindow {
   // card starts a few px inside the strip.
   readonly property real barH: anchorItem
     ? (anchorItem.mapToItem(null, 0, 0).y + anchorItem.height) : 0
+  // The strip's own top edge. A bar at the bottom hangs the card from this edge
+  // instead of from barH, which is then the screen's bottom edge.
+  readonly property real barY: anchorItem ? anchorItem.mapToItem(null, 0, 0).y : 0
+  // Which edge the bar is on. Only "bottom" flips the card's hang; the layout
+  // inside the card does not move (the progress line stays above the transport),
+  // and a top bar keeps the surface top-anchored at exactly the same y as before.
+  readonly property bool barAtBottom: barPosition === "bottom"
   readonly property real barW: anchorWindow ? anchorWindow.width : 0
   readonly property real screenW: screen ? screen.width : 0
   // The bar is inset from the screen edge (a floating bar), and mapToItem gives
@@ -59,11 +66,24 @@ PanelWindow {
   // Where the card ends up -- exposed so a test can prove it does not hop.
   readonly property real cardX: card.x
 
-  // ---- the surface: screen-wide, as tall as the card, top-anchored ----
+  // ---- the surface: screen-wide, as tall as the card, hung from the bar's edge ----
   visible: (open || card.opacity > 0) && hasTrack
   color: "transparent"
-  anchors { top: true; left: true; right: true }
-  implicitHeight: Math.ceil(barH + gap + card.height + Style.space(8))
+  // A top bar keeps the card below it, so the window starts at the screen's top
+  // edge. A bottom bar hangs the card above the strip: anchor the window to the
+  // bottom and let `card.y` place the card one gap above the strip's top edge.
+  anchors {
+    top: !barAtBottom
+    bottom: barAtBottom
+    left: true
+    right: true
+  }
+  // Top bar: strip + gap + card (+ breathing room below). Bottom bar: the window
+  // reaches from the card down to the screen's bottom edge, holding the strip
+  // inside it, so the card can sit above that edge.
+  implicitHeight: Math.ceil(barAtBottom
+    ? (screen ? screen.height - barY : 0) + gap + card.height + Style.space(8)
+    : barH + gap + card.height + Style.space(8))
   WlrLayershell.namespace: "kokko-mpd-card"
   WlrLayershell.layer: WlrLayer.Overlay
   WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
@@ -146,7 +166,10 @@ PanelWindow {
     x: Math.max(mini.gap,
          Math.min(mini.cardCenterX - width / 2,
                   Math.max(mini.gap, mini.width - width - mini.gap)))
-    y: mini.barH + mini.gap
+    // Under the bar with a top bar (its strip's bottom edge + gap); above the
+    // strip with a bottom bar, where the surface is bottom-anchored and this is
+    // the breathing room between the window's top and the card.
+    y: mini.barAtBottom ? Style.space(8) : mini.barH + mini.gap
     color: Util.alpha(Color.background, 0.98)
     radius: Style.cornerRadius
     border.width: Math.max(1, Style.normalBorderWidth)
