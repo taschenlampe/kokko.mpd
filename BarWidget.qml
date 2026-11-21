@@ -479,6 +479,11 @@ Panel {
       var id = Number(event.id)
       var entry = pending[id]
       delete pending[id]
+      // A request a newer one replaced on the same channel came back as
+      // `dropped`. The entry is forgotten like any other -- this answer is why
+      // it can be -- but its empty rows must not reach the callback: that would
+      // paint an empty list over the one the newer answer is about to fill.
+      if (event.dropped) return
       if (root.debugProtocol)
         console.warn("kokko.mpd: r#" + id + " " + String(event.kind || "")
           + " rows=" + ((event.rows || []).length) + " err=" + String(event.error || ""))

@@ -106,6 +106,17 @@ try {
   // expression, so it fails on the number even on a source without this property.
 }
 
+// The event handler (case 17): `handle` is the widget's whole bridge protocol.
+// Extracted verbatim like everything else. `pending` and `channelIds` are root
+// properties in QML; in a Function-constructor body a bare name resolves to the
+// global object, the same model cases 9 and 10 already use for their properties.
+let handlePiece = null
+try {
+  handlePiece = grab(/^  function handle\(/m, "handle")
+} catch (e) {
+  // Reported by case 17 as an absent handler instead of dying before the run.
+}
+
 console.log("BarWidget.qml under test: " + target)
 console.log("extracted verbatim:")
 for (const key of Object.keys(pieces)) {
@@ -118,6 +129,12 @@ if (stripActual) {
     + " sha256:" + stripActual.hash)
 } else {
   console.log("   " + "stripActual".padEnd(13) + " absent -- no width rule for the no-title case")
+}
+if (handlePiece) {
+  console.log("   " + handlePiece.what.padEnd(13) + " " + (handlePiece.first + "-" + handlePiece.last).padEnd(11)
+    + " sha256:" + handlePiece.hash)
+} else {
+  console.log("   " + "handle".padEnd(13) + " absent -- no event handler in this source")
 }
 
 // The stream display (case 12): the helpers that decide what a stream is shown
@@ -758,6 +775,65 @@ function caseLabelWidthSource() {
     ].concat(evalError ? ["eval error: " + evalError] : []))
 }
 
+// --- 17: a dropped answer is forgotten without being run --------------------
+// The bridge answers a request that a newer one on the same channel replaced
+// with `dropped: true` and no rows. The widget has to match it to its id -- it
+// is the only thing that deletes the entry -- but must not hand the empty rows
+// to the callback: that paints an empty list over the one the newer answer is
+// about to fill. A normal answer, for the control, still runs and cleans up.
+function caseDroppedResult() {
+  if (!handlePiece) {
+    report("17", "a dropped answer is forgotten without being run", false,
+      ["not found in " + target + ": function handle(line)",
+       "expected: the widget's event handler, which owns the `result` branch"])
+    return
+  }
+  const root = { debugProtocol: false }
+  const w = new Function("root", handlePiece.body + "\nreturn { handle: handle }")(root)
+
+  // In QML these are root properties; in the extracted body they are bare
+  // names, so the model puts the widget's dictionaries on the global object.
+  const calls = []
+  function cb(id) {
+    return function (rows, error) { calls.push({ id: id, rows: rows, error: error }) }
+  }
+  global.pending = {
+    5: { cb: cb(5), channel: "typed" },
+    6: { cb: cb(6), channel: "other" }
+  }
+  global.channelIds = { typed: 5, other: 6 }
+  const idsBefore = Object.keys(global.pending).sort().join(", ")
+
+  w.handle(JSON.stringify({ event: "result", id: 5, kind: "queue", channel: "typed",
+                            rows: [], dropped: true }))
+  const droppedGone = !Object.prototype.hasOwnProperty.call(global.pending, 5)
+  const droppedSilent = calls.length === 0
+  const channelKept = global.channelIds.typed === 5
+
+  // Control: a normal answer still runs its callback and clears the bookkeeping.
+  w.handle(JSON.stringify({ event: "result", id: 6, kind: "queue", channel: "other",
+                            rows: [{ file: "b.mp3" }] }))
+  const normalGone = !Object.prototype.hasOwnProperty.call(global.pending, 6)
+  const normalCalled = calls.length === 1 && calls[0].id === 6
+    && calls[0].rows.length === 1 && calls[0].error === ""
+  const channelCleared = !Object.prototype.hasOwnProperty.call(global.channelIds, "other")
+
+  delete global.pending
+  delete global.channelIds
+
+  report("17", "a dropped answer is forgotten without being run",
+    droppedGone && droppedSilent && channelKept
+      && normalGone && normalCalled && channelCleared,
+    ["pending before                  : ids " + idsBefore,
+     "result id 5, dropped:true       : entry deleted " + droppedGone
+       + ", callback called " + !droppedSilent + ", channelIds.typed kept " + channelKept,
+     "result id 6, normal (control)   : entry deleted " + normalGone
+       + ", callback with " + (calls[0] ? calls[0].rows.length : "no") + " row(s) "
+       + normalCalled + ", channelIds.other cleared " + channelCleared,
+     "expected: the dropped answer is matched and forgotten, and its empty rows",
+     "never reach a callback -- that would paint over the newer answer's list"])
+}
+
   caseArtCache()
   caseOsdTimers()
   caseStripReserve()
@@ -767,8 +843,9 @@ function caseLabelWidthSource() {
   caseStripAlignment()
   caseIndicatorWidth()
   caseLabelWidthSource()
+  caseDroppedResult()
 
   console.log(failures === 0
     ? "all state checks passed"
-    : failures + " of 9 state checks failed")
+    : failures + " of 10 state checks failed")
 process.exit(failures === 0 ? 0 : 1)
