@@ -1372,6 +1372,46 @@ function caseFormatOwnProperties() {
   ])
 }
 
+// --- 18: the band's title column hangs from the progress line ----------------
+// The lift under the heading has one reason: the progress line stands below the
+// column, so centring the column alone would centre it against the wrong pair.
+// With a stream (`seekable === false`) that line is not drawn, yet the offset
+// was applied regardless and the title/artist column sat too high -- the radio
+// case. Both states are run; the seekable one keeps its lift, the stream and the
+// thin look (whose progress sits in the transport row, not under the column)
+// must not lift at all.
+function caseBandHeadingLift() {
+  const piece = exprAt(src.band, /\n\s*verticalCenterOffset:/, "headingLift")
+  const lineH = 16
+  const gap = 3
+
+  function lift(seekable, oneLine) {
+    const band = { seekable: seekable, oneLine: oneLine === true }
+    const progress = { height: lineH }
+    const heading = { spacing: gap }
+    return evalPiece(piece, "expr", ["band", "progress", "heading"],
+      [band, progress, heading], "headingLift")
+  }
+
+  const wantLift = -(lineH + gap) / 2
+  const seekable = lift(true, false)
+  const stream = lift(false, false)
+  const thin = lift(false, true)
+  const ok = piece !== null && seekable === wantLift && stream === 0 && thin === 0
+
+  report("18", "the band's title column is lifted only over a progress line", ok, [
+    "verticalCenterOffset " + (piece ? "line " + piece.first + " sha256:" + piece.hash
+      + "  " + JSON.stringify(piece.body.replace(/\s+/g, " ").trim()) : "absent"),
+    "  a " + lineH + " px line with " + gap + " px between it and the column -> lift "
+      + wantLift,
+    "seekable track -> " + JSON.stringify(seekable) + " (want " + wantLift + ")",
+    "stream, no line -> " + JSON.stringify(stream) + " (want 0)",
+    "thin look      -> " + JSON.stringify(thin) + " (want 0)",
+    "expected: the lift follows the line -- none while a stream draws no progress,"
+      + " so the column is centred against itself instead of against a missing pair"
+  ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -1389,6 +1429,7 @@ caseCardBarPosition()
 caseArtMapCap()
 caseOsdTitle()
 caseFormatOwnProperties()
+caseBandHeadingLift()
 
 console.log(failures === 0
   ? "all media-surface checks passed"

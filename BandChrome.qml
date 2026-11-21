@@ -278,8 +278,11 @@ Item {
       rightMargin: Style.space(12)
       verticalCenter: parent.verticalCenter
       // The progress line hangs under this column, so the pair is centred by
-      // lifting the column by half of what the line adds.
-      verticalCenterOffset: band.oneLine ? 0 : -(progress.height + heading.spacing) / 2
+      // lifting the column by half of what the line adds. A stream draws no
+      // progress at all (BarWidget.seekable): without the line there is no pair,
+      // and the lift would centre the column against nothing.
+      verticalCenterOffset: band.oneLine || !band.seekable
+        ? 0 : -(progress.height + heading.spacing) / 2
     }
     spacing: Style.space(3)
 
