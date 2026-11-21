@@ -176,6 +176,9 @@ const FUNCTIONS = [
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "sameQueueAlbum", "rowRight",
   "albumQuietFor", "albumArtistFor", "trackNo", "centerOn",
   "mutateAndReload",
+  // The settings rows: -/+ on the row under the cursor. writeSetting and note
+  // stay stubs (the host boundary, and where the "at its limit" line is read).
+  "stepEnum", "stepSetting",
   "handleKey",
   // The tab ring: the digits and `tab` are two encodings of one order, and the
   // ring once held seven of the nine tabs.
@@ -259,6 +262,8 @@ function makePanel(opts) {
   const mutations = [];
   const flashes = [];
   const infos = [];
+  const notes = [];
+  const settingWrites = [];
   const calls = [];
 
   // MODELLED: model 2 in the header.
@@ -306,10 +311,13 @@ function makePanel(opts) {
     // gives the fake host those keys, so a test can switch a section off.
     startGenrePool: START_SIZES.startGenrePool,
     settingRows: settingRows,
-    note: function () {},
+    note: function (t) { notes.push(String(t)); },
     flash: function (t) { flashes.push(String(t)); },
     setInfo: function (t) { infos.push(String(t)); root.infoText = String(t || ""); },
-    writeSetting: function () {},
+    // The host boundary under stepSetting/stepEnum: what the panel would write.
+    writeSetting: function (key, value, label) {
+      settingWrites.push({ key: String(key), value: value, title: String(label || "") });
+    },
     stepEnum: function () {},
     stepSetting: function () {},
     runLibraryAction: function () {},
@@ -535,6 +543,7 @@ function makePanel(opts) {
   return {
     root: root, host: host, Qt: Qt, timers: timers, settingRows: settingRows,
     queries: queries, mutations: mutations, flashes: flashes, infos: infos,
+    notes: notes, settingWrites: settingWrites,
     calls: calls,
     key: function (keyCode, text) {
       const e = event(keyCode, text === undefined ? "" : text);
@@ -2691,6 +2700,56 @@ group("case 18: a queue reload keeps the cursor on its row");
   check("... and a mid-word group hit names the word",
         P.root.groupNote({ match: "title", pos: 2, inword: "Sabbath" }, "artist"),
         "inside “Sabbath”");
+}
+
+// ---------------------------------------------------------------- case 27
+// The settings rows are edited by the keyboard: -/+ on the row under the cursor
+// goes through stepSetting(), which keeps a number inside its min/max, and hands
+// an enum to stepEnum(), which wraps at the end of its list. Neither was driven
+// by this suite, so neither the clamp nor the "at its limit" line was covered.
+{
+  group("case 27: a settings row clamps its number and wraps its list");
+  const ROWS = [
+    { type: "header", title: "In the player" },
+    { type: "setting", kind: "int", key: "backdrop", title: "Backdrop",
+      min: 0, max: 100, step: 10, value: 95 },
+    { type: "setting", kind: "enum", key: "coverLook", title: "Cover look",
+      value: "split",
+      options: ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split"] }
+  ];
+  const P = makePanel({ settingRows: ROWS });
+  P.key(0, "9");
+  check("the settings tab stands on its first editable row",
+        P.root.frameMode === "settings" && P.root.sel === 1,
+        P.root.frameMode + " sel=" + P.root.sel);
+
+  // 95 + 10 is 105, and the row's max is 100: the value written is the max, not
+  // the sum.
+  P.press("+");
+  check("a step past the max writes the max",
+        P.settingWrites.length === 1 && P.settingWrites[0].key === "backdrop"
+          && P.settingWrites[0].value === 100,
+        JSON.stringify(P.settingWrites));
+
+  // MODELLED: the widget stored the value and settingRows re-read it from the
+  // host, the way the panel's binding re-evaluates -- the test's rows are static.
+  ROWS[1].value = 100;
+  P.settingWrites.length = 0;
+  P.notes.length = 0;
+  P.press("+");
+  check("at the max, a further step writes nothing",
+        P.settingWrites.length === 0, JSON.stringify(P.settingWrites));
+  check("... and says the row is at its limit",
+        P.notes.join(" | ") === "setting backdrop is at its limit",
+        JSON.stringify(P.notes));
+
+  P.settingWrites.length = 0;
+  P.root.sel = 2;
+  P.press("+");
+  check("an enum at its last option wraps to the first",
+        P.settingWrites.length === 1 && P.settingWrites[0].key === "coverLook"
+          && P.settingWrites[0].value === "classic",
+        JSON.stringify(P.settingWrites));
 }
 
 // --------------------------------------------------------------- report
