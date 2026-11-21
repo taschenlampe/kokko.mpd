@@ -171,6 +171,17 @@ function blockAt(text, re, what) {
   return mkPiece(text, open, matchBraces(text, open) + 1, what)
 }
 
+// A whole declaration: from the anchor (the `function` keyword) through its
+// closing brace. `blockAt` starts at the brace and would leave the signature
+// behind, which turns the body into a block that runs where it stands.
+function declAt(text, re, what) {
+  const m = re.exec(text)
+  if (!m) return null
+  const open = text.indexOf("{", m.index)
+  if (open < 0) return null
+  return mkPiece(text, m.index, matchBraces(text, open) + 1, what)
+}
+
 // The block whose opening `{` stands before a match -- the item that encloses
 // the anchored line. This is how an *anonymous* item (a MouseArea with only
 // `acceptedButtons: ...`) is pulled out: there is no id to name it by.
@@ -994,6 +1005,91 @@ function caseDesktopCardPresence() {
   ])
 }
 
+// --- 13: a favourites answer that was already in flight cannot undo a toggle --
+// A query sent before a local write can land after it. Assigning its `favSet`
+// unconditionally restored the playlist from before the write, so the star the
+// user just set flipped back for the ~600 ms until the timer's reload arrived.
+// Every local write bumps an epoch; a favourites answer carries the epoch it was
+// asked under and is dropped when a newer local write has happened since. The
+// control is the other half: an answer with the current epoch still wins.
+function caseFavoritesEpoch() {
+  if (!barSrc) {
+    report("13", "an in-flight favourites answer cannot undo a toggle", false,
+      ["BarWidget.qml not found beside the surfaces -- nothing to check"])
+    return
+  }
+  const load = declAt(barSrc, /^  function loadFavorites\(/m, "loadFavorites")
+  const toggle = declAt(barSrc, /^  function toggleFavorite\(/m, "toggleFavorite")
+  if (!load || !toggle) {
+    report("13", "an in-flight favourites answer cannot undo a toggle", false,
+      ["not found in BarWidget.qml: " + (!load ? "loadFavorites" : "toggleFavorite")])
+    return
+  }
+  const build = new Function("root", "favTimer",
+    // In the widget these are the root's properties; the extracted functions use
+    // them as bare names, the way QML resolves an id.
+    "var connected = root.connected\n"
+    + load.body + "\n\n" + toggle.body + "\n\n"
+    + "return { loadFavorites: loadFavorites, toggleFavorite: toggleFavorite }")
+  const uri = "Music/Boards of Canada/Dayvan.mp3"
+
+  function widget() {
+    const pending = []
+    const root = {
+      connected: true, songFile: uri, favSet: {}, favEpoch: 0,
+      isFavorite: function (key) { return root.favSet[key] === true },
+      mutation: function () {},
+      query: function (kind, args, channel, cb) { pending.push({ kind: kind, cb: cb }) }
+    }
+    return { root: root, pending: pending,
+             w: build(root, { restart: function () {} }) }
+  }
+
+  // The race: ask, toggle, then deliver the answer asked before the toggle.
+  const a = widget()
+  a.w.loadFavorites()
+  const asked = a.pending.length
+  a.w.toggleFavorite()
+  const afterToggle = a.root.favSet[uri] === true
+  const epochAfterWrite = a.root.favEpoch
+  if (a.pending[0]) a.pending[0].cb([], "")
+  const afterOldAnswer = a.root.favSet[uri] === true
+
+  // The control: a fresh load after the write is the current answer and applies.
+  a.w.loadFavorites()
+  if (a.pending[1]) a.pending[1].cb([], "")
+  const afterNewAnswer = a.root.favSet[uri] === true
+
+  // And an answer asked after the write can star the track again.
+  const b = widget()
+  b.w.toggleFavorite()
+  b.root.favSet = {}
+  b.root.favEpoch++          // a later local write, so the old demand is moot
+  b.w.loadFavorites()
+  if (b.pending[0]) b.pending[0].cb([{ file: uri }], "")
+  const starredByNewAnswer = b.root.favSet[uri] === true
+
+  const readsEpoch = /favEpoch/.test(load.body) && /favEpoch/.test(toggle.body)
+  const ok = asked === 1 && afterToggle === true && epochAfterWrite > 0
+    && afterOldAnswer === true && afterNewAnswer === false
+    && starredByNewAnswer === true && readsEpoch
+
+  report("13", "an in-flight favourites answer cannot undo a toggle", ok, [
+    "loadFavorites " + (load ? "lines " + load.first + "-" + load.last
+      + " sha256:" + load.hash : "absent")
+      + "   reads the epoch: " + (load ? /favEpoch/.test(load.body) : false),
+    "toggleFavorite  " + (toggle ? "lines " + toggle.first + "-" + toggle.last
+      + " sha256:" + toggle.hash : "absent")
+      + "   bumps the epoch: " + (toggle ? /favEpoch/.test(toggle.body) : false),
+    "asked, then toggled: star on " + afterToggle + ", epoch " + epochAfterWrite,
+    "  old answer delivered -> star still on: " + afterOldAnswer + " (want true)",
+    "  new answer delivered -> star now off: " + !afterNewAnswer + " (the newer answer wins)",
+    "  an answer asked after a write can still star: " + starredByNewAnswer,
+    "expected: the epoch is bumped on every local write, an answer carrying an older"
+      + " epoch is dropped, and an answer carrying the current one still applies"
+  ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -1006,6 +1102,7 @@ caseCardAnchoredToStrip()
 caseCardStar()
 caseBandStar()
 caseDesktopCardPresence()
+caseFavoritesEpoch()
 
 console.log(failures === 0
   ? "all media-surface checks passed"

@@ -196,6 +196,12 @@ Panel {
   // panel asks it instead of keeping a second copy that could disagree with a
   // star just toggled on a card.
   property var favSet: ({})
+  // Every local write bumps this. A favourites query answers a question asked
+  // before the write: assigning its set would restore the playlist from before
+  // the star the user just set, and the glyph would flip back for the ~600 ms
+  // until the timer's reload. An answer carries the epoch it was asked under and
+  // is dropped once a newer local write has happened.
+  property int favEpoch: 0
   // The star on the playing track. A copy of the set is assigned on every answer
   // and every toggle, because a var property only notifies when it is assigned --
   // an edit in place would leave the glyph where it was.
@@ -1079,8 +1085,12 @@ Panel {
   // playlist from before the write, and that is a star which vanishes again.
   function loadFavorites() {
     if (!connected) return
+    var epoch = root.favEpoch
     root.query("favorites", {}, "favorites", function(rows, error) {
       if (error !== "") return
+      // Asked before a local write: that answer is a memory of the playlist, not
+      // the playlist. Dropping it is what keeps the star the user just set.
+      if (epoch !== root.favEpoch) return
       var next = ({})
       for (var i = 0; i < (rows || []).length; i++) {
         var uri = String((rows[i] || {}).file || "")
@@ -1103,6 +1113,9 @@ Panel {
     if (!connected || key === "") return null
     var on = !root.isFavorite(key)
     root.mutation("favorite", { uri: key, on: on })
+    // A local write: every favourites answer asked before this point is a memory
+    // of the playlist now and must not overwrite what the user just set.
+    root.favEpoch++
     // Optimistic: the glyph answers now, the reload below confirms it.
     var next = ({})
     for (var k in root.favSet) next[k] = root.favSet[k]
@@ -1114,6 +1127,9 @@ Panel {
 
   onConnectedChanged: {
     // A set from the last connection would claim stars this server may not have.
+    // A new connection also makes every answer still in flight from the old one
+    // a memory: bump first, so its answer is dropped when it lands.
+    root.favEpoch++
     if (connected) root.loadFavorites()
     else root.favSet = ({})
   }
