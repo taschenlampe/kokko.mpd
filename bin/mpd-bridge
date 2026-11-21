@@ -124,6 +124,11 @@ ART_CHUNK = 256 * 1024
 
 CMD_TIMEOUT = 10.0
 CONNECT_TIMEOUT = 5.0
+# A round that comes up and dies sooner than this did not stand up. A flapping
+# server -- one that closes right after the greeting, or answers `idle` with an
+# ACK -- would otherwise be redialled in a tight loop. Only a round that lived
+# past this resets the wait.
+MIN_ROUND_ALIVE = 5.0
 
 # MPD closes an idle *command* connection after `connection_timeout`, 60 seconds
 # by default (this plugin's own mpd.conf sets none). A write to a peer that has
@@ -1787,7 +1792,9 @@ class Bridge:
                 backoff = 1.0 if generation != self.generation else min(15.0, backoff * 2)
                 continue
 
-            backoff = 1.0
+            # The connection came up; how long it lives decides whether this
+            # round counts as a failed attempt (see MIN_ROUND_ALIVE).
+            alive_since = time.monotonic()
             # The settings changed while this round was connecting, so what came
             # up belongs to the old address. Drop it unannounced and let the next
             # round build the connection that was actually asked for; the finally
@@ -1839,6 +1846,20 @@ class Bridge:
                 # drop() only announces a connection it still believed in.
                 if generation == self.generation:
                     self.drop(reason)
+                    # A round that was up for less than MIN_ROUND_ALIVE is a
+                    # failed attempt, even though its connect succeeded: grow
+                    # the pause across rounds instead of redialling at once.
+                    # Only a round that stood up resets it.
+                    if time.monotonic() - alive_since < MIN_ROUND_ALIVE:
+                        backoff = min(15.0, backoff * 2)
+                        if not self.stop.is_set():
+                            self.wake.wait(backoff)
+                    else:
+                        backoff = 1.0
+                else:
+                    # New settings get a fresh try, not the patience earned by
+                    # the address the user just left.
+                    backoff = 1.0
 
     # ----------------------------------------------------------- commands
 

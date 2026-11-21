@@ -1286,6 +1286,89 @@ finally:
         second.join(2.0)
     stop_bridge(bridge)
 
+print("=== a flapping server is not redialled in a tight loop ===")
+# The backoff only grew on a failed connect. A connection that came up and died
+# at once -- the server closes after the greeting, or answers `idle` with an
+# ACK -- was retried with no pause at all. A round that lives less than a few
+# seconds now counts as failed and the wait grows across rounds; a round that
+# stood up resets it to the first step.
+class RecordingWake:
+    """The manager's wake event, with the waits written down instead of slept."""
+
+    def __init__(self):
+        self.waits = []
+        self.flag = False
+
+    def clear(self):
+        self.flag = False
+
+    def set(self):
+        self.flag = True
+
+    def is_set(self):
+        return self.flag
+
+    def wait(self, seconds):
+        self.waits.append(seconds)
+        return self.flag
+
+
+gate = threading.Event()
+factory, saved = planted([
+    {}, {"script": [RESET]},                          # short: dies at once
+    {}, {"script": [RESET], "gate": gate},            # this one stands up
+    {}, {"script": [RESET]},                          # short again
+    {}, {"script": [RESET]},                          # and once more
+])
+bridge = B.Bridge()
+wake = RecordingWake()
+bridge.wake = wake
+bridge.request_art = lambda song: None
+drops = []
+
+
+def stop_after_fourth(payload):
+    if payload.get("event") == "disconnected":
+        drops.append(payload)
+        if len(drops) >= 4:
+            bridge.stop.set()
+            wake.set()
+
+
+bridge.emit = stop_after_fourth
+saved_min = getattr(B, "MIN_ROUND_ALIVE", None)
+B.MIN_ROUND_ALIVE = 0.05          # a round that lasts 50 ms has stood up
+manager = threading.Thread(target=bridge.manager, daemon=True)
+manager.start()
+try:
+    check("the first short round waits before the next",
+          wait_for(lambda: len(wake.waits) >= 1, 1.5), True)
+    check("... with a grown backoff", wake.waits[:1], [2.0])
+    check("the second round stood up before it died",
+          wait_for(lambda: len(factory.made) >= 4
+                   and factory.made[3].fh is not None
+                   and factory.made[3].fh.entered.is_set(), 3.0), True)
+    time.sleep(0.12)
+    gate.set()
+    check("... so the third short round waits from the reset",
+          wait_for(lambda: len(wake.waits) >= 2, 3.0), True)
+    check("... at the first step again, not the second",
+          wake.waits[:2], [2.0, 2.0])
+    manager.join(3.0)
+    check("... and the manager left its loop", manager.is_alive(), False)
+finally:
+    gate.set()
+    if saved_min is None:
+        try:
+            del B.MIN_ROUND_ALIVE
+        except AttributeError:
+            pass
+    else:
+        B.MIN_ROUND_ALIVE = saved_min
+    stop_bridge(bridge)
+    manager.join(2.0)
+    B.MPDConn = saved
+
 print("=== art cache: finished covers only, and one temp name per writer ===")
 # Two defects in the same few lines. (1) `cached_art` matched every name that
 # starts with the key, `.part` files included -- with a finished cover and a
