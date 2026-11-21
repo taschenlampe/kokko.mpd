@@ -1229,6 +1229,63 @@ finally:
     manager.join(2.0)
     B.MPDConn = saved
 
+print("=== a refresh asked for during the last check is not lost ===")
+# The "is anything pending" check and the finally that cleared the flag were
+# two separate critical sections. A caller setting the flag between them had
+# its request wiped by the finally: nothing refreshed, and the bar kept the
+# state from before the event. The lock hook below holds the moment open, so
+# the second caller lands exactly in that window.
+bridge = B.Bridge()
+bridge.emit = lambda payload: None
+reads = []
+
+
+def counting_refresh_once():
+    reads.append(1)
+
+
+bridge.refresh_once = counting_refresh_once
+real_lock = threading.Lock()
+last_check_released = threading.Event()
+resume = threading.Event()
+
+
+class CheckLock:
+    def __enter__(self):
+        real_lock.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        real_lock.release()
+        # The first read has finished and left its last check, but the loop
+        # has not returned yet: the window the old code lost a request in.
+        if len(reads) == 1 and not last_check_released.is_set():
+            last_check_released.set()
+            resume.wait(2.0)
+        return False
+
+
+bridge.refresh_lock = CheckLock()
+first = threading.Thread(target=bridge.refresh, daemon=True)
+first.start()
+second = None
+try:
+    check("the first read reached its last check",
+          wait_for(last_check_released.is_set), True)
+    second = threading.Thread(target=bridge.refresh, daemon=True)
+    second.start()
+    second.join(2.0)
+    check("the second caller did not block", second.is_alive(), False)
+    resume.set()
+    first.join(2.0)
+    check("... and its request is read too", len(reads), 2)
+finally:
+    resume.set()
+    first.join(2.0)
+    if second is not None:
+        second.join(2.0)
+    stop_bridge(bridge)
+
 print("=== art cache: finished covers only, and one temp name per writer ===")
 # Two defects in the same few lines. (1) `cached_art` matched every name that
 # starts with the key, `.part` files included -- with a finished cover and a

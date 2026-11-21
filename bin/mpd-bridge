@@ -2016,18 +2016,29 @@ class Bridge:
                 self.refresh_again = True
                 return
             self.refreshing = True
+        mine = True
         try:
             while True:
                 self.refresh_once()
+                # Deciding to stop and saying so are one critical section. The
+                # old code returned from this check and cleared the flag in the
+                # finally, so a caller setting it between the two lost its
+                # request: nothing refreshed, and the bar kept the state from
+                # before the event.
                 with self.refresh_lock:
                     if not self.refresh_again:
+                        self.refreshing = False
+                        mine = False
                         return
                     self.refresh_again = False
                 time.sleep(REFRESH_MIN_GAP)
         finally:
             with self.refresh_lock:
-                self.refreshing = False
-                self.refresh_again = False
+                # Only clean up after ourselves. A caller may have started a
+                # new read the moment the check above released the lock, and
+                # clearing its flag here would strand it.
+                if mine:
+                    self.refreshing = False
 
     def refresh_once(self) -> None:
         def run(conn):
