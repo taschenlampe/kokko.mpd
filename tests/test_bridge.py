@@ -1048,6 +1048,105 @@ finally:
     B.MPDConn = saved
     stop_bridge(bridge)
 
+# --- a superseded request is answered, not thrown away -----------------------
+# The worker drops a request whose channel already carries a newer one: that is
+# what makes typing in the search box cost one query instead of one per key.
+# Dropped used to mean "no answer at all", and the shell keeps a request in
+# `pending` until a result for its id arrives -- so every superseded keystroke
+# stayed there, grew the dictionary for the whole session, and its callback
+# waited for a result that would never be produced. A dropped request is
+# answered with `dropped: true` and no rows; it is not an error.
+gate = threading.Event()
+factory, saved = planted([
+    {"script": [b"file: warm.mp3\n", b"OK\n",       # the lsinfo the worker is busy with
+                b"file: b.mp3\n", b"OK\n"],         # the request that survives on "typed"
+     "gate": gate},
+])
+bridge = B.Bridge()
+answers = []
+bridge.emit = answers.append
+try:
+    bridge.submit_query({"id": 100, "kind": "lsinfo", "channel": "warm"})
+    check("the worker is busy while the two requests queue behind it",
+          wait_for(lambda: bool(factory.made) and factory.made[0].fh is not None
+                   and factory.made[0].fh.entered.is_set()), True)
+    bridge.submit_query({"id": 101, "kind": "queue", "channel": "typed"})
+    bridge.submit_query({"id": 102, "kind": "queue", "channel": "typed"})
+    gate.set()
+    check("the request that replaced the other one is answered",
+          wait_for(lambda: any(a.get("id") == 102 for a in answers)), True)
+    by_id = {a.get("id"): a for a in answers if a.get("event") == "result"}
+    check("the superseded request has an answer of its own", 101 in by_id, True)
+    dropped = by_id.get(101, {})
+    check("a superseded request is answered with dropped, empty rows and no error",
+          [(dropped.get("dropped"), dropped.get("rows"), "error" in dropped,
+            dropped.get("kind"), dropped.get("channel"))],
+          [(True, [], False, "queue", "typed")])
+    check("a request with no successor on its channel is not marked dropped",
+          "dropped" in by_id.get(102, {}), False)
+    check("... and the superseded request never reached the wire",
+          sum(1 for line in factory.wire if line.startswith("playlistinfo")), 1)
+finally:
+    gate.set()
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+# A reconnect throws the waiting requests away for a different reason: the
+# connection they were for is gone. They are in the same position as a superseded
+# one -- the shell waits on their ids -- so they get the same dropped answer
+# before the list is cleared.
+gate = threading.Event()
+factory, saved = planted([
+    {"script": [b"file: warm.mp3\n", b"OK\n"], "gate": gate},
+])
+bridge = B.Bridge()
+answers = []
+bridge.emit = answers.append
+try:
+    bridge.submit_query({"id": 200, "kind": "lsinfo", "channel": "warm"})
+    check("the worker is reading when the connection is thrown away",
+          wait_for(lambda: bool(factory.made) and factory.made[0].fh is not None
+                   and factory.made[0].fh.entered.is_set()), True)
+    bridge.submit_query({"id": 201, "kind": "queue", "channel": "queue"})
+    bridge.submit_query({"id": 202, "kind": "lsinfo", "channel": ""})
+    bridge.drop("settings changed")
+    check("requests waiting at a reconnect are answered, not forgotten",
+          [(a.get("id"), a.get("dropped"), a.get("rows"), "error" in a)
+           for a in answers if a.get("event") == "result"],
+          [(201, True, [], False), (202, True, [], False)])
+    check("... and the pending list is empty afterwards", bridge.query_pending, [])
+finally:
+    gate.set()
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
+# An empty channel has no notion of "newer": the panel sends one-off queries
+# without a channel. Neither may be dropped just because the other is waiting.
+gate = threading.Event()
+factory, saved = planted([
+    {"script": [b"file: a.mp3\n", b"OK\n", b"file: b.mp3\n", b"OK\n"], "gate": gate},
+])
+bridge = B.Bridge()
+answers = []
+bridge.emit = answers.append
+try:
+    bridge.submit_query({"id": 300, "kind": "queue", "channel": ""})
+    check("the worker is reading the first empty-channel request",
+          wait_for(lambda: bool(factory.made) and factory.made[0].fh is not None
+                   and factory.made[0].fh.entered.is_set()), True)
+    bridge.submit_query({"id": 301, "kind": "queue", "channel": ""})
+    gate.set()
+    check("the second empty-channel request is answered",
+          wait_for(lambda: any(a.get("id") == 301 for a in answers)), True)
+    check("an empty channel never supersedes: both requests are answered",
+          sorted((a.get("id"), "dropped" in a)
+                 for a in answers if a.get("event") == "result"),
+          [(300, False), (301, False)])
+finally:
+    gate.set()
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
 # The same hazard without any threads: the handle a drop takes away is the one
 # the reader reaches for next, and that has to come back as a connection error.
 nostream = REAL_MPDConn(("tcp", "127.0.0.1", 6600))

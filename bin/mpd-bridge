@@ -1687,7 +1687,15 @@ class Bridge:
         with self.query_cv:
             query = self.query_conn
             self.query_conn = None
+            # Requests waiting here will never be run: the connection they were
+            # for is gone. Answer them before forgetting them, for the same
+            # reason the worker answers a superseded one -- the shell only
+            # forgets a request when a result for its id arrives, so a cleared
+            # list without an answer leaves callers waiting for good.
+            discarded = self.query_pending
             self.query_pending = []
+        for request in discarded:
+            self.emit(self.dropped_answer(request))
         if query is not None:
             query.retire()
             if not query.readers:
@@ -2342,6 +2350,24 @@ class Bridge:
 
     # -------------------------------------------------------------- queries
 
+    def dropped_answer(self, request: dict) -> dict:
+        """The result of a request a newer one replaced.
+
+        Same shape as run_query() builds, plus `dropped`: the shell matches a
+        result to its request by `id`, and that is the only thing that makes it
+        forget the request. A dropped request is not a failure -- the newer
+        question on the same channel is the answer the user is waiting for --
+        so the rows are empty and there is no `error`.
+        """
+        return {
+            "event": "result",
+            "id": request.get("id"),
+            "kind": str(request.get("kind", "")),
+            "channel": request.get("channel", ""),
+            "rows": [],
+            "dropped": True,
+        }
+
     def submit_query(self, request: dict) -> None:
         with self.query_cv:
             self.query_pending.append(request)
@@ -2380,9 +2406,15 @@ class Bridge:
                 channel = request.get("channel")
                 # A newer request on the same channel has already made this one's
                 # answer stale. Typing into the search box is the case this is
-                # for: eight keystrokes, one query, the last one.
-                if channel and any(r.get("channel") == channel for r in self.query_pending):
-                    continue
+                # for: eight keystrokes, one query, the last one. Dropped from
+                # the work, not from the conversation: `dropped_answer` below
+                # lets the shell forget a request it is still holding in
+                # `pending`, which it only does when a result for its id comes.
+                superseded = bool(channel) and any(
+                    r.get("channel") == channel for r in self.query_pending)
+            if superseded:
+                self.emit(self.dropped_answer(request))
+                continue
             self.run_query(request)
 
     def query_conn_for(self, generation: int) -> MPDConn:
