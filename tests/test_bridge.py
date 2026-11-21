@@ -1249,12 +1249,21 @@ prune_dir = B.cache_dir()
 saved_keep = B.ART_CACHE_KEEP
 B.ART_CACHE_KEEP = 2
 try:
-    covers = [os.path.join(prune_dir, "cover-%d.jpg" % n) for n in range(2)]
-    parts = [os.path.join(prune_dir, "cover-%d.jpg.part" % n) for n in range(2)]
+    # The key shape from art_key(): twenty hex characters plus an extension.
+    # A name that does not look like one is not the cache's to delete.
+    covers = [os.path.join(prune_dir, "%020x.jpg" % (n + 1)) for n in range(2)]
+    parts = [os.path.join(prune_dir, "%020x.jpg.part" % (n + 1)) for n in range(2)]
     for path in covers + parts:
         with open(path, "wb") as handle:
             handle.write(jpeg(32))
+    # The recent list lives in the same directory and is not a cover. The live
+    # cache sits right at the keep limit, so counting it as an entry deleted it
+    # once the cache grew -- the start screen's "Recently played" went empty.
+    recent = os.path.join(prune_dir, "recent.json")
+    with open(recent, "wb") as handle:
+        handle.write(b"[]")
     stamp = time.time()
+    os.utime(recent, (stamp - 1200, stamp - 1200))   # older than everything
     for n, path in enumerate(covers):        # the finished covers are the older ones
         os.utime(path, (stamp - 600 - n, stamp - 600 - n))
     for n, path in enumerate(parts):         # the temp files look newer
@@ -1264,6 +1273,20 @@ try:
           [os.path.exists(p) for p in covers], [True, True])
     check("... and a temp file of a write in progress too",
           [os.path.exists(p) for p in parts], [True, True])
+    check("... and recent.json is not a cover entry",
+          os.path.exists(recent), True)
+    # And the prune still does its job when there really are more covers than
+    # the cache keeps: the oldest cover goes, the recent list still stays.
+    extra = os.path.join(prune_dir, "%020x.jpg" % 0xbeef)
+    with open(extra, "wb") as handle:
+        handle.write(jpeg(32))
+    os.utime(extra, (stamp, stamp))
+    B.prune_cache()
+    check("an over-limit cache still trims the oldest cover",
+          os.path.exists(covers[1]), False)
+    check("... keeps the newer ones",
+          [os.path.exists(p) for p in (covers[0], extra)], [True, True])
+    check("... and leaves recent.json alone", os.path.exists(recent), True)
     # The other direction: a temp file nobody is writing any more is garbage, and
     # since the prune no longer counts `.part` files as entries nothing else would
     # ever collect it.

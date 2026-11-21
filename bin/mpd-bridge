@@ -115,6 +115,11 @@ ART_LIMIT = 12 * 1024 * 1024
 ART_CACHE_KEEP = 96
 ART_PART_SUFFIX = ".part"   # the temp name of a write that has not landed yet
 ART_PART_AGE = 3600         # a `.part` this old belongs to a writer that died
+# A finished entry is the key art_key() made -- twenty lowercase hex characters --
+# plus an extension from extension_for(). The cache directory also holds
+# recent.json and temp files; neither is a cover, and the prune may not count
+# or delete them.
+ART_CACHE_NAME = re.compile(r"^[0-9a-f]{20}\.[A-Za-z0-9]+$")
 ART_CHUNK = 256 * 1024
 
 CMD_TIMEOUT = 10.0
@@ -992,7 +997,7 @@ def prune_cache() -> None:
             if now - os.path.getmtime(stale) > ART_PART_AGE:
                 os.unlink(stale)
         entries = [os.path.join(directory, n) for n in names
-                   if not n.endswith(ART_PART_SUFFIX)]
+                   if ART_CACHE_NAME.match(n)]
         if len(entries) <= ART_CACHE_KEEP:
             return
         entries.sort(key=lambda p: os.path.getmtime(p))
