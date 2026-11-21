@@ -175,7 +175,7 @@ const FUNCTIONS = [
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "sameQueueAlbum", "rowRight",
   "albumQuietFor", "albumArtistFor", "trackNo", "centerOn",
-  "mutateAndReload",
+  "mutateAndReload", "removeRow",
   // The panel's own visibility decides whether a queue change is worth a read.
   "panelShowing", "queueLengthMoved", "panelOpened",
   "handleKey",
@@ -2900,6 +2900,61 @@ group("case 18: a queue reload keeps the cursor on its row");
         P.queries.length === afterOpen + 1
           && P.queries[P.queries.length - 1].kind === "queue",
         "queries=" + P.queries.length);
+}
+
+// ---------------------------------------------------------------- case 32
+// A delete in a saved playlist reloads the list, and every load landed the
+// cursor on row one. The queue already carries its row across a reload; a
+// playlist needs the same: the row that took the deleted one's place, or the
+// new last row when the last one was deleted.
+{
+  group("case 32: deleting a track keeps the playlist cursor in place");
+  function track(n) {
+    return { type: "file", file: "p/" + n + ".mp3", title: "T" + n,
+             artist: "A", album: "P" };
+  }
+  function playlist(count) {
+    const out = [];
+    for (let n = 0; n < count; n++) out.push(track(n));
+    return out;
+  }
+  function openList() {
+    const P = makePanel();
+    P.root.stack = [{ mode: "plist", name: "Mix", title: "Mix" }];
+    P.answer(playlist(6));
+    return P;
+  }
+
+  const P = openList();
+  P.root.sel = 2;
+  P.root.removeRow();
+  check("the delete names the row it stands on",
+        P.mutations.length === 1 && P.mutations[0].op === "playlistdelete"
+          && P.mutations[0].args.pos === 2 && P.mutations[0].args.name === "Mix",
+        JSON.stringify(P.mutations));
+  P.fire("reloadTimer");
+  P.answer([track(0), track(1), track(3), track(4), track(5)]);   // T2 is gone
+  check("the cursor stays on the index that slid into the gap",
+        P.root.sel === 2 && P.root.rows[P.root.sel].title === "T3",
+        "sel=" + P.root.sel + " row=" + P.root.rowTitle(P.root.rows[P.root.sel]));
+
+  const Q = openList();
+  Q.root.sel = 5;                              // the last row
+  Q.root.removeRow();
+  Q.fire("reloadTimer");
+  Q.answer([track(0), track(1), track(2), track(3), track(4)]);
+  check("deleting the last row lands on the new last row",
+        Q.root.sel === 4 && Q.root.rows[Q.root.sel].title === "T4",
+        "sel=" + Q.root.sel + " row=" + Q.root.rowTitle(Q.root.rows[Q.root.sel]));
+
+  // Control: opening a different playlist is not a reload of the one on screen
+  // and still starts at the top.
+  const R = openList();
+  R.root.sel = 4;
+  R.root.stack = [{ mode: "plist", name: "Other", title: "Other" }];
+  R.answer(playlist(6));
+  check("control: another playlist opens on its first row", R.root.sel === 0,
+        "sel=" + R.root.sel);
 }
 
 // --------------------------------------------------------------- report

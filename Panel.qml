@@ -574,14 +574,16 @@ Panel {
     if (!f) return
     var mode = String(f.mode || "")
 
-    // The carry belongs to the queue frame that is being re-read, nowhere else.
-    // Clearing it on every other load is what keeps a queue reload's cursor
-    // wish from landing on the list of the tab the user switched to.
-    var carrying = mode === "queue" && root.loadedFrame === f
+    // The carry belongs to the list that is being re-read: the queue (a row can
+    // be consumed while it is re-read) and a saved playlist (a deleted row lets
+    // the next one slide into its place). Every other load starts without it,
+    // so a queue reload's cursor wish cannot land on another tab's list.
+    var carrying = (mode === "queue" || mode === "plist") && root.loadedFrame === f
     if (!carrying) root.carrySel = null
-    // A reload of the queue that is on screen: remember the row under the cursor
+    // A reload of the list that is on screen: remember the row under the cursor
     // before the new list replaces it. By song id, because positions move as soon as
-    // `consume` takes a row out; the index is the fallback for a row that is gone.
+    // `consume` takes a row out; the index is the fallback for a row that is gone
+    // (a playlist row has no id, so there the index is the answer).
     if (carrying && root.rows.length > 0) {
       var under = root.rows[root.sel]
       root.carrySel = {
