@@ -230,7 +230,7 @@ Panel {
     }
     // The queue can change from anywhere (the bar, a bind, another client), so
     // re-read it when MPD says its length moved.
-    function onQueueLengthChanged() { if (root.frameMode === "queue") reloadTimer.restart() }
+    function onQueueLengthChanged() { root.queueLengthMoved() }
     // MPD answers `findadd`/`searchadd` with a bare OK, so a filter that matches
     // nothing is silent there. The bridge turns that silence into an ack, and the
     // footer repeats it instead of leaving the optimistic "appended" standing.
@@ -1613,6 +1613,36 @@ Panel {
     interval: 350
     repeat: false
     onTriggered: root.loadFrame()
+  }
+
+  // A queue length change (a track was consumed, an append, another client)
+  // re-reads the queue -- but only while the panel is on screen: behind a closed
+  // panel every track change would cost a 2000-row query for a list nobody is
+  // looking at. The panel catches up when it opens (see panelOpened).
+  function queueLengthMoved() {
+    if (root.frameMode === "queue" && root.panelShowing()) reloadTimer.restart()
+  }
+
+  // Whether the panel is on screen at all.
+  function panelShowing() {
+    return !!(root.hostWidget && root.hostWidget.opened === true)
+  }
+
+  // What an opening panel does: land on the playing track, open on the start
+  // screen when the queue is empty, and re-read the list that is on screen --
+  // the catch-up for a queue that changed while the panel was closed.
+  function panelOpened() {
+    root.jumpToCurrent = true
+    // An empty queue has nothing to come back to, so the panel lands on the start
+    // screen -- that is what it is for. The rule is narrow on purpose: only from
+    // the queue's own root frame (a panel closed somewhere deep is left there,
+    // that is where the user was) and only when the queue is really empty, not
+    // merely paused: a paused queue is still the way back to the music.
+    var startHere = root.host && root.host.queueLength === 0
+      && root.tab === "queue" && root.frameMode === "queue"
+    if (startHere) root.setTab("start")
+    else if (root.stack.length === 0) root.setTab(root.tab)
+    else root.loadFrame()
   }
 
   function setInfo(text) { root.infoText = String(text || "") }
@@ -3028,19 +3058,7 @@ Panel {
     contentHeight: panel.cappedContentHeight(Style.space(610))
 
     onOpenChanged: if (open) {
-      // Opened on a long queue, the list would start at the top -- the one place
-      // the playing track is not. The queue load picks this up and lands on it.
-      root.jumpToCurrent = true
-      // An empty queue has nothing to come back to, so the panel lands on the start
-      // screen -- that is what it is for. The rule is narrow on purpose: only from
-      // the queue's own root frame (a panel closed somewhere deep is left there,
-      // that is where the user was) and only when the queue is really empty, not
-      // merely paused: a paused queue is still the way back to the music.
-      var startHere = root.host && root.host.queueLength === 0
-        && root.tab === "queue" && root.frameMode === "queue"
-      if (startHere) root.setTab("start")
-      else if (root.stack.length === 0) root.setTab(root.tab)
-      else root.loadFrame()
+      root.panelOpened()
       Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
     }
 

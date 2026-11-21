@@ -176,6 +176,8 @@ const FUNCTIONS = [
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "sameQueueAlbum", "rowRight",
   "albumQuietFor", "albumArtistFor", "trackNo", "centerOn",
   "mutateAndReload",
+  // The panel's own visibility decides whether a queue change is worth a read.
+  "panelShowing", "queueLengthMoved", "panelOpened",
   "handleKey",
   // The tab ring: the digits and `tab` are two encodings of one order, and the
   // ring once held seven of the nine tabs.
@@ -202,6 +204,8 @@ const EXTRACTED = FUNCTIONS.map(function (name) {
 });
 const STACK_HANDLER = grabRootHandler("onStackChanged");
 const DEBOUNCE_HANDLER = grabTimerHandler("promptDebounce");
+// The queue reload timer: its body is Panel.qml's, armed and fired by the model.
+const RELOAD_HANDLER = grabTimerHandler("reloadTimer");
 // The row delegate's own bindings, verbatim (see grabRowBinding). The mark the
 // list draws is `selected`; `rowType`/`isHeader` are the two it reads.
 const ROW_TYPE = grabRowBinding("rowType");
@@ -469,6 +473,10 @@ function makePanel(opts) {
   };
   root.host = host;
 
+  // Panel.qml: panelShowing() asks the widget whether the panel is on screen.
+  // The open/close state is the test's to set.
+  root.hostWidget = { opened: opts.opened === true };
+
   const timers = {};
   ["promptDebounce", "promptFocusTimer", "pendingSelectGuard", "reloadTimer",
    "flashTimer", "skipTimer", "centerTimer", "favTimer"].forEach(function (id) {
@@ -500,7 +508,8 @@ function makePanel(opts) {
   // the model.
   const timerHandlers = {
     promptDebounce: new Function("root", "promptDebounce", "promptFocusTimer",
-                                 DEBOUNCE_HANDLER.text)
+                                 DEBOUNCE_HANDLER.text),
+    reloadTimer: new Function("root", RELOAD_HANDLER.text)
   };
 
   function event(key, text) {
@@ -2845,6 +2854,52 @@ group("case 18: a queue reload keeps the cursor on its row");
         "rows=" + P.root.rows.length);
   check("... and says so in the footer",
         P.root.infoText === "no connection to MPD", JSON.stringify(P.root.infoText));
+}
+
+// ---------------------------------------------------------------- case 31
+// A track change restarts a reload timer unconditionally, so with the panel
+// closed every track change cost a 2000-row queue query for a list nobody was
+// looking at. The reload now waits until the queue frame is actually visible;
+// the panel loads the queue once when it opens, which is the catch-up.
+{
+  group("case 31: a closed panel does not re-read the queue on every track change");
+  const ROWS = [
+    { type: "file", file: "q/1.mp3", id: 1, pos: 0, title: "One" },
+    { type: "file", file: "q/2.mp3", id: 2, pos: 1, title: "Two" }
+  ];
+  const P = makePanel();
+  P.root.stack = [P.root.rootFrameFor("queue")];
+  P.answer(ROWS);
+  const loaded = P.queries.length;
+  check("the queue is on screen and loaded", P.root.frameMode === "queue"
+        && P.root.rows.length === 2 && loaded === 1,
+        "mode=" + P.root.frameMode + " rows=" + P.root.rows.length
+          + " queries=" + loaded);
+
+  P.root.queueLengthMoved();                 // a track change, panel closed
+  P.fire("reloadTimer");                     // the 350 ms pass
+  check("a track change behind a closed panel sends no queue query",
+        P.queries.length === loaded, "queries=" + P.queries.length);
+  check("... and arms no reload at all", P.timers.reloadTimer.running === false,
+        String(P.timers.reloadTimer.running));
+
+  P.root.hostWidget.opened = true;
+  P.root.panelOpened();                      // the panel opens
+  check("opening the panel loads the queue once",
+        P.queries.length === loaded + 1
+          && P.queries[P.queries.length - 1].kind === "queue",
+        "queries=" + P.queries.length);
+  P.answer(ROWS);
+  const afterOpen = P.queries.length;
+
+  P.root.queueLengthMoved();                 // now a track change is worth a read
+  check("an open panel arms the reload", P.timers.reloadTimer.running === true,
+        String(P.timers.reloadTimer.running));
+  P.fire("reloadTimer");
+  check("... and pays for exactly one queue read",
+        P.queries.length === afterOpen + 1
+          && P.queries[P.queries.length - 1].kind === "queue",
+        "queries=" + P.queries.length);
 }
 
 // --------------------------------------------------------------- report
