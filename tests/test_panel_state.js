@@ -2819,6 +2819,34 @@ group("case 18: a queue reload keeps the cursor on its row");
         JSON.stringify(E.root.carrySel));
 }
 
+// ---------------------------------------------------------------- case 30
+// The branch that says "no connection" clears the rows and stops -- without
+// bumping the generation and without clearing `loading`. An answer that was
+// still in flight then matched the guard in `answer()` and painted its rows into
+// the view that had just said it had no connection.
+{
+  group("case 30: a late answer cannot paint a disconnected view");
+  const ROWS = [{ type: "file", file: "q/1.mp3", title: "One" },
+                { type: "file", file: "q/2.mp3", title: "Two" }];
+  const P = makePanel();
+  P.root.stack = [P.root.rootFrameFor("queue")];     // the queue load starts
+  check("the load is on its way", P.root.loading === true && P.queries.length === 1,
+        "loading=" + P.root.loading + " queries=" + P.queries.length);
+
+  P.host.connected = false;
+  P.root.loadFrame();                                 // the host is not up
+  check("the view says there is no connection",
+        P.root.infoText === "no connection to MPD", JSON.stringify(P.root.infoText));
+  check("... and is not left loading", P.root.loading === false,
+        String(P.root.loading));
+
+  P.answer(ROWS);                                     // the old answer lands
+  check("the stale answer paints nothing", P.root.rows.length === 0,
+        "rows=" + P.root.rows.length);
+  check("... and says so in the footer",
+        P.root.infoText === "no connection to MPD", JSON.stringify(P.root.infoText));
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {

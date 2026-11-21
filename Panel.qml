@@ -620,6 +620,13 @@ Panel {
     // and sends no MPD command, so it is readable with the player down -- and
     // saying "no connection to MPD" over it would be a lie.
     if (!root.up && mode !== "radioStations") {
+      // Same two reasons as the settings branch: the generation goes up, so an
+      // answer from the load that was still in flight is dropped instead of
+      // painted into a view that just said it has no connection -- and the
+      // loading line is taken down, or the panel sits on "loading …" forever.
+      root.loadGeneration = root.loadGeneration + 1
+      root.loading = false
+      root.carrySel = null
       root.rows = []
       root.setInfo("no connection to MPD")
       return
