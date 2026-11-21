@@ -57,6 +57,9 @@ Panel {
   readonly property color accent: Color.accent
   readonly property color dim: Qt.darker(fg, 1.35)
   readonly property color faint: Qt.rgba(fg.r, fg.g, fg.b, 0.28)
+  // The footer's key hints were at the same 0.28 as placeholders and the
+  // details' "esc closes"; the keys need to be read, so they get their own tone.
+  readonly property color footerHint: Qt.rgba(fg.r, fg.g, fg.b, 0.45)
   readonly property color line: Qt.rgba(fg.r, fg.g, fg.b, 0.14)
   readonly property color selBg: Color.menu.selectedBackground
   readonly property color selFg: Color.menu.selectedText
@@ -3262,7 +3265,7 @@ Panel {
           required property int index
           width: list.width
           height: rowItem.startRow ? Style.space(27)
-            : (rowItem.sectionHeader ? Style.space(29)
+            : (rowItem.sectionHeader ? Style.space(30)
               : (rowItem.isHeader ? Style.space(22) : Style.space(26)))
 
           readonly property string rowType: String(rowItem.modelData.type || "")
@@ -3275,6 +3278,9 @@ Panel {
           readonly property real lengthWidth: Math.max(Style.space(40), Math.min(rowItem.width * 0.05 + Style.space(12), Style.space(56)))
           readonly property real glyphGutter: Math.max(Style.space(56), Math.min(rowItem.width * 0.07, Style.space(76)))
           readonly property real glyphSlot: rowItem.glyphGutter / 3
+          // A section head is structure, not a row: quiet, and one opacity for
+          // every head (the setting and the delegate read the same number).
+          readonly property real sectionHeadOpacity: rowItem.sectionHeader ? 0.62 : 0.9
           // An album row of the start screen carries a cover: the one thing the title
           // cannot say, and the difference between "a list of words" and "what the
           // library has". The host hands out art from its cache by song uri, so a
@@ -3379,29 +3385,48 @@ Panel {
             id: groupRule
             visible: rowItem.sectionHeader && index > 0
             x: Style.space(8)
-            y: Style.space(6)
+            y: 0
             width: parent.width - Style.space(16)
             height: 1
-            color: root.dim
-            opacity: 0.35
+            color: root.fg
+            opacity: 0.14
           }
 
-          // A section label: artists / albums / tracks.
+          // A section label: artists / albums / tracks. Same type as the group
+          // heads of the settings: 11 px, tracked out, at 0.62 -- structure, not
+          // content, so it stays below the rows' newly raised title step.
           Text {
             visible: rowItem.isHeader
             anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
             anchors.verticalCenterOffset: rowItem.sectionHeader && index > 0 ? Style.space(3) : 0
             text: rowItem.isHeader ? String(rowItem.modelData.title || "") : ""
             color: rowItem.sectionHeader ? root.dim : root.accent
-            opacity: rowItem.sectionHeader ? 1 : 0.9
+            opacity: rowItem.sectionHeadOpacity
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.bodySmall
             font.bold: !rowItem.sectionHeader
             // Capitalisation is a display choice, not data: the row keeps "In the
             // bar" (so the README and the search tab stay untouched) and reads as
             // a heading here.
             font.capitalization: rowItem.sectionHeader ? Font.AllUppercase : Font.MixedCase
-            font.letterSpacing: rowItem.sectionHeader ? 1.1 : 0
+            font.letterSpacing: rowItem.sectionHeader ? 1.7 : 0
+          }
+
+          // A head that already carries a right-hand note keeps it there, in the
+          // quieter caption tone -- the title is the heading, this only qualifies
+          // it.
+          Text {
+            visible: rowItem.isHeader
+              && String((rowItem.modelData || {}).hint || "") !== ""
+            anchors { right: parent.right; rightMargin: Style.space(8)
+                      verticalCenter: parent.verticalCenter }
+            text: rowItem.isHeader ? String((rowItem.modelData || {}).hint || "") : ""
+            color: root.fg
+            opacity: 0.30
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+            width: Math.min(implicitWidth, parent.width * 0.45)
           }
 
           // The row's click target: declared before the `+` so the button keeps
@@ -3511,6 +3536,8 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
               elide: Text.ElideRight
+              textFormat: Text.PlainText
+              wrapMode: Text.NoWrap
             }
           }
 
@@ -3964,7 +3991,7 @@ Panel {
               id: hintText
               // The pointer explains a glyph button; otherwise the keys.
               text: root.hoverHint !== "" ? root.hoverHint : root.hint
-              color: root.hoverHint !== "" ? root.accent : root.faint
+              color: root.hoverHint !== "" ? root.accent : root.footerHint
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               height: Style.space(22)
