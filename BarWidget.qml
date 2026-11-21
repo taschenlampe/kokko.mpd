@@ -1330,7 +1330,12 @@ Panel {
 
             Text {
               width: parent.width
-              text: String(root.song.title || root.basename(root.songFile) || "—")
+              // The same line the bar label and the cards give: a stream is named
+              // by its station (BarWidget.songTitle), and while the daemon is
+              // wedged the line says what the connection is doing instead of
+              // presenting the last title as current.
+              text: root.stale ? "MPD is not answering"
+                : (String(root.songTitle()) || "—")
               color: Color.popups.text
               font.family: root.fontFamily
               font.pixelSize: Style.font.subtitle
@@ -1340,13 +1345,10 @@ Panel {
 
             Text {
               width: parent.width
-              text: {
-                var bits = []
-                if (root.song.artist) bits.push(String(root.song.artist))
-                var alb = String(root.song.album || "")
-                if (alb && alb !== String(root.song.title || "")) bits.push(alb)
-                return bits.join("  ·  ")
-              }
+              // The second line follows the first: the shared helper for a stream
+              // (what the station is playing, and the bitrate) or the artist and
+              // album of a file, and nothing at all while the daemon is wedged.
+              text: root.stale ? "" : String(root.songMeta ? root.songMeta() : "")
               color: Qt.darker(Color.popups.text, 1.35)
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

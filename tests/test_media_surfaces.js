@@ -1243,6 +1243,74 @@ function caseArtMapCap() {
   ])
 }
 
+// --- 16: the OSD title asks the widget, like every other surface -------------
+// The OSD built its own first line from `song.title` (and a URL piece as the
+// fallback), so a stream showed its ICY track or `groovesalad-128-mp3`, and with
+// a wedged daemon it still presented the last title as current while the bar,
+// the hover card and the wallpaper said "MPD is not answering". The title now
+// comes from the same helpers as everywhere else and honours `stale`.
+function caseOsdTitle() {
+  if (!barSrc) {
+    report("16", "the OSD title asks the widget, like every other surface", false,
+      ["BarWidget.qml not found beside the surfaces -- nothing to check"])
+    return
+  }
+  const at = barSrc.indexOf("id: osdComponent")
+  const end = barSrc.indexOf("IpcHandler", at)
+  const osd = at >= 0 ? barSrc.slice(at, end > at ? end : barSrc.length) : ""
+  const colorAt = osd.indexOf("color: Color.popups.text")
+  const textAt = colorAt >= 0 ? osd.lastIndexOf("text:", colorAt) : -1
+  const piece = textAt >= 0 ? readExpr(osd, textAt + "text:".length, "osdTitle") : null
+  if (!piece) {
+    report("16", "the OSD title asks the widget, like every other surface", false,
+      ["not found in BarWidget.qml: the OSD title's `text:`"])
+    return
+  }
+
+  function view(stale, song, songTitleValue) {
+    const root = {
+      stale: stale,
+      song: song,
+      songFile: song.file || "",
+      songTitle: function () { return songTitleValue },
+      basename: function (f) { return String(f || "").split("/").pop().replace(/\.[^.]+$/, "") }
+    }
+    return evalPiece(piece, "expr", ["root"], [root], "osdTitle")
+  }
+
+  const streamSong = { file: "https://ice5.somafm.com/groovesalad-128-mp3",
+                       name: "Groove Salad [SomaFM]", title: "Sine - The Return" }
+  const fileSong = { file: "Music/Boards of Canada/Dayvan.mp3", artist: "Boards of Canada",
+                     album: "Music Has the Right to Children", title: "Dayvan Cowboy" }
+  const stale = view(true, fileSong, "Dayvan Cowboy")
+  const stream = view(false, streamSong, "Groove Salad [SomaFM]")
+  const file = view(false, fileSong, "Dayvan Cowboy")
+  const empty = view(false, {}, "")
+
+  const asksWidget = /songTitle/.test(piece.body) && /stale/.test(piece.body)
+  const ok = stale === "MPD is not answering"
+    && stream === "Groove Salad [SomaFM]"
+    && stream.indexOf("Sine - The Return") < 0
+    && stream.indexOf("groovesalad-128-mp3") < 0
+    && file === "Dayvan Cowboy"
+    && empty === "—"
+    && asksWidget
+
+  report("16", "the OSD title asks the widget, like every other surface", ok, [
+    "OSD title " + (piece ? "line " + (piece.first + (at >= 0
+      ? barSrc.slice(0, at).split("\n").length - 1 : 0)) + " sha256:" + piece.hash
+      + "  " + JSON.stringify(piece.body.trim()) : "absent"),
+    "  reads songTitle()/stale: " + asksWidget,
+    "wedged daemon -> " + JSON.stringify(stale) + " (want \"" + SAYS + "\")",
+    "stream        -> " + JSON.stringify(stream)
+      + " (want the station name, never the ICY title or the URL remnant)",
+    "file          -> " + JSON.stringify(file),
+    "nothing       -> " + JSON.stringify(empty),
+    "expected: the shared helpers and the stale flag decide this line, exactly as"
+      + " the bar label does -- not a private copy of the song title"
+  ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -1258,6 +1326,7 @@ caseDesktopCardPresence()
 caseFavoritesEpoch()
 caseCardBarPosition()
 caseArtMapCap()
+caseOsdTitle()
 
 console.log(failures === 0
   ? "all media-surface checks passed"
