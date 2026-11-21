@@ -179,6 +179,9 @@ const FUNCTIONS = [
   // The settings rows: -/+ on the row under the cursor. writeSetting and note
   // stay stubs (the host boundary, and where the "at its limit" line is read).
   "stepEnum", "stepSetting",
+  "mutateAndReload", "removeRow",
+  // The panel's own visibility decides whether a queue change is worth a read.
+  "panelShowing", "queueLengthMoved", "panelOpened",
   "handleKey",
   // The tab ring: the digits and `tab` are two encodings of one order, and the
   // ring once held seven of the nine tabs.
@@ -188,7 +191,7 @@ const FUNCTIONS = [
   "isStream", "radioFrame", "radioRowsFor", "radioCountries", "radioGenres",
   "dedupeStations", "stationTitle", "stationSub", "applyRadioSearch",
   "stationRow", "stationDetail", "streamPlaying", "openRadioLevel", "showDetails",
-  "detailPairs", "labelFor"
+  "closeDetails", "detailPairs", "labelFor"
 ];
 
 const MISSING = [];
@@ -205,6 +208,8 @@ const EXTRACTED = FUNCTIONS.map(function (name) {
 });
 const STACK_HANDLER = grabRootHandler("onStackChanged");
 const DEBOUNCE_HANDLER = grabTimerHandler("promptDebounce");
+// The queue reload timer: its body is Panel.qml's, armed and fired by the model.
+const RELOAD_HANDLER = grabTimerHandler("reloadTimer");
 // The row delegate's own bindings, verbatim (see grabRowBinding). The mark the
 // list draws is `selected`; `rowType`/`isHeader` are the two it reads.
 const ROW_TYPE = grabRowBinding("rowType");
@@ -303,6 +308,7 @@ function makePanel(opts) {
     pendingSelect: "",
     pendingCenter: -1,
     loadGeneration: 0,
+    detailGeneration: 0,
     sentQueries: 0,
     answeredLoads: 0,
     staleAnswers: 0,
@@ -476,6 +482,10 @@ function makePanel(opts) {
   };
   root.host = host;
 
+  // Panel.qml: panelShowing() asks the widget whether the panel is on screen.
+  // The open/close state is the test's to set.
+  root.hostWidget = { opened: opts.opened === true };
+
   const timers = {};
   ["promptDebounce", "promptFocusTimer", "pendingSelectGuard", "reloadTimer",
    "flashTimer", "skipTimer", "centerTimer", "favTimer"].forEach(function (id) {
@@ -507,7 +517,8 @@ function makePanel(opts) {
   // the model.
   const timerHandlers = {
     promptDebounce: new Function("root", "promptDebounce", "promptFocusTimer",
-                                 DEBOUNCE_HANDLER.text)
+                                 DEBOUNCE_HANDLER.text),
+    reloadTimer: new Function("root", RELOAD_HANDLER.text)
   };
 
   function event(key, text) {
@@ -2750,6 +2761,259 @@ group("case 18: a queue reload keeps the cursor on its row");
         P.settingWrites.length === 1 && P.settingWrites[0].key === "coverLook"
           && P.settingWrites[0].value === "classic",
         JSON.stringify(P.settingWrites));
+}
+
+// Enter on an album group in the results opens the album and leaves the field.
+// The group row carries the file its cover is looked up with, and `rowIsSong`
+// read that file as "this is a track": the field stayed open over the track
+// list, the list had no cursor (the mark hides under an open field), and the
+// next letter typed replaced the album with a new search.
+{
+  group("case 28: Enter on a search album group leaves the field");
+  const HITS = [
+    { type: "file", file: "abba/01.mp3", artist: "ABBA", album: "Arrival",
+      title: "Dancing Queen", match: "artist", rank: 1 },
+    { type: "file", file: "abba/02.mp3", artist: "ABBA", album: "Arrival",
+      title: "Money, Money, Money", match: "artist", rank: 1 }
+  ];
+  const P = makePanel();
+  P.key(0, "2");                                   // the search tab
+  P.type("abba");
+  P.fire("promptDebounce");
+  P.answer(HITS);
+  P.counts([2, 2]);                                // artist and album group
+  const album = P.root.rows.filter(function (r) {
+    return r.type === "group" && r.kind === "album";
+  })[0];
+  check("the album group carries a cover file", !!album && album.file === "abba/01.mp3",
+        JSON.stringify(album));
+  check("... but the file does not make it a song",
+        P.root.rowIsSong(album) === false, JSON.stringify(P.root.rowIsSong(album)));
+
+  P.root.sel = P.root.rows.indexOf(album);
+  P.callsReset();
+  P.enter();
+  check("the field is closed", P.root.promptMode === "",
+        JSON.stringify(P.root.promptMode));
+  check("the frame shows the album's tracks",
+        P.root.frameMode === "find" && P.root.frameAlbum === "Arrival",
+        P.frames().join(" > "));
+  P.press("x");
+  check("a following key does not start a new search",
+        P.root.promptText === "abba" && P.timers.promptDebounce.running === false
+          && P.calls.filter(function (c) { return c.indexOf("applySearch(") === 0; }).length === 0,
+        "text=" + JSON.stringify(P.root.promptText)
+          + " timer=" + P.timers.promptDebounce.running + " calls=" + P.calls.join(", "));
+}
+
+// ---------------------------------------------------------------- case 28
+// The songinfo answer belongs to the row that asked for it. Every other query
+// carries a generation and drops an answer from a view the user has left; this
+// one did not, so closing the overlay (or switching tab) while MPD was still
+// answering made it reappear a moment later -- possibly with another track's
+// tags, because the cursor had moved on.
+{
+  group("case 29: a stale songinfo answer cannot reopen the details");
+  const P = makePanel();
+  P.root.rows = [{ type: "file", file: "a/01.mp3", title: "One" }];
+  P.root.sel = 0;
+  P.root.showDetails();
+  check("the details are asked for", P.queries.length === 1
+        && P.queries[0].kind === "songinfo" && P.queries[0].channel === "detail",
+        P.queries.map(function (q) { return q.kind; }).join(","));
+  check("the overlay says it is loading", P.root.detailLoading === true,
+        String(P.root.detailLoading));
+
+  P.root.setTab("albums");                     // the user moves on
+  P.answer([{ file: "a/01.mp3", title: "One", artist: "A" }]);
+  check("the answer to the left view opens nothing", P.root.detailRow === null,
+        JSON.stringify(P.root.detailRow));
+  check("... and does not leave the overlay loading", P.root.detailLoading === false,
+        String(P.root.detailLoading));
+
+  // Control: an answer that still belongs to the open view does open it.
+  const Q = makePanel();
+  Q.root.rows = [{ type: "file", file: "b/02.mp3", title: "Two" }];
+  Q.root.sel = 0;
+  Q.root.showDetails();
+  Q.answer([{ file: "b/02.mp3", title: "Two", artist: "B" }]);
+  check("control: the row that is still on screen shows its tags",
+        Q.root.detailRow !== null && Q.root.detailRow.title === "Two"
+          && Q.root.detailLoading === false,
+        JSON.stringify(Q.root.detailRow));
+}
+
+// ---------------------------------------------------------------- case 29
+// `carrySel` belongs to the queue frame that is being re-read. It was cleared
+// only when the next list arrived, so a tab switch during a queue reload left it
+// set: the stale queue answer was dropped by the generation guard, and the
+// albums answer then used the carry -- an index of 70 on a list of three -- and
+// landed the cursor on the last album instead of the first.
+{
+  group("case 30: a queue reload's carry does not follow into another tab");
+  function entry(n) {
+    return { type: "file", file: "q/" + n + ".mp3", id: 100 + n, pos: n - 1,
+             artist: "A", album: "X", title: "T" + n, time: "100" };
+  }
+  const QUEUE = [];
+  for (let n = 1; n <= 80; n++) QUEUE.push(entry(n));
+  const ALBUMS = [{ type: "value", value: "One" }, { type: "value", value: "Two" },
+                  { type: "value", value: "Three" }];
+
+  const P = makePanel();
+  P.root.stack = [P.root.rootFrameFor("queue")];
+  P.answer(QUEUE);
+  P.root.sel = 70;
+  P.root.loadFrame();                          // the queue is re-read under the cursor
+  check("the reload keeps the cursor for the queue it belongs to",
+        P.root.carrySel !== null && P.root.carrySel.index === 70,
+        JSON.stringify(P.root.carrySel));
+
+  P.key(0, "3");                               // the albums tab, mid-reload
+  P.answer(QUEUE);                             // the old queue answer lands (stale)
+  P.answer(ALBUMS);                            // and the albums answer
+  check("the new frame selects its own first row", P.root.sel === 0,
+        "sel=" + P.root.sel + " (" + P.root.rowTitle(P.root.rows[P.root.sel]) + ")");
+
+  // The error branch ends a queue reload as well: nothing arrived to carry the
+  // cursor into, so the wish must not lie in wait for the next frame.
+  const E = makePanel();
+  E.root.stack = [E.root.rootFrameFor("queue")];
+  E.answer(QUEUE);
+  E.root.sel = 5;
+  E.root.loadFrame();
+  E.answer([], "connection lost");
+  check("a failed reload leaves no carry behind", E.root.carrySel === null,
+        JSON.stringify(E.root.carrySel));
+}
+
+// ---------------------------------------------------------------- case 30
+// The branch that says "no connection" clears the rows and stops -- without
+// bumping the generation and without clearing `loading`. An answer that was
+// still in flight then matched the guard in `answer()` and painted its rows into
+// the view that had just said it had no connection.
+{
+  group("case 31: a late answer cannot paint a disconnected view");
+  const ROWS = [{ type: "file", file: "q/1.mp3", title: "One" },
+                { type: "file", file: "q/2.mp3", title: "Two" }];
+  const P = makePanel();
+  P.root.stack = [P.root.rootFrameFor("queue")];     // the queue load starts
+  check("the load is on its way", P.root.loading === true && P.queries.length === 1,
+        "loading=" + P.root.loading + " queries=" + P.queries.length);
+
+  P.host.connected = false;
+  P.root.loadFrame();                                 // the host is not up
+  check("the view says there is no connection",
+        P.root.infoText === "no connection to MPD", JSON.stringify(P.root.infoText));
+  check("... and is not left loading", P.root.loading === false,
+        String(P.root.loading));
+
+  P.answer(ROWS);                                     // the old answer lands
+  check("the stale answer paints nothing", P.root.rows.length === 0,
+        "rows=" + P.root.rows.length);
+  check("... and says so in the footer",
+        P.root.infoText === "no connection to MPD", JSON.stringify(P.root.infoText));
+}
+
+// ---------------------------------------------------------------- case 31
+// A track change restarts a reload timer unconditionally, so with the panel
+// closed every track change cost a 2000-row queue query for a list nobody was
+// looking at. The reload now waits until the queue frame is actually visible;
+// the panel loads the queue once when it opens, which is the catch-up.
+{
+  group("case 32: a closed panel does not re-read the queue on every track change");
+  const ROWS = [
+    { type: "file", file: "q/1.mp3", id: 1, pos: 0, title: "One" },
+    { type: "file", file: "q/2.mp3", id: 2, pos: 1, title: "Two" }
+  ];
+  const P = makePanel();
+  P.root.stack = [P.root.rootFrameFor("queue")];
+  P.answer(ROWS);
+  const loaded = P.queries.length;
+  check("the queue is on screen and loaded", P.root.frameMode === "queue"
+        && P.root.rows.length === 2 && loaded === 1,
+        "mode=" + P.root.frameMode + " rows=" + P.root.rows.length
+          + " queries=" + loaded);
+
+  P.root.queueLengthMoved();                 // a track change, panel closed
+  P.fire("reloadTimer");                     // the 350 ms pass
+  check("a track change behind a closed panel sends no queue query",
+        P.queries.length === loaded, "queries=" + P.queries.length);
+  check("... and arms no reload at all", P.timers.reloadTimer.running === false,
+        String(P.timers.reloadTimer.running));
+
+  P.root.hostWidget.opened = true;
+  P.root.panelOpened();                      // the panel opens
+  check("opening the panel loads the queue once",
+        P.queries.length === loaded + 1
+          && P.queries[P.queries.length - 1].kind === "queue",
+        "queries=" + P.queries.length);
+  P.answer(ROWS);
+  const afterOpen = P.queries.length;
+
+  P.root.queueLengthMoved();                 // now a track change is worth a read
+  check("an open panel arms the reload", P.timers.reloadTimer.running === true,
+        String(P.timers.reloadTimer.running));
+  P.fire("reloadTimer");
+  check("... and pays for exactly one queue read",
+        P.queries.length === afterOpen + 1
+          && P.queries[P.queries.length - 1].kind === "queue",
+        "queries=" + P.queries.length);
+}
+
+// ---------------------------------------------------------------- case 32
+// A delete in a saved playlist reloads the list, and every load landed the
+// cursor on row one. The queue already carries its row across a reload; a
+// playlist needs the same: the row that took the deleted one's place, or the
+// new last row when the last one was deleted.
+{
+  group("case 33: deleting a track keeps the playlist cursor in place");
+  function track(n) {
+    return { type: "file", file: "p/" + n + ".mp3", title: "T" + n,
+             artist: "A", album: "P" };
+  }
+  function playlist(count) {
+    const out = [];
+    for (let n = 0; n < count; n++) out.push(track(n));
+    return out;
+  }
+  function openList() {
+    const P = makePanel();
+    P.root.stack = [{ mode: "plist", name: "Mix", title: "Mix" }];
+    P.answer(playlist(6));
+    return P;
+  }
+
+  const P = openList();
+  P.root.sel = 2;
+  P.root.removeRow();
+  check("the delete names the row it stands on",
+        P.mutations.length === 1 && P.mutations[0].op === "playlistdelete"
+          && P.mutations[0].args.pos === 2 && P.mutations[0].args.name === "Mix",
+        JSON.stringify(P.mutations));
+  P.fire("reloadTimer");
+  P.answer([track(0), track(1), track(3), track(4), track(5)]);   // T2 is gone
+  check("the cursor stays on the index that slid into the gap",
+        P.root.sel === 2 && P.root.rows[P.root.sel].title === "T3",
+        "sel=" + P.root.sel + " row=" + P.root.rowTitle(P.root.rows[P.root.sel]));
+
+  const Q = openList();
+  Q.root.sel = 5;                              // the last row
+  Q.root.removeRow();
+  Q.fire("reloadTimer");
+  Q.answer([track(0), track(1), track(2), track(3), track(4)]);
+  check("deleting the last row lands on the new last row",
+        Q.root.sel === 4 && Q.root.rows[Q.root.sel].title === "T4",
+        "sel=" + Q.root.sel + " row=" + Q.root.rowTitle(Q.root.rows[Q.root.sel]));
+
+  // Control: opening a different playlist is not a reload of the one on screen
+  // and still starts at the top.
+  const R = openList();
+  R.root.sel = 4;
+  R.root.stack = [{ mode: "plist", name: "Other", title: "Other" }];
+  R.answer(playlist(6));
+  check("control: another playlist opens on its first row", R.root.sel === 0,
+        "sel=" + R.root.sel);
 }
 
 // --------------------------------------------------------------- report
