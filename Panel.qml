@@ -3278,6 +3278,9 @@ Panel {
           readonly property real lengthWidth: Math.max(Style.space(40), Math.min(rowItem.width * 0.05 + Style.space(12), Style.space(56)))
           readonly property real glyphGutter: Math.max(Style.space(56), Math.min(rowItem.width * 0.07, Style.space(76)))
           readonly property real glyphSlot: rowItem.glyphGutter / 3
+          // The settings label column: a fixed share so the hints line up down
+          // the tab instead of starting wherever the longest label ends.
+          readonly property real labelWidth: Math.max(Style.space(140), Math.min(rowItem.width * 0.18, Style.space(180)))
           // A section head is structure, not a row: quiet, and one opacity for
           // every head (the setting and the delegate read the same number).
           readonly property real sectionHeadOpacity: rowItem.sectionHeader ? 0.62 : 0.9
@@ -3558,77 +3561,142 @@ Panel {
             font.pixelSize: Style.font.bodySmall
           }
 
-          // In the settings tab the row carries its own steppers: `−` and `+`, the
-          // mouse half of the -/+ keys. Glyphs checked against the font (U+2212,
-          // U+002B in JetBrainsMono Nerd Font), not guessed.
+          // In the settings tab the row is a label column, a hint that takes the
+          // free space, and the value on the right. The label column is a share of
+          // the row, so the hints start on one line down the whole tab.
           Item {
-            id: stepPlus
-              opacity: (rowItem.glyphsHot || plusArea.containsMouse) ? 1.0 : 0.32
-            visible: root.frameMode === "settings"
-              && (rowItem.modelData.kind === "int" || rowItem.modelData.kind === "enum")
-            anchors { right: parent.right; rightMargin: Style.space(5)
+            id: settingsText
+            visible: rowItem.isSettingRow
+            anchors { left: parent.left; leftMargin: Style.space(8)
+                      right: settingValueRow.left; rightMargin: Style.space(12)
                       verticalCenter: parent.verticalCenter }
-            width: Style.space(20)
             height: Style.space(18)
 
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.cornerRadius
-              color: plusArea.containsMouse ? root.accent : "transparent"
-              border.width: Math.max(1, Style.normalBorderWidth)
-              border.color: rowItem.selected ? root.selFg : root.line
+            Text {
+              id: settingLabel
+              anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+              width: rowItem.labelWidth
+              text: root.rowTitle(rowItem.modelData)
+              color: rowItem.selected ? root.selFg : root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.subtitle
+              font.weight: Font.DemiBold
+              elide: Text.ElideRight
             }
 
             Text {
-              anchors.centerIn: parent
-              text: "+"
-              color: plusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+              id: settingHint
+              anchors { left: settingLabel.right; leftMargin: Style.space(8)
+                        right: parent.right; verticalCenter: parent.verticalCenter }
+              text: root.rowSub(rowItem.modelData,
+                                rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
+              color: rowItem.selected ? root.selFg : root.dim
+              opacity: 0.35
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-            }
-
-            MouseArea {
-              id: plusArea
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, 1) }
+              font.pixelSize: Style.font.bodySmall
+              elide: Text.ElideRight
+              textFormat: Text.PlainText
+              wrapMode: Text.NoWrap
             }
           }
 
-          Item {
-            id: stepMinus
-              opacity: (rowItem.glyphsHot || minusArea.containsMouse) ? 1.0 : 0.32
-            visible: stepPlus.visible
-            anchors { right: stepPlus.left; rightMargin: Style.space(5)
+          // Value and controls, right-aligned: a switch for a boolean, the value
+          // text plus `−`/`+` for a number or an enum. The steppers stay the same
+          // calls as the -/+ keys (stepSetting); only their tone changes.
+          Row {
+            id: settingValueRow
+            visible: rowItem.isSettingRow
+            anchors { right: parent.right; rightMargin: Style.space(8)
                       verticalCenter: parent.verticalCenter }
-            width: Style.space(20)
-            height: Style.space(18)
-
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.cornerRadius
-              color: minusArea.containsMouse ? root.accent : "transparent"
-              border.width: Math.max(1, Style.normalBorderWidth)
-              border.color: rowItem.selected ? root.selFg : root.line
-            }
+            spacing: Style.space(12)
 
             Text {
-              anchors.centerIn: parent
-              text: "−"
-              color: minusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+              id: settingValueText
+              visible: rowItem.modelData.kind !== "bool"
+              width: visible ? implicitWidth : 0
+              text: root.rowRight(rowItem.modelData)
+              color: rowItem.selected ? root.selFg : root.fg
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
+              font.pixelSize: Style.font.bodySmall
             }
 
-            MouseArea {
-              id: minusArea
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, -1) }
+            // `−`: the mouse half of the - key. Glyph checked against the font
+            // (U+2212 in JetBrainsMono Nerd Font), not guessed.
+            Item {
+              id: stepMinus
+              opacity: (rowItem.glyphsHot || minusArea.containsMouse) ? 0.70 : 0.30
+              visible: rowItem.modelData.kind === "int" || rowItem.modelData.kind === "enum"
+              width: Style.space(20)
+              height: Style.space(18)
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: minusArea.containsMouse ? root.accent : "transparent"
+                border.width: Math.max(1, Style.normalBorderWidth)
+                border.color: rowItem.selected ? root.selFg : root.line
+              }
+
+              Text {
+                anchors.centerIn: parent
+                text: "−"
+                color: minusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+
+              MouseArea {
+                id: minusArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, -1) }
+              }
+            }
+
+            // `+`: the mouse half of the + key (U+002B).
+            Item {
+              id: stepPlus
+              opacity: (rowItem.glyphsHot || plusArea.containsMouse) ? 0.70 : 0.30
+              visible: stepMinus.visible
+              width: Style.space(20)
+              height: Style.space(18)
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: plusArea.containsMouse ? root.accent : "transparent"
+                border.width: Math.max(1, Style.normalBorderWidth)
+                border.color: rowItem.selected ? root.selFg : root.line
+              }
+
+              Text {
+                anchors.centerIn: parent
+                text: "+"
+                color: plusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+
+              MouseArea {
+                id: plusArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, 1) }
+              }
+            }
+
+            // The boolean is a switch now. It has no MouseArea of its own: the
+            // row's click is the click, so the switch cannot fire a second time.
+            Switch {
+              id: settingSwitch
+              visible: rowItem.isSettingRow && rowItem.modelData.kind === "bool"
+              checked: rowItem.modelData.value === true
+              foreground: root.fg
+              accentColor: root.accent
             }
           }
 
