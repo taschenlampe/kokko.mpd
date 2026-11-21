@@ -1939,8 +1939,14 @@ Panel {
     return Number(row.id) === Number(root.host.song.id)
   }
 
+  // A row that is one track, not something that stands for several. The type
+  // decides, never the presence of a `file`: a search's album group carries the
+  // file its cover is looked up with, and reading that as "a song" kept the
+  // search field open over the album it had just opened.
   function rowIsSong(row) {
-    return !!row && (row.type === "file" || !!row.file)
+    if (!row) return false
+    var type = String(row.type || "")
+    return type === "file" || type === "startTrack"
   }
 
   // --------------------------------------------------------------- actions
@@ -2443,9 +2449,14 @@ Panel {
   // the list (`a`, enter, j/k), and `/` comes back with the term still in the
   // field. Without the flush, a pending debounce would land after the fact and
   // wipe the list.
-  function leavePrompt() {
+  function leavePrompt(flush) {
     promptDebounce.stop()
-    if (root.promptMode === "search" && root.promptText.trim() !== "")
+    // `flush` defaults to true: leaving the field normally applies a term the
+    // list has not been asked for yet. Enter uses `false` when it opens the
+    // group under the cursor -- those hits are on screen already, and re-running
+    // the search would put the cursor back on the first heading, so the very
+    // group the user meant would not open.
+    if (flush !== false && root.promptMode === "search" && root.promptText.trim() !== "")
       root.applySearch(root.promptText)
     // An empty scoped field has nothing to scope: applying it again would only
     // rebuild the frame that is already there.
@@ -2689,7 +2700,10 @@ Panel {
         // leaves it, because from there on the keys belong to the new list.
         if (root.promptMode === "search") {
           var row = root.rows[root.sel]
-          if (!rowIsSong(row)) root.leavePrompt()
+          // Opening a group leaves the field, because from there on the keys
+          // belong to the new list. Closing it in place (no flush) keeps the
+          // cursor on the group: the hits came from the term already typed.
+          if (!rowIsSong(row)) root.leavePrompt(false)
           root.activate()
         } else {
           root.submitPrompt()

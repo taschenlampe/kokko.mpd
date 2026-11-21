@@ -2693,6 +2693,50 @@ group("case 18: a queue reload keeps the cursor on its row");
         "inside “Sabbath”");
 }
 
+// ---------------------------------------------------------------- case 27
+// Enter on an album group in the results opens the album and leaves the field.
+// The group row carries the file its cover is looked up with, and `rowIsSong`
+// read that file as "this is a track": the field stayed open over the track
+// list, the list had no cursor (the mark hides under an open field), and the
+// next letter typed replaced the album with a new search.
+{
+  group("case 27: Enter on a search album group leaves the field");
+  const HITS = [
+    { type: "file", file: "abba/01.mp3", artist: "ABBA", album: "Arrival",
+      title: "Dancing Queen", match: "artist", rank: 1 },
+    { type: "file", file: "abba/02.mp3", artist: "ABBA", album: "Arrival",
+      title: "Money, Money, Money", match: "artist", rank: 1 }
+  ];
+  const P = makePanel();
+  P.key(0, "2");                                   // the search tab
+  P.type("abba");
+  P.fire("promptDebounce");
+  P.answer(HITS);
+  P.counts([2, 2]);                                // artist and album group
+  const album = P.root.rows.filter(function (r) {
+    return r.type === "group" && r.kind === "album";
+  })[0];
+  check("the album group carries a cover file", !!album && album.file === "abba/01.mp3",
+        JSON.stringify(album));
+  check("... but the file does not make it a song",
+        P.root.rowIsSong(album) === false, JSON.stringify(P.root.rowIsSong(album)));
+
+  P.root.sel = P.root.rows.indexOf(album);
+  P.callsReset();
+  P.enter();
+  check("the field is closed", P.root.promptMode === "",
+        JSON.stringify(P.root.promptMode));
+  check("the frame shows the album's tracks",
+        P.root.frameMode === "find" && P.root.frameAlbum === "Arrival",
+        P.frames().join(" > "));
+  P.press("x");
+  check("a following key does not start a new search",
+        P.root.promptText === "abba" && P.timers.promptDebounce.running === false
+          && P.calls.filter(function (c) { return c.indexOf("applySearch(") === 0; }).length === 0,
+        "text=" + JSON.stringify(P.root.promptText)
+          + " timer=" + P.timers.promptDebounce.running + " calls=" + P.calls.join(", "));
+}
+
 // --------------------------------------------------------------- report
 console.log("\nPanel.qml: " + PANEL + "  sha256:" + sha(SRC));
 EXTRACTED.forEach(function (f) {
