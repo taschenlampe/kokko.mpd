@@ -146,6 +146,11 @@ Panel {
   property var detailRow: null
   property string detailTitle: ""
   property bool detailLoading: false
+  // Which details request is still wanted. The query answers later, and the
+  // user can close the overlay or leave the frame before it does -- an answer
+  // from that generation must not reopen it (with the tags of whichever row
+  // the cursor has moved on to).
+  property int detailGeneration: 0
 
   readonly property var frame: stack.length > 0 ? stack[stack.length - 1] : null
 
@@ -225,7 +230,7 @@ Panel {
     }
     // The queue can change from anywhere (the bar, a bind, another client), so
     // re-read it when MPD says its length moved.
-    function onQueueLengthChanged() { if (root.frameMode === "queue") reloadTimer.restart() }
+    function onQueueLengthChanged() { root.queueLengthMoved() }
     // MPD answers `findadd`/`searchadd` with a bare OK, so a filter that matches
     // nothing is silent there. The bridge turns that silence into an ack, and the
     // footer repeats it instead of leaving the optimistic "appended" standing.
@@ -296,7 +301,7 @@ Panel {
     // file list where the settings belong, and the settings became unreachable.
     root.closePrompt()
     root.tab = String(name)
-    root.detailRow = null
+    root.closeDetails()
     root.sel = 0
     root.stack = [root.rootFrameFor(root.tab)]
     if (root.tab === "search") {
@@ -308,14 +313,14 @@ Panel {
   function pushFrame(nextFrame) {
     root.stack = root.stack.concat([nextFrame])
     root.sel = 0
-    root.detailRow = null
+    root.closeDetails()
   }
 
   function popFrame() {
     if (root.stack.length <= 1) return false
     root.stack = root.stack.slice(0, root.stack.length - 1)
     root.sel = 0
-    root.detailRow = null
+    root.closeDetails()
     return true
   }
 
@@ -523,7 +528,7 @@ Panel {
     var top = root.topFrame()
     if (top && String(top.mode) === "radioStations") {
       root.sel = 0
-      root.detailRow = null
+      root.closeDetails()
       root.stack = root.stack.slice(0, root.stack.length - 1).concat([nextFrame])
       return
     }
@@ -569,10 +574,17 @@ Panel {
     if (!f) return
     var mode = String(f.mode || "")
 
-    // A reload of the queue that is on screen: remember the row under the cursor
+    // The carry belongs to the list that is being re-read: the queue (a row can
+    // be consumed while it is re-read) and a saved playlist (a deleted row lets
+    // the next one slide into its place). Every other load starts without it,
+    // so a queue reload's cursor wish cannot land on another tab's list.
+    var carrying = (mode === "queue" || mode === "plist") && root.loadedFrame === f
+    if (!carrying) root.carrySel = null
+    // A reload of the list that is on screen: remember the row under the cursor
     // before the new list replaces it. By song id, because positions move as soon as
-    // `consume` takes a row out; the index is the fallback for a row that is gone.
-    if (mode === "queue" && root.loadedFrame === f && root.rows.length > 0) {
+    // `consume` takes a row out; the index is the fallback for a row that is gone
+    // (a playlist row has no id, so there the index is the answer).
+    if (carrying && root.rows.length > 0) {
       var under = root.rows[root.sel]
       root.carrySel = {
         id: (under && under.id !== undefined) ? Number(under.id) : -1,
@@ -610,6 +622,13 @@ Panel {
     // and sends no MPD command, so it is readable with the player down -- and
     // saying "no connection to MPD" over it would be a lie.
     if (!root.up && mode !== "radioStations") {
+      // Same two reasons as the settings branch: the generation goes up, so an
+      // answer from the load that was still in flight is dropped instead of
+      // painted into a view that just said it has no connection -- and the
+      // loading line is taken down, or the panel sits on "loading …" forever.
+      root.loadGeneration = root.loadGeneration + 1
+      root.loading = false
+      root.carrySel = null
       root.rows = []
       root.setInfo("no connection to MPD")
       return
@@ -644,6 +663,8 @@ Panel {
       root.answeredLoads++
       if (error !== "") {
         root.loading = false
+        // A reload that failed has no list to carry the cursor into.
+        root.carrySel = null
         root.setInfo(error)
         return
       }
@@ -1596,6 +1617,36 @@ Panel {
     onTriggered: root.loadFrame()
   }
 
+  // A queue length change (a track was consumed, an append, another client)
+  // re-reads the queue -- but only while the panel is on screen: behind a closed
+  // panel every track change would cost a 2000-row query for a list nobody is
+  // looking at. The panel catches up when it opens (see panelOpened).
+  function queueLengthMoved() {
+    if (root.frameMode === "queue" && root.panelShowing()) reloadTimer.restart()
+  }
+
+  // Whether the panel is on screen at all.
+  function panelShowing() {
+    return !!(root.hostWidget && root.hostWidget.opened === true)
+  }
+
+  // What an opening panel does: land on the playing track, open on the start
+  // screen when the queue is empty, and re-read the list that is on screen --
+  // the catch-up for a queue that changed while the panel was closed.
+  function panelOpened() {
+    root.jumpToCurrent = true
+    // An empty queue has nothing to come back to, so the panel lands on the start
+    // screen -- that is what it is for. The rule is narrow on purpose: only from
+    // the queue's own root frame (a panel closed somewhere deep is left there,
+    // that is where the user was) and only when the queue is really empty, not
+    // merely paused: a paused queue is still the way back to the music.
+    var startHere = root.host && root.host.queueLength === 0
+      && root.tab === "queue" && root.frameMode === "queue"
+    if (startHere) root.setTab("start")
+    else if (root.stack.length === 0) root.setTab(root.tab)
+    else root.loadFrame()
+  }
+
   function setInfo(text) { root.infoText = String(text || "") }
 
   function note(what) {
@@ -1939,8 +1990,14 @@ Panel {
     return Number(row.id) === Number(root.host.song.id)
   }
 
+  // A row that is one track, not something that stands for several. The type
+  // decides, never the presence of a `file`: a search's album group carries the
+  // file its cover is looked up with, and reading that as "a song" kept the
+  // search field open over the album it had just opened.
   function rowIsSong(row) {
-    return !!row && (row.type === "file" || !!row.file)
+    if (!row) return false
+    var type = String(row.type || "")
+    return type === "file" || type === "startTrack"
   }
 
   // --------------------------------------------------------------- actions
@@ -2096,7 +2153,7 @@ Panel {
             filter: [["artist", byArtist], ["album", albumName]] }
         ])
         root.sel = 0
-        root.detailRow = null
+        root.closeDetails()
         return
       }
       root.pushFrame({ mode: "find", title: albumName + " — tracks", sort: "track",
@@ -2354,9 +2411,9 @@ Panel {
     // and in the queue a row index is its MPD position.
     var rows = (root.rows || []).slice()
     if (rows[from] && rows[to] && from !== to) {
-      var tausch = rows[from]
+      var swapped = rows[from]
       rows[from] = rows[to]
-      rows[to] = tausch
+      rows[to] = swapped
       rows[from].pos = from
       rows[to].pos = to
       root.rows = rows
@@ -2369,10 +2426,18 @@ Panel {
     list.positionViewAtIndex(root.sel, ListView.Contain)
   }
 
+  // Closing the overlay is also what invalidates a request still in flight: its
+  // answer may only fill an overlay that is still wanted (see detailGeneration).
+  function closeDetails() {
+    root.detailGeneration = root.detailGeneration + 1
+    root.detailRow = null
+    root.detailLoading = false
+  }
+
   function showDetails() {
     var row = root.rows[root.sel]
     if (!row) return
-    if (root.detailRow !== null) { root.detailRow = null; return }
+    if (root.detailRow !== null) { root.closeDetails(); return }
     // A start row stands for a collection, not a song: its `file` is only the track
     // the cover came from, and that track's tags would answer a question nobody
     // asked. Say which way the details are, instead of showing the wrong ones.
@@ -2382,8 +2447,11 @@ Panel {
     }
     // A station is in nobody's library: there is nothing for MPD to look up, and
     // the row already carries everything the pane can say. So this needs no
-    // connection either.
+    // connection either -- and it invalidates any songinfo answer still in
+    // flight, which would otherwise paint another row's tags over it.
     if (row.type === "radioStation") {
+      root.detailGeneration = root.detailGeneration + 1
+      root.detailLoading = false
       root.detailTitle = root.stationTitle(row)
       root.detailRow = root.stationDetail(row)
       return
@@ -2391,9 +2459,13 @@ Panel {
     if (!root.up) return
     var uri = String(row.file || root.host.songFile || "")
     if (uri === "") return
+    var gen = ++root.detailGeneration
     root.detailLoading = true
     root.detailTitle = root.rowTitle(row)
     host.query("songinfo", { file: uri }, "detail", function(list, error) {
+      // The overlay was closed or the frame left while MPD was answering: this
+      // is no longer the row the user is looking at.
+      if (gen !== root.detailGeneration) return
       root.detailLoading = false
       if (error !== "") { root.setInfo(error); return }
       root.detailRow = list.length > 0 ? list[0] : null
@@ -2443,9 +2515,14 @@ Panel {
   // the list (`a`, enter, j/k), and `/` comes back with the term still in the
   // field. Without the flush, a pending debounce would land after the fact and
   // wipe the list.
-  function leavePrompt() {
+  function leavePrompt(flush) {
     promptDebounce.stop()
-    if (root.promptMode === "search" && root.promptText.trim() !== "")
+    // `flush` defaults to true: leaving the field normally applies a term the
+    // list has not been asked for yet. Enter uses `false` when it opens the
+    // group under the cursor -- those hits are on screen already, and re-running
+    // the search would put the cursor back on the first heading, so the very
+    // group the user meant would not open.
+    if (flush !== false && root.promptMode === "search" && root.promptText.trim() !== "")
       root.applySearch(root.promptText)
     // An empty scoped field has nothing to scope: applying it again would only
     // rebuild the frame that is already there.
@@ -2512,7 +2589,7 @@ Panel {
       var next = root.stack.slice(0, root.stack.length - 1)
       next.push(nextFrame)
       root.sel = 0
-      root.detailRow = null
+      root.closeDetails()
       root.stack = next
       return
     }
@@ -2540,7 +2617,7 @@ Panel {
                       title: trimmed === "" ? base : base + " · " + trimmed }
     if (top && String(top.mode) === "list" && top.search !== undefined) {
       root.sel = 0
-      root.detailRow = null
+      root.closeDetails()
       root.stack = root.stack.slice(0, root.stack.length - 1).concat([nextFrame])
       return
     }
@@ -2689,7 +2766,10 @@ Panel {
         // leaves it, because from there on the keys belong to the new list.
         if (root.promptMode === "search") {
           var row = root.rows[root.sel]
-          if (!rowIsSong(row)) root.leavePrompt()
+          // Opening a group leaves the field, because from there on the keys
+          // belong to the new list. Closing it in place (no flush) keeps the
+          // cursor on the group: the hits came from the term already typed.
+          if (!rowIsSong(row)) root.leavePrompt(false)
           root.activate()
         } else {
           root.submitPrompt()
@@ -2734,7 +2814,7 @@ Panel {
     // The details overlay owns it next.
     if (root.detailRow !== null) {
       if (key === Qt.Key_Escape || text === "i" || key === Qt.Key_Return || key === Qt.Key_Enter) {
-        root.detailRow = null
+        root.closeDetails()
         event.accepted = true
       }
       return
@@ -2747,7 +2827,7 @@ Panel {
       // In the order of what is on top: the details overlay, then a set filter,
       // then one frame back, then closing the panel. Closing the whole panel from
       // three levels deep is not what somebody pressing `esc` means.
-      if (root.detailRow !== null) { root.detailRow = null; event.accepted = true; return }
+      if (root.detailRow !== null) { root.closeDetails(); event.accepted = true; return }
       if (root.filterText !== "") {
         root.filterText = ""
         root.refreshFilteredRows()
@@ -2980,19 +3060,7 @@ Panel {
     contentHeight: panel.cappedContentHeight(Style.space(610))
 
     onOpenChanged: if (open) {
-      // Opened on a long queue, the list would start at the top -- the one place
-      // the playing track is not. The queue load picks this up and lands on it.
-      root.jumpToCurrent = true
-      // An empty queue has nothing to come back to, so the panel lands on the start
-      // screen -- that is what it is for. The rule is narrow on purpose: only from
-      // the queue's own root frame (a panel closed somewhere deep is left there,
-      // that is where the user was) and only when the queue is really empty, not
-      // merely paused: a paused queue is still the way back to the music.
-      var startHere = root.host && root.host.queueLength === 0
-        && root.tab === "queue" && root.frameMode === "queue"
-      if (startHere) root.setTab("start")
-      else if (root.stack.length === 0) root.setTab(root.tab)
-      else root.loadFrame()
+      root.panelOpened()
       Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
     }
 
@@ -3004,7 +3072,7 @@ Panel {
 
       // The panel's own floor. Up to now the opaque part came from the backdrop's
       // gradient -- so in the looks that carry the cover inside the band (hero,
-      // anker) the panel had no floor at all and everything behind it showed
+      // anchor) the panel had no floor at all and everything behind it showed
       // through. A plain rectangle, in the same colour the gradients end in, so the
       // blurred looks are unchanged and the flat ones are opaque.
       Rectangle {
@@ -3013,8 +3081,8 @@ Panel {
       }
 
       // ------------------------------------------ the cover behind the panel
-      // Two treatments live in Backdrop.qml: the blurred cover (heute) and the
-      // sharp, dimmed one (musify's trick). Which one shows, and whether any
+      // Two treatments live in Backdrop.qml: the blurred cover (the classic look)
+      // and the sharp, dimmed one (musify's trick). Which one shows, and whether any
       // shows at all, follows the look setting -- the hero and anchor looks
       // carry their own cover and leave the panel plain.
       Backdrop {

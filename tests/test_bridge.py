@@ -138,7 +138,8 @@ class FakeConn(B.MPDConn):
     """The real MPDConn on a fake transport: `connect()` dials nothing."""
 
     def __init__(self, target, password="", script=None, gate=None,
-                 connect_gate=None, block=False, wire=None, fail_send_at=None):
+                 connect_gate=None, block=False, wire=None, fail_send_at=None,
+                 connect_error=None):
         # The captured class, not B.MPDConn: that name is the factory by now.
         REAL_MPDConn.__init__(self, target, password)
         self.script = script
@@ -147,12 +148,15 @@ class FakeConn(B.MPDConn):
         self.block = block
         self.wire = wire if wire is not None else []
         self.fail_send_at = fail_send_at
+        self.connect_error = connect_error
         self.connecting = False
 
     def connect(self, timeout=None):
         self.connecting = True
         if self.connect_gate is not None:
             self.connect_gate.wait(3.0)  # a connect that is still in flight
+        if self.connect_error is not None:
+            raise self.connect_error
         self.sock = FakeSock(self.wire, self.target[1], self.fail_send_at)
         self.fh = FakeFile(self.script, self.gate, self.block)
         self.version = "0.23.5"
@@ -323,6 +327,24 @@ check("special characters are escaped",
 check("apostrophe in an artist name",
       B.quote_filter_value("O'Brien"), "O\\'Brien")
 check("backslash is doubled", B.quote_filter_value("a\\b"), "a\\\\b")
+
+# MPD reads its input a line at a time. A quote cannot carry a line break, so a
+# value that has one used to end its command there and whatever followed became
+# the next command -- a `file:` tag with a newline in it could run `clear`.
+# Both quoting layers refuse it rather than pass it through.
+check("a quoted value is unchanged", B.quote('a"b\\c'), '"a\\"b\\\\c"')
+for label, bad in (("line break", "a\nb"),
+                   ("carriage return", "a\rb"),
+                   ("NUL byte", "a\x00b")):
+    check("a quoted value with a %s is refused" % label,
+          raised_by(lambda value=bad: B.quote(value)), "MPDCommandError")
+    check("a filter value with a %s is refused" % label,
+          raised_by(lambda value=bad: B.quote_filter_value(value)),
+          "MPDCommandError")
+# Only the framing characters are refused. A tab inside a quote is legal and a
+# file name may have one -- refusing it would make that file unplayable.
+check("a tab is not a line break", B.quote("a\tb"), '"a\tb"')
+check("a tab survives the filter quoting", B.quote_filter_value("a\tb"), "a\tb")
 
 print("=== a list search inside a filter keeps both conditions ===")
 # The panel narrows a nested list -- one artist, one genre -- and searches
@@ -1037,6 +1059,33 @@ nosock = REAL_MPDConn(("tcp", "127.0.0.1", 6600))
 check("a write on a connection without a socket is a connection error",
       raised_by(lambda: nosock.send("status")), "MPDError")
 
+print("=== a malformed binary length is a protocol error, not a crash ===")
+# A proxy or a foreign server answering `binary: nope` used to raise ValueError
+# from int() inside the response reader. Nothing in the chain catches a
+# ValueError, so on the query worker the thread died mid-answer: the frame
+# waited forever and the socket stayed one answer behind, handing every later
+# query the previous answer's lines. It is a protocol error, and the command
+# path drops the socket like any other.
+bad = FakeConn(("tcp", "127.0.0.1", 6600), script=[b"binary: nope\n"])
+bad.connect()
+try:
+    check("a binary length that is not a number is a protocol error",
+          raised_by(bad.read_response), "MPDError")
+finally:
+    bad.close()
+
+factory, saved, bridge, events = connected_cmd([{"script": [b"binary: nope\n"]}])
+try:
+    check("... and a command reading one does not escape as ValueError",
+          raised_by(lambda: bridge.with_cmd(lambda conn: conn.command("status"))), "")
+    check("... the connection is dropped", bridge.cmd, None)
+    check("... its socket is closed", factory.made[0].sock, None)
+    check("... and the user hears a disconnected event",
+          [e.get("event") for e in events], ["disconnected"])
+finally:
+    B.MPDConn = saved
+    stop_bridge(bridge)
+
 # And a bridge whose worker is gone -- the state the drop above used to leave it
 # in for good. The next request has to start one rather than queue behind a
 # thread that will never look at the queue again.
@@ -1103,6 +1152,223 @@ finally:
     for conn in factory.made:
         if conn.fh is not None:
             conn.fh.release.set()
+    stop_bridge(bridge)
+    manager.join(2.0)
+    B.MPDConn = saved
+
+print("=== a greeting that never arrives closes what was opened ===")
+# MPD accepting a connection and then saying nothing is the documented wedge.
+# `connect()` closed its handles only for a greeting it did not recognise; a
+# readline that timed out or hit a reset left the socket and its file object
+# open for good. The failure is re-raised unchanged -- this is about what is
+# left behind, not about what is reported.
+class GreetingFile:
+    def __init__(self, failure):
+        self.failure = failure
+        self.closed = False
+
+    def readline(self):
+        raise self.failure
+
+    def close(self):
+        self.closed = True
+
+
+class GreetingSock(FakeSock):
+    def __init__(self, failure):
+        FakeSock.__init__(self, [])
+        self.failure = failure
+        self.made_file = None
+
+    def makefile(self, mode):
+        self.made_file = GreetingFile(self.failure)
+        return self.made_file
+
+
+saved_create = B.socket.create_connection
+try:
+    for label, failure in (("a timeout", socket.timeout("timed out")),
+                           ("a reset", OSError(104, "Connection reset by peer"))):
+        fake = GreetingSock(failure)
+        B.socket.create_connection = lambda *args, **kwargs: fake
+        conn = REAL_MPDConn(("tcp", "127.0.0.1", 6600))
+        check("connect() surfaces %s" % label,
+              raised_by(conn.connect), type(failure).__name__)
+        check("... and closes the socket", fake.closed, True)
+        check("... and the file it opened", fake.made_file.closed, True)
+        check("... leaving no handles behind", (conn.sock, conn.fh), (None, None))
+finally:
+    B.socket.create_connection = saved_create
+
+print("=== a failed idle connect closes the command connection it already has ===")
+factory, saved = planted([
+    {},                                                       # command: comes up
+    {"connect_error": OSError(111, "Connection refused")},    # idle: does not
+])
+bridge = B.Bridge()
+bridge.request_art = lambda song: None
+events = []
+
+
+def stopped_on_disconnect(payload):
+    events.append(payload)
+    if payload.get("event") == "disconnected":
+        bridge.stop.set()
+        bridge.wake.set()
+
+
+bridge.emit = stopped_on_disconnect
+manager = threading.Thread(target=bridge.manager, daemon=True)
+manager.start()
+try:
+    check("the manager reached the idle connect",
+          wait_for(lambda: len(factory.made) >= 2), True)
+    manager.join(2.0)
+    check("... and left its loop", manager.is_alive(), False)
+    cmd_conn = factory.made[0]
+    check("the command connection it had opened is closed",
+          (cmd_conn.sock, cmd_conn.fh), (None, None))
+finally:
+    stop_bridge(bridge)
+    manager.join(2.0)
+    B.MPDConn = saved
+
+print("=== a refresh asked for during the last check is not lost ===")
+# The "is anything pending" check and the finally that cleared the flag were
+# two separate critical sections. A caller setting the flag between them had
+# its request wiped by the finally: nothing refreshed, and the bar kept the
+# state from before the event. The lock hook below holds the moment open, so
+# the second caller lands exactly in that window.
+bridge = B.Bridge()
+bridge.emit = lambda payload: None
+reads = []
+
+
+def counting_refresh_once():
+    reads.append(1)
+
+
+bridge.refresh_once = counting_refresh_once
+real_lock = threading.Lock()
+last_check_released = threading.Event()
+resume = threading.Event()
+
+
+class CheckLock:
+    def __enter__(self):
+        real_lock.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        real_lock.release()
+        # The first read has finished and left its last check, but the loop
+        # has not returned yet: the window the old code lost a request in.
+        if len(reads) == 1 and not last_check_released.is_set():
+            last_check_released.set()
+            resume.wait(2.0)
+        return False
+
+
+bridge.refresh_lock = CheckLock()
+first = threading.Thread(target=bridge.refresh, daemon=True)
+first.start()
+second = None
+try:
+    check("the first read reached its last check",
+          wait_for(last_check_released.is_set), True)
+    second = threading.Thread(target=bridge.refresh, daemon=True)
+    second.start()
+    second.join(2.0)
+    check("the second caller did not block", second.is_alive(), False)
+    resume.set()
+    first.join(2.0)
+    check("... and its request is read too", len(reads), 2)
+finally:
+    resume.set()
+    first.join(2.0)
+    if second is not None:
+        second.join(2.0)
+    stop_bridge(bridge)
+
+print("=== a flapping server is not redialled in a tight loop ===")
+# The backoff only grew on a failed connect. A connection that came up and died
+# at once -- the server closes after the greeting, or answers `idle` with an
+# ACK -- was retried with no pause at all. A round that lives less than a few
+# seconds now counts as failed and the wait grows across rounds; a round that
+# stood up resets it to the first step.
+class RecordingWake:
+    """The manager's wake event, with the waits written down instead of slept."""
+
+    def __init__(self):
+        self.waits = []
+        self.flag = False
+
+    def clear(self):
+        self.flag = False
+
+    def set(self):
+        self.flag = True
+
+    def is_set(self):
+        return self.flag
+
+    def wait(self, seconds):
+        self.waits.append(seconds)
+        return self.flag
+
+
+gate = threading.Event()
+factory, saved = planted([
+    {}, {"script": [RESET]},                          # short: dies at once
+    {}, {"script": [RESET], "gate": gate},            # this one stands up
+    {}, {"script": [RESET]},                          # short again
+    {}, {"script": [RESET]},                          # and once more
+])
+bridge = B.Bridge()
+wake = RecordingWake()
+bridge.wake = wake
+bridge.request_art = lambda song: None
+drops = []
+
+
+def stop_after_fourth(payload):
+    if payload.get("event") == "disconnected":
+        drops.append(payload)
+        if len(drops) >= 4:
+            bridge.stop.set()
+            wake.set()
+
+
+bridge.emit = stop_after_fourth
+saved_min = getattr(B, "MIN_ROUND_ALIVE", None)
+B.MIN_ROUND_ALIVE = 0.05          # a round that lasts 50 ms has stood up
+manager = threading.Thread(target=bridge.manager, daemon=True)
+manager.start()
+try:
+    check("the first short round waits before the next",
+          wait_for(lambda: len(wake.waits) >= 1, 1.5), True)
+    check("... with a grown backoff", wake.waits[:1], [2.0])
+    check("the second round stood up before it died",
+          wait_for(lambda: len(factory.made) >= 4
+                   and factory.made[3].fh is not None
+                   and factory.made[3].fh.entered.is_set(), 3.0), True)
+    time.sleep(0.12)
+    gate.set()
+    check("... so the third short round waits from the reset",
+          wait_for(lambda: len(wake.waits) >= 2, 3.0), True)
+    check("... at the first step again, not the second",
+          wake.waits[:2], [2.0, 2.0])
+    manager.join(3.0)
+    check("... and the manager left its loop", manager.is_alive(), False)
+finally:
+    gate.set()
+    if saved_min is None:
+        try:
+            del B.MIN_ROUND_ALIVE
+        except AttributeError:
+            pass
+    else:
+        B.MIN_ROUND_ALIVE = saved_min
     stop_bridge(bridge)
     manager.join(2.0)
     B.MPDConn = saved
@@ -1208,12 +1474,21 @@ prune_dir = B.cache_dir()
 saved_keep = B.ART_CACHE_KEEP
 B.ART_CACHE_KEEP = 2
 try:
-    covers = [os.path.join(prune_dir, "cover-%d.jpg" % n) for n in range(2)]
-    parts = [os.path.join(prune_dir, "cover-%d.jpg.part" % n) for n in range(2)]
+    # The key shape from art_key(): twenty hex characters plus an extension.
+    # A name that does not look like one is not the cache's to delete.
+    covers = [os.path.join(prune_dir, "%020x.jpg" % (n + 1)) for n in range(2)]
+    parts = [os.path.join(prune_dir, "%020x.jpg.part" % (n + 1)) for n in range(2)]
     for path in covers + parts:
         with open(path, "wb") as handle:
             handle.write(jpeg(32))
+    # The recent list lives in the same directory and is not a cover. The live
+    # cache sits right at the keep limit, so counting it as an entry deleted it
+    # once the cache grew -- the start screen's "Recently played" went empty.
+    recent = os.path.join(prune_dir, "recent.json")
+    with open(recent, "wb") as handle:
+        handle.write(b"[]")
     stamp = time.time()
+    os.utime(recent, (stamp - 1200, stamp - 1200))   # older than everything
     for n, path in enumerate(covers):        # the finished covers are the older ones
         os.utime(path, (stamp - 600 - n, stamp - 600 - n))
     for n, path in enumerate(parts):         # the temp files look newer
@@ -1223,6 +1498,20 @@ try:
           [os.path.exists(p) for p in covers], [True, True])
     check("... and a temp file of a write in progress too",
           [os.path.exists(p) for p in parts], [True, True])
+    check("... and recent.json is not a cover entry",
+          os.path.exists(recent), True)
+    # And the prune still does its job when there really are more covers than
+    # the cache keeps: the oldest cover goes, the recent list still stays.
+    extra = os.path.join(prune_dir, "%020x.jpg" % 0xbeef)
+    with open(extra, "wb") as handle:
+        handle.write(jpeg(32))
+    os.utime(extra, (stamp, stamp))
+    B.prune_cache()
+    check("an over-limit cache still trims the oldest cover",
+          os.path.exists(covers[1]), False)
+    check("... keeps the newer ones",
+          [os.path.exists(p) for p in (covers[0], extra)], [True, True])
+    check("... and leaves recent.json alone", os.path.exists(recent), True)
     # The other direction: a temp file nobody is writing any more is garbage, and
     # since the prune no longer counts `.part` files as entries nothing else would
     # ever collect it.

@@ -346,14 +346,14 @@ Item {
         spacing: Style.spacing.xs
 
         PanelActionButton {
-          iconText: "󰑖"            // Zufall
+          iconText: "󰑖"            // Shuffle
           tooltipText: "Shuffle"
           foreground: card.host && card.host.randomOn ? Color.accent : card.faintColor
           onClicked: if (card.host) card.host.toggleOption("random")
         }
 
         PanelActionButton {
-          iconText: "󰒮"            // Zurueck
+          iconText: "󰒮"            // Previous
           tooltipText: "Previous"
           foreground: card.textColor
           onClicked: if (card.host) card.host.previousTrack()
@@ -369,7 +369,7 @@ Item {
         }
 
         PanelActionButton {
-          iconText: "󰒭"            // Vor
+          iconText: "󰒭"            // Next
           tooltipText: "Next"
           foreground: card.textColor
           onClicked: if (card.host) card.host.nextTrack()

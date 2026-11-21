@@ -115,10 +115,20 @@ ART_LIMIT = 12 * 1024 * 1024
 ART_CACHE_KEEP = 96
 ART_PART_SUFFIX = ".part"   # the temp name of a write that has not landed yet
 ART_PART_AGE = 3600         # a `.part` this old belongs to a writer that died
+# A finished entry is the key art_key() made -- twenty lowercase hex characters --
+# plus an extension from extension_for(). The cache directory also holds
+# recent.json and temp files; neither is a cover, and the prune may not count
+# or delete them.
+ART_CACHE_NAME = re.compile(r"^[0-9a-f]{20}\.[A-Za-z0-9]+$")
 ART_CHUNK = 256 * 1024
 
 CMD_TIMEOUT = 10.0
 CONNECT_TIMEOUT = 5.0
+# A round that comes up and dies sooner than this did not stand up. A flapping
+# server -- one that closes right after the greeting, or answers `idle` with an
+# ACK -- would otherwise be redialled in a tight loop. Only a round that lived
+# past this resets the wait.
+MIN_ROUND_ALIVE = 5.0
 
 # MPD closes an idle *command* connection after `connection_timeout`, 60 seconds
 # by default (this plugin's own mpd.conf sets none). A write to a peer that has
@@ -296,8 +306,34 @@ def error_text(exc: BaseException) -> str:
     return str(exc) or exc.__class__.__name__
 
 
+_LINE_CHARS = re.compile(r"[\x00\r\n]")
+
+
+def checked_text(value, what: str) -> str:
+    """Text that may go into one MPD command line, or a refusal.
+
+    MPD reads its input a line at a time and has no escape for a line break
+    inside a quoted argument. A value with one would end the command early and
+    turn whatever follows into a separate command -- an MPD `file:` tag with a
+    newline in it could send `clear` next. No caller may bypass this, so both
+    quoting layers pass through here.
+
+    Only the three characters that break the framing are refused: NUL, CR and
+    LF. Everything else -- a tab, say -- is legal inside a quote and is passed
+    through, because refusing it would make a file with a tab in its name
+    unplayable for no reason the protocol gives.
+    """
+    text = str(value)
+    found = _LINE_CHARS.search(text)
+    if found:
+        raise MPDCommandError(
+            "%s contains a line break or NUL (U+%04X), which MPD cannot carry "
+            "on one command line" % (what, ord(found.group(0))))
+    return text
+
+
 def quote(value) -> str:
-    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return '"' + checked_text(value, "value").replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def parse_target(host: str, port) -> tuple:
@@ -371,7 +407,15 @@ class MPDConn:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.sock = sock
         self.fh = sock.makefile("rb")
-        greeting = self.readline()
+        try:
+            greeting = self.readline()
+        except (MPDError, OSError):
+            # A server that accepts and then says nothing (the documented
+            # wedge) or a reset during the greeting used to leave the socket
+            # and its file object open. Close first, then re-raise what
+            # happened; the message does not change.
+            self.close()
+            raise
         if not greeting.startswith("OK MPD "):
             self.close()
             raise MPDError("unexpected greeting from server")
@@ -509,7 +553,10 @@ class MPDConn:
                     continue
                 key, value = line.split(": ", 1)
                 if key == "binary":
-                    count = int(value)
+                    try:
+                        count = int(value)
+                    except ValueError:
+                        raise MPDError("malformed binary chunk length")
                     if count < 0 or count > ART_LIMIT:
                         raise MPDError("refusing a %d byte binary chunk" % count)
                     binary = self.read_bytes(count)
@@ -665,7 +712,7 @@ def quote_filter_value(value) -> str:
     out. Applying them in this order is what makes an apostrophe in a band name
     arrive intact.
     """
-    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return checked_text(value, "filter value").replace("\\", "\\\\").replace("'", "\\'")
 
 
 def contains_expression(tag: str, term: str) -> str:
@@ -968,7 +1015,7 @@ def prune_cache() -> None:
             if now - os.path.getmtime(stale) > ART_PART_AGE:
                 os.unlink(stale)
         entries = [os.path.join(directory, n) for n in names
-                   if not n.endswith(ART_PART_SUFFIX)]
+                   if ART_CACHE_NAME.match(n)]
         if len(entries) <= ART_CACHE_KEEP:
             return
         entries.sort(key=lambda p: os.path.getmtime(p))
@@ -1717,6 +1764,8 @@ class Bridge:
             # new one.
             target, password = self.target, self.password
             self.wake.clear()
+            cmd = None
+            idle = None
             try:
                 cmd = MPDConn(target, password)
                 cmd.connect()
@@ -1728,6 +1777,13 @@ class Bridge:
                 # readline reports, and TCP keepalive backs that up.
                 idle.sock.settimeout(None)
             except (MPDError, OSError) as exc:
+                # Whatever came up before the failure is this round's, and
+                # leaving it to the finally below would leak it: the finally
+                # only knows the objects of a round that got that far.
+                if cmd is not None:
+                    cmd.close()
+                if idle is not None:
+                    idle.close()
                 if generation == self.generation:
                     self.emit({
                         "event": "disconnected",
@@ -1741,7 +1797,9 @@ class Bridge:
                 backoff = 1.0 if generation != self.generation else min(15.0, backoff * 2)
                 continue
 
-            backoff = 1.0
+            # The connection came up; how long it lives decides whether this
+            # round counts as a failed attempt (see MIN_ROUND_ALIVE).
+            alive_since = time.monotonic()
             # The settings changed while this round was connecting, so what came
             # up belongs to the old address. Drop it unannounced and let the next
             # round build the connection that was actually asked for; the finally
@@ -1793,6 +1851,20 @@ class Bridge:
                 # drop() only announces a connection it still believed in.
                 if generation == self.generation:
                     self.drop(reason)
+                    # A round that was up for less than MIN_ROUND_ALIVE is a
+                    # failed attempt, even though its connect succeeded: grow
+                    # the pause across rounds instead of redialling at once.
+                    # Only a round that stood up resets it.
+                    if time.monotonic() - alive_since < MIN_ROUND_ALIVE:
+                        backoff = min(15.0, backoff * 2)
+                        if not self.stop.is_set():
+                            self.wake.wait(backoff)
+                    else:
+                        backoff = 1.0
+                else:
+                    # New settings get a fresh try, not the patience earned by
+                    # the address the user just left.
+                    backoff = 1.0
 
     # ----------------------------------------------------------- commands
 
@@ -1970,18 +2042,29 @@ class Bridge:
                 self.refresh_again = True
                 return
             self.refreshing = True
+        mine = True
         try:
             while True:
                 self.refresh_once()
+                # Deciding to stop and saying so are one critical section. The
+                # old code returned from this check and cleared the flag in the
+                # finally, so a caller setting it between the two lost its
+                # request: nothing refreshed, and the bar kept the state from
+                # before the event.
                 with self.refresh_lock:
                     if not self.refresh_again:
+                        self.refreshing = False
+                        mine = False
                         return
                     self.refresh_again = False
                 time.sleep(REFRESH_MIN_GAP)
         finally:
             with self.refresh_lock:
-                self.refreshing = False
-                self.refresh_again = False
+                # Only clean up after ourselves. A caller may have started a
+                # new read the moment the check above released the lock, and
+                # clearing its flag here would strand it.
+                if mine:
+                    self.refreshing = False
 
     def refresh_once(self) -> None:
         def run(conn):

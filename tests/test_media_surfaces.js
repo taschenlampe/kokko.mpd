@@ -63,6 +63,15 @@ const src = {
   band: fs.readFileSync(bandFile, "utf8")
 }
 
+// The widget itself (its surfaces live here: the OSD, the wallpaper card) and
+// the label's format language. Read lazily so a copy that holds only the three
+// sibling surfaces still runs every case that does not need them.
+function readBeside(name) {
+  try { return fs.readFileSync(path.join(root, name), "utf8") } catch (e) { return "" }
+}
+const barSrc = readBeside("BarWidget.qml")
+const formatSrc = readBeside("Format.js")
+
 // --- verbatim extraction ----------------------------------------------------
 function matchBraces(text, open) {
   let depth = 0
@@ -160,6 +169,17 @@ function blockAt(text, re, what) {
   const open = text.indexOf("{", m.index)
   if (open < 0) return null
   return mkPiece(text, open, matchBraces(text, open) + 1, what)
+}
+
+// A whole declaration: from the anchor (the `function` keyword) through its
+// closing brace. `blockAt` starts at the brace and would leave the signature
+// behind, which turns the body into a block that runs where it stands.
+function declAt(text, re, what) {
+  const m = re.exec(text)
+  if (!m) return null
+  const open = text.indexOf("{", m.index)
+  if (open < 0) return null
+  return mkPiece(text, m.index, matchBraces(text, open) + 1, what)
 }
 
 // The block whose opening `{` stands before a match -- the item that encloses
@@ -924,6 +944,434 @@ function caseBandStar() {
     ])
 }
 
+// --- 12: the wallpaper card exists only while the setting is on -------------
+// `visible: root.desktopWidget` left the PanelWindow mapped in a hidden state,
+// and a mapped layer surface that never draws is enough to block screencopy --
+// grim hangs until timeout -- and the orphan surface survives a shell restart.
+// The OSD and the hover card above already create their window through a Loader;
+// the wallpaper card has to do the same. This case asserts the presence rule (the
+// boolean that drives `active`), not a window: off means no window is built.
+function caseDesktopCardPresence() {
+  if (!barSrc) {
+    report("12", "the wallpaper card is created, not switched invisible", false,
+      ["BarWidget.qml not found beside the surfaces -- nothing to check"])
+    return
+  }
+  const m = /Variants\s*\{/.exec(barSrc)
+  let block = null
+  if (m) {
+    const open = barSrc.indexOf("{", m.index)
+    block = mkPiece(barSrc, open, matchBraces(barSrc, open) + 1, "desktopVariants")
+  }
+  const presence = blockAt(barSrc, /^  readonly property bool desktopWidget:/m, "desktopWidget")
+  const active = block ? exprAt(block.body, /\n\s*active:/, "desktopActive") : null
+  const stillVisible = block ? /\bvisible:\s*root\.desktopWidget/.test(block.body) : false
+  const loader = block ? /Loader\s*\{/.test(block.body) : false
+  const source = block ? /sourceComponent:\s*\w+/.test(block.body) : false
+
+  function presenceFor(v) {
+    if (!presence) return "<absent>"
+    try {
+      const f = new Function("setting", "return (function () " + presence.body + ")()")
+      return f(function (key, fallback) { return v === undefined ? fallback : v })
+    } catch (e) {
+      return "<error:" + e.message + ">"
+    }
+  }
+  function activeFor(v) {
+    if (!active) return "<absent>"
+    return evalPiece(active, "expr", ["root"], [{ desktopWidget: v }], "desktopActive")
+  }
+  const offRule = presenceFor(false)
+  const onRule = presenceFor(true)
+  const offActive = activeFor(false)
+  const onActive = activeFor(true)
+  const driven = !!active && /desktopWidget/.test(active.body)
+  const ok = !!block && loader && source && driven && !stillVisible
+    && offRule === false && onRule === true
+    && offActive === false && onActive === true
+
+  report("12", "the wallpaper card is created, not switched invisible", ok, [
+    "Variants block " + (block ? "lines " + block.first + "-" + block.last
+      + " sha256:" + block.hash : "absent"),
+    "  delegate is a Loader: " + loader + "   sourceComponent set: " + source,
+    "  window still switched with `visible: root.desktopWidget`: " + stillVisible,
+    "setting `desktopWidget` off/on -> " + JSON.stringify(offRule) + " / " + JSON.stringify(onRule),
+    "Loader `active:` " + (active ? "line " + active.first + " sha256:" + active.hash
+      + "  " + JSON.stringify(active.body.trim()) : "absent")
+      + "   off/on -> " + JSON.stringify(offActive) + " / " + JSON.stringify(onActive),
+    "expected: a Loader whose `active` is the setting's boolean, so off builds no"
+      + " window at all -- not a mapped window with `visible: false`"
+  ])
+}
+
+// --- 13: a favourites answer that was already in flight cannot undo a toggle --
+// A query sent before a local write can land after it. Assigning its `favSet`
+// unconditionally restored the playlist from before the write, so the star the
+// user just set flipped back for the ~600 ms until the timer's reload arrived.
+// Every local write bumps an epoch; a favourites answer carries the epoch it was
+// asked under and is dropped when a newer local write has happened since. The
+// control is the other half: an answer with the current epoch still wins.
+function caseFavoritesEpoch() {
+  if (!barSrc) {
+    report("13", "an in-flight favourites answer cannot undo a toggle", false,
+      ["BarWidget.qml not found beside the surfaces -- nothing to check"])
+    return
+  }
+  const load = declAt(barSrc, /^  function loadFavorites\(/m, "loadFavorites")
+  const toggle = declAt(barSrc, /^  function toggleFavorite\(/m, "toggleFavorite")
+  if (!load || !toggle) {
+    report("13", "an in-flight favourites answer cannot undo a toggle", false,
+      ["not found in BarWidget.qml: " + (!load ? "loadFavorites" : "toggleFavorite")])
+    return
+  }
+  const build = new Function("root", "favTimer",
+    // In the widget these are the root's properties; the extracted functions use
+    // them as bare names, the way QML resolves an id.
+    "var connected = root.connected\n"
+    + load.body + "\n\n" + toggle.body + "\n\n"
+    + "return { loadFavorites: loadFavorites, toggleFavorite: toggleFavorite }")
+  const uri = "Music/Boards of Canada/Dayvan.mp3"
+
+  function widget() {
+    const pending = []
+    const root = {
+      connected: true, songFile: uri, favSet: {}, favEpoch: 0,
+      isFavorite: function (key) { return root.favSet[key] === true },
+      mutation: function () {},
+      query: function (kind, args, channel, cb) { pending.push({ kind: kind, cb: cb }) }
+    }
+    return { root: root, pending: pending,
+             w: build(root, { restart: function () {} }) }
+  }
+
+  // The race: ask, toggle, then deliver the answer asked before the toggle.
+  const a = widget()
+  a.w.loadFavorites()
+  const asked = a.pending.length
+  a.w.toggleFavorite()
+  const afterToggle = a.root.favSet[uri] === true
+  const epochAfterWrite = a.root.favEpoch
+  if (a.pending[0]) a.pending[0].cb([], "")
+  const afterOldAnswer = a.root.favSet[uri] === true
+
+  // The control: a fresh load after the write is the current answer and applies.
+  a.w.loadFavorites()
+  if (a.pending[1]) a.pending[1].cb([], "")
+  const afterNewAnswer = a.root.favSet[uri] === true
+
+  // And an answer asked after the write can star the track again.
+  const b = widget()
+  b.w.toggleFavorite()
+  b.root.favSet = {}
+  b.root.favEpoch++          // a later local write, so the old demand is moot
+  b.w.loadFavorites()
+  if (b.pending[0]) b.pending[0].cb([{ file: uri }], "")
+  const starredByNewAnswer = b.root.favSet[uri] === true
+
+  const readsEpoch = /favEpoch/.test(load.body) && /favEpoch/.test(toggle.body)
+  const ok = asked === 1 && afterToggle === true && epochAfterWrite > 0
+    && afterOldAnswer === true && afterNewAnswer === false
+    && starredByNewAnswer === true && readsEpoch
+
+  report("13", "an in-flight favourites answer cannot undo a toggle", ok, [
+    "loadFavorites " + (load ? "lines " + load.first + "-" + load.last
+      + " sha256:" + load.hash : "absent")
+      + "   reads the epoch: " + (load ? /favEpoch/.test(load.body) : false),
+    "toggleFavorite  " + (toggle ? "lines " + toggle.first + "-" + toggle.last
+      + " sha256:" + toggle.hash : "absent")
+      + "   bumps the epoch: " + (toggle ? /favEpoch/.test(toggle.body) : false),
+    "asked, then toggled: star on " + afterToggle + ", epoch " + epochAfterWrite,
+    "  old answer delivered -> star still on: " + afterOldAnswer + " (want true)",
+    "  new answer delivered -> star now off: " + !afterNewAnswer + " (the newer answer wins)",
+    "  an answer asked after a write can still star: " + starredByNewAnswer,
+    "expected: the epoch is bumped on every local write, an answer carrying an older"
+      + " epoch is dropped, and an answer carrying the current one still applies"
+  ])
+}
+
+// --- 14: the hover card hangs from whichever edge the bar is on ------------
+// `barPosition` was declared and read nowhere: the card always sat under the top
+// edge, so with `bar.position: "bottom"` it was drawn below the screen. The
+// position expression is run for both edges. A top bar keeps the card exactly
+// where it was: y = strip bottom + gap, surface anchored to the top. A bottom bar
+// anchors the surface to the bottom and hangs the card one gap above the strip's
+// top edge. The internals are untouched: the progress line stays above the
+// transport in both cases.
+function caseCardBarPosition() {
+  const yPiece = propIn(src.mini, "card", "y", "cardY")
+  const heightPiece = exprAt(src.mini, /^  implicitHeight:/m, "surfaceHeight")
+  const bottomPiece = exprAt(src.mini, /^  readonly property bool barAtBottom:/m, "barAtBottom")
+  const gap = 7, stripH = 26, cardH = 122, screenH = 960
+  const stripTop = screenH - stripH
+
+  if (!yPiece || !heightPiece) {
+    report("14", "the hover card hangs from whichever edge the bar is on", false,
+      ["not found in MiniPlayer.qml: " + (!yPiece ? "the card's `y:`" : "the surface height")])
+    return
+  }
+
+  function evalAt(piece, bottom) {
+    try {
+      const mini = { barAtBottom: bottom, barH: stripH, barY: stripTop, gap: gap }
+      const card = { height: cardH }
+      const Style = { space: function (n) { return n } }
+      const screen = { height: screenH }
+      // The surface height expression writes `barH`/`gap`/`card` as bare names
+      // (they are ids/properties in the card's own scope), the y expression names
+      // its `mini.` owner -- hand the evaluator both.
+      const f = new Function("mini", "Style", "card", "screen", "barH", "gap",
+        "barAtBottom", "barY", "return (" + piece.body + ")")
+      return f(mini, Style, card, screen, stripH, gap, bottom, stripTop)
+    } catch (e) {
+      return "<error:" + e.message + ">"
+    }
+  }
+  function bottomRule() {
+    if (!bottomPiece) return "<absent>"
+    try {
+      const f = new Function("barPosition", "return (" + bottomPiece.body + ")")
+      return { top: f("top"), bottom: f("bottom") }
+    } catch (e) {
+      return { top: "<error:" + e.message + ">", bottom: "<error:" + e.message + ">" }
+    }
+  }
+  const rule = bottomRule()
+  const topY = evalAt(yPiece, false)
+  const bottomY = evalAt(yPiece, true)
+  const topH = evalAt(heightPiece, false)
+  const bottomH = evalAt(heightPiece, true)
+
+  // Top bar: the card starts just under the strip's bottom edge.
+  const topAbsolute = topY
+  // Bottom bar: the surface is anchored to the screen's bottom, so the card's
+  // absolute y is screen height - surface height + its local y.
+  const bottomAnchored = /bottom:\s*(?:mini\.)?barAtBottom/.test(src.mini)
+    && /top:\s*!(?:mini\.)?barAtBottom/.test(src.mini)
+  const bottomAbsolute = bottomAnchored ? screenH - bottomH + bottomY : bottomY
+  const bottomCardBottom = bottomAbsolute + cardH
+
+  const topOk = topY === stripH + gap && topH === stripH + gap + cardH + 8
+  // Bottom: the card hangs one gap above the strip's top edge.
+  const bottomOk = bottomY === 8 && bottomCardBottom === stripTop - gap
+  const ruleOk = bottomPiece !== null && rule.top === false && rule.bottom === true
+  const internalsUntouched = /id: controls/.test(src.mini)
+
+  report("14", "the hover card hangs from whichever edge the bar is on",
+    topOk && bottomOk && ruleOk && bottomAnchored && internalsUntouched,
+    [
+      "card `y:` " + (yPiece ? "line " + yPiece.first + " sha256:" + yPiece.hash
+        + "  " + JSON.stringify(yPiece.body.trim()) : "absent"),
+      "surface height " + (heightPiece ? "line " + heightPiece.first
+        + " sha256:" + heightPiece.hash : "absent"),
+      "barAtBottom " + (bottomPiece ? "line " + bottomPiece.first + " sha256:" + bottomPiece.hash
+        + "  " + JSON.stringify(bottomPiece.body.trim()) : "absent")
+        + "   bar top/bottom -> " + JSON.stringify(rule.top) + " / " + JSON.stringify(rule.bottom),
+      "top bar    (" + stripH + " px strip, " + screenH + " px screen): y " + topY
+        + ", height " + topH + ", card starts at " + topAbsolute
+        + " (want " + (stripH + gap) + " = strip bottom + gap)",
+      "bottom bar: local y " + bottomY + ", height " + bottomH
+        + ", surface anchored bottom: " + bottomAnchored,
+      "  card absolute top " + bottomAbsolute + ", bottom " + bottomCardBottom
+        + " (want " + (stripTop - gap) + " = strip top - gap); it is above the strip: "
+        + (bottomCardBottom <= stripTop),
+      "expected: top bar unchanged (y = barH + gap, top-anchored surface), bottom bar"
+        + " hanging above the strip from its top edge -- never drawn off-screen"
+    ])
+}
+
+// --- 15: the cover-path map is bounded like the cover cache ------------------
+// Every `art` event added one entry to `artMap` and never removed one, while the
+// fetch cache next to it is deliberately capped at 64. A long session with
+// streams grew the map without bound, and it is copied on every insert. Drive
+// N+ inserts through the shipped event handler: the map has to stay at the cap
+// and the newest entry has to survive.
+function caseArtMapCap() {
+  if (!barSrc) {
+    report("15", "the cover-path map stays bounded", false,
+      ["BarWidget.qml not found beside the surfaces -- nothing to check"])
+    return
+  }
+  const block = blockAt(barSrc, /if \(name === "art"\) \{/, "artEvent")
+  if (!block) {
+    report("15", "the cover-path map stays bounded", false,
+      ["not found in BarWidget.qml: the `art` event handler"])
+    return
+  }
+  const run = new Function("event", block.body)
+  // The extracted block is the body of `if (name === "art")` and ends in a bare
+  // `return`; it reads and writes `artMap` as a free name. In a non-strict
+  // Function body that is the global object -- the same way the widget's own
+  // scope resolves it -- so hand the map over through it.
+  let map = {}
+  function insert(uri, path) {
+    global.artMap = map
+    run({ uri: uri, path: path })
+    map = global.artMap
+  }
+
+  const N = 70
+  for (let i = 0; i < N; i++) insert("stream/" + i, "/cover/" + i)
+  const size = Object.keys(map).length
+  const newest = map["stream/" + (N - 1)] === "/cover/" + (N - 1)
+  const oldestGone = map["stream/0"] === undefined
+
+  // Re-seeing an entry that is already there must not grow the map either.
+  insert("stream/" + (N - 1), "/cover/" + (N - 1))
+  const sizeAgain = Object.keys(map).length
+
+  // An entry that was evicted comes back as the newest one and pushes the
+  // oldest surviving entry out.
+  insert("stream/10", "/cover/10")
+  const sizeRevived = Object.keys(map).length
+  const revivedNewest = map["stream/10"] === "/cover/10"
+
+  const cap = 64
+  const ok = size === cap && newest && oldestGone && sizeAgain === cap
+    && sizeRevived === cap && revivedNewest
+
+  report("15", "the cover-path map stays bounded", ok, [
+    "art event " + (block ? "lines " + block.first + "-" + block.last
+      + " sha256:" + block.hash : "absent"),
+    N + " inserts -> " + size + " entries (want " + cap + "), newest \"stream/"
+      + (N - 1) + "\" present: " + newest + ", oldest \"stream/0\" gone: " + oldestGone,
+    "the same entry again -> " + sizeAgain + " entries",
+    "an evicted entry re-inserted -> " + sizeRevived + " entries, it is the newest: "
+      + revivedNewest,
+    "expected: at most " + cap + " paths, the most recent ones kept -- the same bound"
+      + " the fetch cache already has, so a session with streams cannot grow forever"
+  ])
+}
+
+// --- 16: the OSD title asks the widget, like every other surface -------------
+// The OSD built its own first line from `song.title` (and a URL piece as the
+// fallback), so a stream showed its ICY track or `groovesalad-128-mp3`, and with
+// a wedged daemon it still presented the last title as current while the bar,
+// the hover card and the wallpaper said "MPD is not answering". The title now
+// comes from the same helpers as everywhere else and honours `stale`.
+function caseOsdTitle() {
+  if (!barSrc) {
+    report("16", "the OSD title asks the widget, like every other surface", false,
+      ["BarWidget.qml not found beside the surfaces -- nothing to check"])
+    return
+  }
+  const at = barSrc.indexOf("id: osdComponent")
+  const end = barSrc.indexOf("IpcHandler", at)
+  const osd = at >= 0 ? barSrc.slice(at, end > at ? end : barSrc.length) : ""
+  const colorAt = osd.indexOf("color: Color.popups.text")
+  const textAt = colorAt >= 0 ? osd.lastIndexOf("text:", colorAt) : -1
+  const piece = textAt >= 0 ? readExpr(osd, textAt + "text:".length, "osdTitle") : null
+  if (!piece) {
+    report("16", "the OSD title asks the widget, like every other surface", false,
+      ["not found in BarWidget.qml: the OSD title's `text:`"])
+    return
+  }
+
+  function view(stale, song, songTitleValue) {
+    const root = {
+      stale: stale,
+      song: song,
+      songFile: song.file || "",
+      songTitle: function () { return songTitleValue },
+      basename: function (f) { return String(f || "").split("/").pop().replace(/\.[^.]+$/, "") }
+    }
+    return evalPiece(piece, "expr", ["root"], [root], "osdTitle")
+  }
+
+  const streamSong = { file: "https://ice5.somafm.com/groovesalad-128-mp3",
+                       name: "Groove Salad [SomaFM]", title: "Sine - The Return" }
+  const fileSong = { file: "Music/Boards of Canada/Dayvan.mp3", artist: "Boards of Canada",
+                     album: "Music Has the Right to Children", title: "Dayvan Cowboy" }
+  const stale = view(true, fileSong, "Dayvan Cowboy")
+  const stream = view(false, streamSong, "Groove Salad [SomaFM]")
+  const file = view(false, fileSong, "Dayvan Cowboy")
+  const empty = view(false, {}, "")
+
+  const asksWidget = /songTitle/.test(piece.body) && /stale/.test(piece.body)
+  const ok = stale === "MPD is not answering"
+    && stream === "Groove Salad [SomaFM]"
+    && stream.indexOf("Sine - The Return") < 0
+    && stream.indexOf("groovesalad-128-mp3") < 0
+    && file === "Dayvan Cowboy"
+    && empty === "—"
+    && asksWidget
+
+  report("16", "the OSD title asks the widget, like every other surface", ok, [
+    "OSD title " + (piece ? "line " + (piece.first + (at >= 0
+      ? barSrc.slice(0, at).split("\n").length - 1 : 0)) + " sha256:" + piece.hash
+      + "  " + JSON.stringify(piece.body.trim()) : "absent"),
+    "  reads songTitle()/stale: " + asksWidget,
+    "wedged daemon -> " + JSON.stringify(stale) + " (want \"" + SAYS + "\")",
+    "stream        -> " + JSON.stringify(stream)
+      + " (want the station name, never the ICY title or the URL remnant)",
+    "file          -> " + JSON.stringify(file),
+    "nothing       -> " + JSON.stringify(empty),
+    "expected: the shared helpers and the stale flag decide this line, exactly as"
+      + " the bar label does -- not a private copy of the song title"
+  ])
+}
+
+// --- 17: the format language reads only the values it was given -------------
+// `_value` did `values[name]`, so `%constructor%` printed
+// "function Object() { [native code] }" and `%__proto__%` printed
+// "[object Object]": the prototype leaked into the label. Only own properties
+// are tags now; everything else is empty, and a real tag still renders.
+function caseFormatOwnProperties() {
+  if (!formatSrc) {
+    report("17", "the format language reads only its own values", false,
+      ["Format.js not found beside the surfaces -- nothing to check"])
+    return
+  }
+  let Format = null
+  try {
+    const source = formatSrc.replace(/^\s*\.pragma library\s*$/m, "")
+    Format = new Function(source
+      + "\nreturn { render: render, parse: parse, _value: _value }")()
+  } catch (e) {
+    report("17", "the format language reads only its own values", false,
+      ["Format.js did not evaluate: " + e.message])
+    return
+  }
+  const values = { artist: "Boards of Canada", title: "Dayvan Cowboy" }
+  // A null-prototype map for the results: `rendered["__proto__"] = …` on a plain
+  // object would set the prototype instead of an entry, hiding the very leak this
+  // case is about.
+  const rendered = Object.create(null)
+  for (const tag of ["constructor", "__proto__", "hasOwnProperty", "toString",
+                     "valueOf", "artist", "title"]) {
+    rendered[tag] = Format.render("%" + tag + "%", values)
+  }
+  const empty = ["constructor", "__proto__", "hasOwnProperty", "toString", "valueOf"]
+  const leaked = empty.filter(function (tag) { return rendered[tag] !== "" })
+  const ownTagWorks = rendered.artist === "Boards of Canada"
+    && rendered.title === "Dayvan Cowboy"
+  const direct = Format._value("constructor", values) === ""
+    && Format._value("__proto__", values) === ""
+    && Format._value("artist", values) === "Boards of Canada"
+  // A tag that is genuinely present but empty is still "not resolved": the
+  // bracket rule must keep dropping `[%album% - ]` for it.
+  const bracketed = Format.render("[%constructor% - ]%artist%", values)
+
+  const ok = leaked.length === 0 && ownTagWorks && direct
+    && bracketed === "Boards of Canada"
+
+  report("17", "the format language reads only its own values", ok, [
+    "prototype names rendered: " + empty.map(function (tag) {
+      return "%" + tag + "% -> " + JSON.stringify(rendered[tag])
+    }).join(", "),
+    "  anything leaked: " + (leaked.length ? leaked.join(", ") : "no"),
+    "own tags still render: %artist% -> " + JSON.stringify(rendered.artist)
+      + ", %title% -> " + JSON.stringify(rendered.title),
+    "_value direct: constructor -> " + JSON.stringify(Format._value("constructor", values))
+      + ", __proto__ -> " + JSON.stringify(Format._value("__proto__", values))
+      + ", artist -> " + JSON.stringify(Format._value("artist", values)),
+    "[%constructor% - ]%artist% -> " + JSON.stringify(bracketed)
+      + " (the unknown tag is empty, as a missing tag always was)",
+    "expected: only own properties of `values` are tags -- Object.prototype is not"
+      + " part of the format language"
+  ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -935,6 +1383,12 @@ caseCardHoverOwnership()
 caseCardAnchoredToStrip()
 caseCardStar()
 caseBandStar()
+caseDesktopCardPresence()
+caseFavoritesEpoch()
+caseCardBarPosition()
+caseArtMapCap()
+caseOsdTitle()
+caseFormatOwnProperties()
 
 console.log(failures === 0
   ? "all media-surface checks passed"

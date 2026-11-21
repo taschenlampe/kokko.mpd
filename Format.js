@@ -110,7 +110,12 @@ function _parse(source, i, depth) {
 }
 
 function _value(name, values) {
-  var v = values ? values[name] : undefined
+  // A tag is a value the caller handed us, not a name on Object.prototype:
+  // `values[name]` printed "function Object() { [native code] }" for
+  // %constructor% and "[object Object]" for %__proto__%. Own properties only;
+  // everything else is a missing tag, which is empty.
+  if (!values || !Object.prototype.hasOwnProperty.call(values, name)) return ""
+  var v = values[name]
   return v === undefined || v === null ? "" : String(v)
 }
 
