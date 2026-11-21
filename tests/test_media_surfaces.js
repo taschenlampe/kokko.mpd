@@ -1090,6 +1090,96 @@ function caseFavoritesEpoch() {
   ])
 }
 
+// --- 14: the hover card hangs from whichever edge the bar is on ------------
+// `barPosition` was declared and read nowhere: the card always sat under the top
+// edge, so with `bar.position: "bottom"` it was drawn below the screen. The
+// position expression is run for both edges. A top bar keeps the card exactly
+// where it was: y = strip bottom + gap, surface anchored to the top. A bottom bar
+// anchors the surface to the bottom and hangs the card one gap above the strip's
+// top edge. The internals are untouched: the progress line stays above the
+// transport in both cases.
+function caseCardBarPosition() {
+  const yPiece = propIn(src.mini, "card", "y", "cardY")
+  const heightPiece = exprAt(src.mini, /^  implicitHeight:/m, "surfaceHeight")
+  const bottomPiece = exprAt(src.mini, /^  readonly property bool barAtBottom:/m, "barAtBottom")
+  const gap = 7, stripH = 26, cardH = 122, screenH = 960
+  const stripTop = screenH - stripH
+
+  if (!yPiece || !heightPiece) {
+    report("14", "the hover card hangs from whichever edge the bar is on", false,
+      ["not found in MiniPlayer.qml: " + (!yPiece ? "the card's `y:`" : "the surface height")])
+    return
+  }
+
+  function evalAt(piece, bottom) {
+    try {
+      const mini = { barAtBottom: bottom, barH: stripH, barY: stripTop, gap: gap }
+      const card = { height: cardH }
+      const Style = { space: function (n) { return n } }
+      const screen = { height: screenH }
+      // The surface height expression writes `barH`/`gap`/`card` as bare names
+      // (they are ids/properties in the card's own scope), the y expression names
+      // its `mini.` owner -- hand the evaluator both.
+      const f = new Function("mini", "Style", "card", "screen", "barH", "gap",
+        "barAtBottom", "barY", "return (" + piece.body + ")")
+      return f(mini, Style, card, screen, stripH, gap, bottom, stripTop)
+    } catch (e) {
+      return "<error:" + e.message + ">"
+    }
+  }
+  function bottomRule() {
+    if (!bottomPiece) return "<absent>"
+    try {
+      const f = new Function("barPosition", "return (" + bottomPiece.body + ")")
+      return { top: f("top"), bottom: f("bottom") }
+    } catch (e) {
+      return { top: "<error:" + e.message + ">", bottom: "<error:" + e.message + ">" }
+    }
+  }
+  const rule = bottomRule()
+  const topY = evalAt(yPiece, false)
+  const bottomY = evalAt(yPiece, true)
+  const topH = evalAt(heightPiece, false)
+  const bottomH = evalAt(heightPiece, true)
+
+  // Top bar: the card starts just under the strip's bottom edge.
+  const topAbsolute = topY
+  // Bottom bar: the surface is anchored to the screen's bottom, so the card's
+  // absolute y is screen height - surface height + its local y.
+  const bottomAnchored = /bottom:\s*(?:mini\.)?barAtBottom/.test(src.mini)
+    && /top:\s*!(?:mini\.)?barAtBottom/.test(src.mini)
+  const bottomAbsolute = bottomAnchored ? screenH - bottomH + bottomY : bottomY
+  const bottomCardBottom = bottomAbsolute + cardH
+
+  const topOk = topY === stripH + gap && topH === stripH + gap + cardH + 8
+  // Bottom: the card hangs one gap above the strip's top edge.
+  const bottomOk = bottomY === 8 && bottomCardBottom === stripTop - gap
+  const ruleOk = bottomPiece !== null && rule.top === false && rule.bottom === true
+  const internalsUntouched = /id: controls/.test(src.mini)
+
+  report("14", "the hover card hangs from whichever edge the bar is on",
+    topOk && bottomOk && ruleOk && bottomAnchored && internalsUntouched,
+    [
+      "card `y:` " + (yPiece ? "line " + yPiece.first + " sha256:" + yPiece.hash
+        + "  " + JSON.stringify(yPiece.body.trim()) : "absent"),
+      "surface height " + (heightPiece ? "line " + heightPiece.first
+        + " sha256:" + heightPiece.hash : "absent"),
+      "barAtBottom " + (bottomPiece ? "line " + bottomPiece.first + " sha256:" + bottomPiece.hash
+        + "  " + JSON.stringify(bottomPiece.body.trim()) : "absent")
+        + "   bar top/bottom -> " + JSON.stringify(rule.top) + " / " + JSON.stringify(rule.bottom),
+      "top bar    (" + stripH + " px strip, " + screenH + " px screen): y " + topY
+        + ", height " + topH + ", card starts at " + topAbsolute
+        + " (want " + (stripH + gap) + " = strip bottom + gap)",
+      "bottom bar: local y " + bottomY + ", height " + bottomH
+        + ", surface anchored bottom: " + bottomAnchored,
+      "  card absolute top " + bottomAbsolute + ", bottom " + bottomCardBottom
+        + " (want " + (stripTop - gap) + " = strip top - gap); it is above the strip: "
+        + (bottomCardBottom <= stripTop),
+      "expected: top bar unchanged (y = barH + gap, top-anchored surface), bottom bar"
+        + " hanging above the strip from its top edge -- never drawn off-screen"
+    ])
+}
+
 caseMiniPlayer()
 caseDesktopCard()
 caseBand()
@@ -1103,6 +1193,7 @@ caseCardStar()
 caseBandStar()
 caseDesktopCardPresence()
 caseFavoritesEpoch()
+caseCardBarPosition()
 
 console.log(failures === 0
   ? "all media-surface checks passed"
