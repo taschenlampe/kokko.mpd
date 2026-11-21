@@ -2411,9 +2411,9 @@ Panel {
     // and in the queue a row index is its MPD position.
     var rows = (root.rows || []).slice()
     if (rows[from] && rows[to] && from !== to) {
-      var tausch = rows[from]
+      var swapped = rows[from]
       rows[from] = rows[to]
-      rows[to] = tausch
+      rows[to] = swapped
       rows[from].pos = from
       rows[to].pos = to
       root.rows = rows
@@ -3072,7 +3072,7 @@ Panel {
 
       // The panel's own floor. Up to now the opaque part came from the backdrop's
       // gradient -- so in the looks that carry the cover inside the band (hero,
-      // anker) the panel had no floor at all and everything behind it showed
+      // anchor) the panel had no floor at all and everything behind it showed
       // through. A plain rectangle, in the same colour the gradients end in, so the
       // blurred looks are unchanged and the flat ones are opaque.
       Rectangle {
@@ -3081,8 +3081,8 @@ Panel {
       }
 
       // ------------------------------------------ the cover behind the panel
-      // Two treatments live in Backdrop.qml: the blurred cover (heute) and the
-      // sharp, dimmed one (musify's trick). Which one shows, and whether any
+      // Two treatments live in Backdrop.qml: the blurred cover (the classic look)
+      // and the sharp, dimmed one (musify's trick). Which one shows, and whether any
       // shows at all, follows the look setting -- the hero and anchor looks
       // carry their own cover and leave the panel plain.
       Backdrop {
