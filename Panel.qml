@@ -2085,6 +2085,13 @@ Panel {
     return bits.join("  ·  ")
   }
 
+  // The same line as it is drawn: in the queue a mark before it, because two
+  // strings ten pixels apart read as one sentence.
+  function rowNote(row, prev, next) {
+    var note = root.rowSub(row, prev, next)
+    return (root.frameMode === "queue" && note !== "") ? "\u00b7 " + note : note
+  }
+
   function rowRight(row) {
     if (!row) return ""
     if (row.type === "setting") {
@@ -3846,9 +3853,10 @@ Panel {
                 x: titleText.x + titleText.width + Style.space(10)
                 width: Math.max(0, rowText.width - x)
                 anchors.verticalCenter: parent.verticalCenter
-                text: root.rowSub(rowItem.modelData,
-                                  rowItem.index > 0 ? root.rows[rowItem.index - 1] : null,
-                                  rowItem.index < root.rows.length - 1 ? root.rows[rowItem.index + 1] : null)
+                // In the queue the note follows the name (rowNote adds its mark).
+                text: root.rowNote(rowItem.modelData,
+                                   rowItem.index > 0 ? root.rows[rowItem.index - 1] : null,
+                                   rowItem.index < root.rows.length - 1 ? root.rows[rowItem.index + 1] : null)
                 visible: text !== ""
                 color: rowItem.selected ? root.selFg : root.dim
                 // The queue's note is information, not a footnote: readable.
