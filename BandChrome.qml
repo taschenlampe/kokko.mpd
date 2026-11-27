@@ -190,8 +190,9 @@ Item {
     // frame), and four flat rectangles fade more evenly than a clipped one.
     // Widest first: the Repeater paints in model order.
     Repeater {
-      model: band.glow ? [ { pad: 20, alpha: 0.045 }, { pad: 13, alpha: 0.075 },
-                           { pad: 8, alpha: 0.11 }, { pad: 4, alpha: 0.16 } ] : []
+      model: band.glow ? [ { pad: 26, alpha: 0.010 }, { pad: 19, alpha: 0.022 },
+                           { pad: 13, alpha: 0.040 }, { pad: 8, alpha: 0.070 },
+                           { pad: 4, alpha: 0.110 } ] : []
       Rectangle {
         required property var modelData
         readonly property real pad: Number(modelData.pad)
