@@ -31,8 +31,15 @@ Panel {
   readonly property string homeDir: Quickshell.env("HOME") || ""
   readonly property string pluginDir: homeDir === ""
     ? "" : homeDir + "/.config/omarchy/plugins/" + moduleName
+  // Which bridge to run: the frozen bin/mpd-bridge (omajam-derived) or the
+  // independent one in kokko_mpd/ behind bin/kokko-mpd-bridge. A shell.json key
+  // (`bridge`: "legacy" | "next"), deliberately without a settings-tab row: it is
+  // the switch of the migration, and after the old bridge is gone it goes away
+  // with it. The default stays "legacy" until the cutover flips this one word.
+  readonly property string bridgeKind: String(setting("bridge", "legacy")) === "next"
+    ? "next" : "legacy"
   readonly property string bridgePath: pluginDir === ""
-    ? "" : pluginDir + "/bin/mpd-bridge"
+    ? "" : pluginDir + (bridgeKind === "next" ? "/bin/kokko-mpd-bridge" : "/bin/mpd-bridge")
 
   // ------------------------------------------------------------- settings
   // Straight out of this widget's entry in shell.json, the same way every
@@ -1641,6 +1648,11 @@ Panel {
   }
 
   // ---------------------------------------------------------- bridge process
+  // A switch between the two bridges is a restart of the child, not a reload:
+  // the other file is a different program. `switchingBridge` keeps that restart
+  // from looking like a crash (no error message, no 2.5 s wait).
+  property bool switchingBridge: false
+  onBridgeKindChanged: Qt.callLater(restartBridge)
   onBridgePathChanged: Qt.callLater(syncBridge)
   Component.onCompleted: Qt.callLater(syncBridge)
   onConnectionKeyChanged: Qt.callLater(sendConfig)
@@ -1649,6 +1661,20 @@ Panel {
     if (bridgePath === "") return
     if (bridge.running) return
     bridge.running = true
+  }
+
+  function restartBridge() {
+    if (bridgePath === "") return
+    if (!bridge.running) {
+      bridge.running = true
+      return
+    }
+    switchingBridge = true
+    bridge.running = false
+    Qt.callLater(function() {
+      switchingBridge = false
+      if (root.bridgePath !== "" && !bridge.running) bridge.running = true
+    })
   }
 
   Process {
@@ -1668,9 +1694,10 @@ Panel {
       root.connected = false
       root.status = ({})
       root.song = ({})
+      root.failPending(root.switchingBridge ? "bridge switched" : "bridge exited")
+      if (root.switchingBridge) return          // the switch starts the other one
       root.lastError = "bridge exited (code " + code + ")"
       console.warn("kokko.mpd: bridge exited (code " + code + ") — restarting in 2.5s")
-      root.failPending("bridge exited")
       restartTimer.restart()
     }
 

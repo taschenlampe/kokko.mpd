@@ -1,5 +1,20 @@
 # How kokko.mpd works inside
 
+Two bridges live in this repository while the migration runs. The widget starts
+`bin/mpd-bridge` (the frozen omajam-derived one this document describes) unless
+`shell.json` says otherwise:
+
+```json
+{ "id": "kokko.mpd", "bridge": "next" }
+```
+
+`"next"` starts `bin/kokko-mpd-bridge`, the independently written bridge in
+`kokko_mpd/`; anything else -- including no key at all -- starts the old one. The
+switch restarts only the child process, and a switch is not reported as a crash.
+What both must do is written in [bridge-contract.md](bridge-contract.md), and
+`tests/contract/` checks it against both. The key has no settings-tab row on
+purpose: it is the migration's switch and disappears with the old bridge.
+
 Implementation notes: how the pieces fit together and why they are built this way.
 None of it is needed to *use* the plugin — it is for contributors and the curious.
 Using it: [README](../README.md). Tests: [CONTRIBUTING.md](../CONTRIBUTING.md).
