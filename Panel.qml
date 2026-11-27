@@ -190,6 +190,8 @@ Panel {
     return String((list[0] || {}).artist || "")
   }
   readonly property bool albumFrameQuiet: root.albumQuietFor(root.rows)
+  // The queue's group heads, by row index (queueGroups). Empty in every other frame.
+  readonly property var queueHeads: root.frameMode === "queue" ? root.queueGroups(root.rows) : []
   readonly property string albumFrameArtist: root.albumArtistFor(root.rows)
   readonly property string promptLabel: promptMode === "save" ? "Save queue as:"
     : (promptMode === "rename" ? "Rename playlist:"
@@ -1849,15 +1851,109 @@ Panel {
     return out === "" ? "(no playing track)" : out
   }
 
-  // Two queue rows belong to the same run when both name an album and it is the
-  // same album by the same artist. The artist is part of it: two records can
-  // share a title, and the queue can put them next to each other.
-  function sameQueueAlbum(a, b) {
-    if (!a || !b) return false
-    var album = String(b.album || "")
-    if (album === "") return false
-    return String(a.album || "") === album
-      && String(a.artist || "") === String(b.artist || "")
+  // The queue in groups: the rows of one record sit under one head that names
+  // it (album, the record's artist, year, how many tracks, how long), and the
+  // rows below say only what is theirs. A record is album + albumartist -- not
+  // the track artist: "Hermitude, Wes Period" and "Hermitude" are one record, and
+  // two records can share a title ("II", "Youth"). Without an albumartist tag the
+  // track artist stands in. Streams form one group, loose tracks (no album tag)
+  // another. The heads are drawn by the delegate above the first row of a run;
+  // they are NOT rows, so a row index stays its MPD position (moveRow, carrySel).
+  function queueGroupKey(row) {
+    if (!row) return ""
+    if (root.isStream(row)) return "\u0001radio"
+    var album = String(row.album || "")
+    if (album === "") return "\u0001loose"
+    return String(row.albumartist || row.artist || "") + "\u0001" + album
+  }
+
+  // One entry per row index, set only where a run starts: { kind, title,
+  // artist, year, count, seconds, file, album, albumartist }.
+  function queueGroups(rows) {
+    var heads = []
+    var list = rows || []
+    var open = null
+    var key = null
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i]
+      var k = root.queueGroupKey(row)
+      if (open === null || k !== key) {
+        key = k
+        var kind = k === "\u0001radio" ? "radio" : (k === "\u0001loose" ? "loose" : "album")
+        open = {
+          kind: kind,
+          title: kind === "radio" ? "Radio" : (kind === "loose" ? "Without album" : String(row.album || "")),
+          artist: kind === "album" ? String(row.albumartist || row.artist || "") : "",
+          year: kind === "album" ? String(row.date || "").slice(0, 4) : "",
+          file: String(row.file || ""),
+          album: String(row.album || ""),
+          albumartist: String(row.albumartist || ""),
+          count: 0,
+          seconds: 0
+        }
+        heads[i] = open
+      }
+      open.count++
+      var t = Number(row.time)
+      if (kind !== "radio" && isFinite(t) && t > 0) open.seconds += t
+    }
+    return heads
+  }
+
+  // The head's right-hand note: "11 tracks  ·  46:52", "2 streams".
+  function queueHeadNote(head) {
+    if (!head) return ""
+    var n = Number(head.count) || 0
+    if (head.kind === "radio") return n + (n === 1 ? " stream" : " streams")
+    var bits = [n + (n === 1 ? " track" : " tracks")]
+    if (Number(head.seconds) > 0) bits.push(host.formatTime(head.seconds))
+    return bits.join("  ·  ")
+  }
+
+  // The head's line behind the title: "Hermitude  ·  2026".
+  function queueHeadSub(head) {
+    if (!head || head.kind !== "album") return ""
+    var bits = []
+    if (String(head.artist || "") !== "") bits.push(String(head.artist))
+    if (String(head.year || "") !== "") bits.push(String(head.year))
+    return bits.join("  ·  ")
+  }
+
+  // The artist column of a queue row: what the head does not already say. Empty
+  // when the track is by the record's artist (the title then takes the room),
+  // "feat. X" when the track artist is the record's artist plus guests, the full
+  // name on a sampler, the ICY title on a stream, the artist on a loose track.
+  function queueArtist(row) {
+    if (!row) return ""
+    if (root.isStream(row)) return String(row.title || "")
+    var artist = String(row.artist || "")
+    if (artist === "") return ""
+    if (String(row.album || "") === "") return artist
+    var owner = String(row.albumartist || "")
+    if (owner === "" || artist.toLowerCase() === owner.toLowerCase()) return ""
+    if (artist.toLowerCase().indexOf(owner.toLowerCase()) === 0) {
+      var rest = artist.slice(owner.length)
+      var m = /^\s*(?:,|&|;|\/|\+|\bx\b|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b)\s*/i.exec(rest)
+      if (m && rest.slice(m[0].length).trim() !== "")
+        return "feat. " + rest.slice(m[0].length).trim()
+    }
+    return artist
+  }
+
+  // The right rail of a list row, shared by the rows and the queue's column
+  // heads so both put TIME at the same x.
+  function lengthWidthFor(w) {
+    return Math.max(Style.space(40), Math.min(w * 0.05 + Style.space(12), Style.space(56)))
+  }
+  function glyphGutterFor(w) {
+    return Math.max(Style.space(56), Math.min(w * 0.07, Style.space(76)))
+  }
+  // Where the artist column starts inside a queue row's text, for a list `w`
+  // wide: half of what the text has, measured the way the delegate measures it.
+  function queueArtistX(w) {
+    var text = w - Style.space(8) - Style.space(8) - root.lengthWidthFor(w)
+      - Style.space(8) - root.glyphGutterFor(w) - Style.space(6)
+    return Math.round(Math.max(0, text) * 0.5)
   }
 
   // `prev` is the row above. The queue names artist and album once at the top of
@@ -1908,7 +2004,7 @@ Panel {
     }
     if (row.type === "value" || row.type === "playlist") return ""
     if (row.type === "directory") return "Folder"
-    if (root.frameMode === "queue" && root.sameQueueAlbum(prev, row)) return ""
+    if (root.frameMode === "queue") return root.queueArtist(row)
     // The album's own view, when every track on it credits one artist: the
     // number and the title say the rest, and the footer says the artist.
     if (root.albumFrameQuiet) return ""
@@ -3247,9 +3343,59 @@ Panel {
       }
 
       // ------------------------------------------------------------- list
+      // The queue's column heads: the same x as the rows below (queueArtistX,
+      // lengthWidthFor, glyphGutterFor), so each column says what it holds.
+      Item {
+        id: columnHeads
+        visible: root.frameMode === "queue" && root.rows.length > 0
+        anchors { top: bandSlot.bottom; topMargin: visible ? Style.space(6) : 0
+                  left: parent.left; right: parent.right }
+        height: visible ? Style.space(20) : 0
+
+        Text {
+          x: Style.space(8)
+          anchors.verticalCenter: parent.verticalCenter
+          text: "#"
+          color: root.dim; opacity: 0.62
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+          font.letterSpacing: 1.5
+        }
+        Text {
+          x: Style.space(8) + Style.space(18) + Style.space(10)
+          anchors.verticalCenter: parent.verticalCenter
+          text: "TITLE"
+          color: root.dim; opacity: 0.62
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+          font.letterSpacing: 1.5
+        }
+        Text {
+          x: Style.space(8) + root.queueArtistX(columnHeads.width)
+          anchors.verticalCenter: parent.verticalCenter
+          text: "ARTIST"
+          color: root.dim; opacity: 0.62
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+          font.letterSpacing: 1.5
+        }
+        Text {
+          anchors { right: parent.right; verticalCenter: parent.verticalCenter
+                    rightMargin: Style.space(6) + root.glyphGutterFor(columnHeads.width) + Style.space(8) }
+          text: "TIME"
+          color: root.dim; opacity: 0.62
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+          font.letterSpacing: 1.5
+        }
+        Rectangle {
+          anchors { left: parent.left; right: parent.right; bottom: parent.bottom
+                    leftMargin: Style.space(8); rightMargin: Style.space(8) }
+          height: 1
+          color: root.fg
+          opacity: 0.12
+        }
+      }
+
       ListView {
         id: list
-        anchors { top: bandSlot.bottom; topMargin: Style.space(6)
+        anchors { top: columnHeads.bottom; topMargin: Style.space(6)
                   left: parent.left; right: parent.right
                   bottom: footer.top; bottomMargin: Style.space(6) }
         clip: true
@@ -3257,574 +3403,690 @@ Panel {
         spacing: Style.space(1)
 
         delegate: Item {
-          id: rowItem
-            // Two glyph buttons on every one of ~90 rows is a lot of noise down the right
-            // edge. They stay quiet until the pointer is on the row or the row is selected.
-            readonly property bool glyphsHot: rowHover.hovered || rowItem.selected
-            HoverHandler { id: rowHover }
+          id: slot
           required property var modelData
           required property int index
           width: list.width
-          height: rowItem.startRow ? Style.space(27)
-            : (rowItem.sectionHeader ? Style.space(30)
-              : (rowItem.isHeader ? Style.space(22) : Style.space(26)))
+          height: queueHead.height + rowItem.height
 
-          readonly property string rowType: String(rowItem.modelData.type || "")
-          readonly property bool isHeader: rowItem.rowType === "header"
-          readonly property bool isSettingRow: rowItem.rowType === "setting"
-          // The right rail. The length is a share of the row with a floor and a
-          // ceiling, so a short queue row and a wide panel do not put the clock in
-          // a different place each time; the gutter behind it is three square
-          // slots, wide enough for the glyphs and narrow enough to stay a margin.
-          readonly property real lengthWidth: Math.max(Style.space(40), Math.min(rowItem.width * 0.05 + Style.space(12), Style.space(56)))
-          readonly property real glyphGutter: Math.max(Style.space(56), Math.min(rowItem.width * 0.07, Style.space(76)))
-          readonly property real glyphSlot: rowItem.glyphGutter / 3
-          // The settings label column: a fixed share so the hints line up down
-          // the tab instead of starting wherever the longest label ends.
-          readonly property real labelWidth: Math.max(Style.space(140), Math.min(rowItem.width * 0.18, Style.space(180)))
-          // A section head is structure, not a row: quiet, and one opacity for
-          // every head (the setting and the delegate read the same number).
-          readonly property real sectionHeadOpacity: rowItem.sectionHeader ? 0.62 : 0.9
-          // An album row of the start screen carries a cover: the one thing the title
-          // cannot say, and the difference between "a list of words" and "what the
-          // library has". The host hands out art from its cache by song uri, so a
-          // second open costs nothing; an answer that lands after the row was
-          // recycled is dropped by comparing the file it was asked for.
-          readonly property bool startRow: rowItem.rowType === "startAlbum"
-            || rowItem.rowType === "startTrack"
-          // The album rows of a search: a record stands there, so it carries the
-          // cover (round seven of the mockups). Only in the search -- the album
-          // rows of a find frame are its result, not a list of records.
-          readonly property bool searchAlbumRow: root.frameMode === "search"
-            && rowItem.rowType === "group"
-            && String((rowItem.modelData || {}).kind || "") === "album"
-          property string thumb: ""
-          function loadThumb() {
-            rowItem.thumb = ""
-            var r = rowItem.modelData
-            if (!(rowItem.startRow || rowItem.searchAlbumRow) || !r || !root.host) return
-            var file = String(r.file || "")
-            if (file === "") return
-            root.host.artFor(file, String(r.album || ""), String(r.albumartist || ""),
-              function(path) {
-                if (!(rowItem.startRow || rowItem.searchAlbumRow)) return
-                if (String((rowItem.modelData || {}).file || "") !== file) return
-                rowItem.thumb = String(path || "")
-              })
+          // The group head above the first row of a run (queueGroups): cover,
+          // album, the record's artist and year, and on the right what the run
+          // holds. Not a row -- it cannot be selected and the keys walk past it.
+          readonly property var head: root.frameMode === "queue"
+            ? (root.queueHeads[slot.index] || null) : null
+          property string headThumb: ""
+          function loadHeadThumb() {
+            slot.headThumb = ""
+            var h = slot.head
+            if (!h || h.kind !== "album" || !root.host || h.file === "") return
+            var file = h.file
+            root.host.artFor(file, h.album, h.albumartist, function(path) {
+              if (!slot.head || slot.head.file !== file) return
+              slot.headThumb = String(path || "")
+            })
           }
-          Component.onCompleted: rowItem.loadThumb()
-          onModelDataChanged: rowItem.loadThumb()
-          // A heading over a group of rows: the sections of the settings tab and
-          // the three the search builds (Artists / Albums / Tracks). It is drawn
-          // as a quiet label with a rule above it -- the accent belongs to what
-          // plays, not to structure.
-          readonly property bool sectionHeader: rowItem.isHeader
-            && (root.frameMode === "settings" || root.frameMode === "search"
-                || root.frameMode === "start")
-          // The mark belongs to the list, so it only shows while the list really
-          // holds the keyboard. With a prompt up the field owns it (see the head of
-          // handleKey: `+`, `a` and `A` are letters there), and a marked row would
-          // promise the action those keys do only once the list has them -- the
-          // first hit already wore the mark while `+` did nothing. `sel` keeps its
-          // value, every key path (addRow, addAll, d, D, C) is untouched: the one
-          // truth for "who has the keys" is the prompt state itself, and only the
-          // drawing waits for the hand-over (↓/↑ out of the field).
-          readonly property bool doorRow: rowItem.isHeader
-            && (!!(rowItem.modelData || {}).door || !!(rowItem.modelData || {}).tab)
-          readonly property bool selected: index === root.sel
-            && (!rowItem.isHeader || rowItem.doorRow)
-            && root.promptMode === ""
+          onHeadChanged: slot.loadHeadThumb()
+          Component.onCompleted: slot.loadHeadThumb()
 
-          // The queue's runs get a bracket (see sameQueueAlbum): a thin line
-          // along the rows of one album, so a row whose second column is empty
-          // still says which album it belongs to once that album's first row has
-          // scrolled away. Only the queue: everywhere else the column is the
-          // information, so nothing is being spanned.
-          readonly property bool runAbove: root.frameMode === "queue"
-            && root.sameQueueAlbum(rowItem.index > 0 ? root.rows[rowItem.index - 1] : null,
-                                   rowItem.modelData)
-          readonly property bool runBelow: root.frameMode === "queue"
-            && root.sameQueueAlbum(rowItem.modelData,
-                                   rowItem.index < root.rows.length - 1
-                                     ? root.rows[rowItem.index + 1] : null)
-
-          Rectangle {
-            anchors.fill: parent
-            color: rowItem.selected ? root.selBg : "transparent"
-            radius: Style.cornerRadius
-          }
-
-          // The bracket itself. It reaches one spacing beyond its own row at
-          // every end that continues (-/+ list.spacing), because the list leaves
-          // a pixel between rows and a bracket with holes in it is not a
-          // bracket; and it stops short at the ends of the run.
-          Rectangle {
-            readonly property real inset: Style.space(6)
-            visible: rowItem.runAbove || rowItem.runBelow
-            x: Style.space(4)
-            width: Math.max(1, Style.space(1.5))
-            y: rowItem.runAbove ? -list.spacing : inset
-            height: rowItem.height + list.spacing
-              - (rowItem.runAbove ? 0 : inset)
-              - (rowItem.runBelow ? 0 : inset)
-            color: Util.alpha(root.fg, 0.28)
-          }
-
-          // The row that is playing right now. The colour + bold on the title
-          // alone is easy to miss while scrolling a long queue, and it is the
-          // same tone the keyboard selection uses -- so this bar is a second,
-          // independent mark. Square on purpose: a one-sided edge should not be
-          // rounded, and it has to stay visible when the row is also selected.
-          Rectangle {
-            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-            width: Math.max(2, Style.space(2))
-            color: root.accent
-            visible: !rowItem.isHeader && root.isActiveRow(rowItem.modelData)
-          }
-
-          // The rule between two groups in the settings tab. Only from the second
-          // group on: above the first one a line would cut the list off from the
-          // band, and there is nothing above it to separate from.
-          Rectangle {
-            id: groupRule
-            visible: rowItem.sectionHeader && index > 0
-            x: Style.space(8)
-            y: 0
-            width: parent.width - Style.space(16)
-            height: 1
-            color: root.fg
-            opacity: 0.14
-          }
-
-          // A section label: artists / albums / tracks. Same type as the group
-          // heads of the settings: 11 px, tracked out, at 0.62 -- structure, not
-          // content, so it stays below the rows' newly raised title step.
-          Text {
-            visible: rowItem.isHeader
-            anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
-            anchors.verticalCenterOffset: rowItem.sectionHeader && index > 0 ? Style.space(3) : 0
-            text: rowItem.isHeader ? String(rowItem.modelData.title || "") : ""
-            color: rowItem.sectionHeader ? root.dim : root.accent
-            opacity: rowItem.sectionHeadOpacity
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.bold: !rowItem.sectionHeader
-            // Capitalisation is a display choice, not data: the row keeps "In the
-            // bar" (so the README and the search tab stay untouched) and reads as
-            // a heading here.
-            font.capitalization: rowItem.sectionHeader ? Font.AllUppercase : Font.MixedCase
-            font.letterSpacing: rowItem.sectionHeader ? 1.7 : 0
-          }
-
-          // A head that already carries a right-hand note keeps it there, in the
-          // quieter caption tone -- the title is the heading, this only qualifies
-          // it.
-          Text {
-            visible: rowItem.isHeader
-              && String((rowItem.modelData || {}).hint || "") !== ""
-            anchors { right: parent.right; rightMargin: Style.space(8)
-                      verticalCenter: parent.verticalCenter }
-            text: rowItem.isHeader ? String((rowItem.modelData || {}).hint || "") : ""
-            color: root.fg
-            opacity: 0.30
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-            width: Math.min(implicitWidth, parent.width * 0.45)
-          }
-
-          // The row's click target: declared before the `+` so the button keeps
-          // its own clicks (a row-wide MouseArea after it would swallow them).
-          MouseArea {
-            anchors.fill: parent
-            enabled: !rowItem.isHeader || rowItem.doorRow
-            cursorShape: Qt.PointingHandCursor
-            onClicked: function(mouse) {
-              if (rowItem.isHeader && !rowItem.doorRow) return
-              root.sel = rowItem.index
-              if (rowItem.doorRow) { root.activate(); return }
-              // In the settings tab a click means "change this", like any switch.
-              if (root.frameMode === "settings") root.activate()
-            }
-            onDoubleClicked: if (!rowItem.isHeader) { root.sel = rowItem.index; root.activate() }
-            onWheel: function(wheel) { root.step(wheel.angleDelta.y > 0 ? -3 : 3) }
-          }
-
-          // The cover of a start row, left of its text. Square-ish and small: it is
-          // there to be recognised, not to be looked at.
-          Rectangle {
-            id: thumbFrame
-            visible: (rowItem.startRow || rowItem.searchAlbumRow) && rowItem.thumb !== ""
-            anchors { left: parent.left; leftMargin: Style.space(8)
-                      verticalCenter: parent.verticalCenter }
-            width: Style.space(24)
-            height: width
-            radius: Style.cornerRadius
-            clip: true
-            color: "transparent"
-            Image {
-              anchors.fill: parent
-              source: rowItem.thumb !== "" ? "file://" + rowItem.thumb : ""
-              fillMode: Image.PreserveAspectCrop
-              asynchronous: true
-              sourceSize.width: 60
-              sourceSize.height: 60
-            }
-          }
-
-          // The row's text: a flexible title with the meta inline behind it. Both
-          // stop at the length column, so neither can run under the clock or the
-          // glyph gutter.
           Item {
-            id: rowText
-            visible: !rowItem.isHeader && !rowItem.isSettingRow
-            anchors { left: parent.left
-                      leftMargin: Style.space(8)
-                        + (rowItem.startRow || rowItem.searchAlbumRow ? Style.space(32) : 0)
-                      right: lengthText.left
-                      rightMargin: Style.space(8)
-                      verticalCenter: parent.verticalCenter }
-            height: Style.space(18)
+            id: queueHead
+            visible: slot.head !== null
+            width: parent.width
+            height: visible ? Style.space(34) : 0
 
-            // The number on the record, where the row *is* a track of the album
-            // the frame stands for -- there it is information. Anywhere else it
-            // leads the title already or lies about the order.
+            // A rule between two records; none above the first one.
+            Rectangle {
+              visible: slot.index > 0
+              anchors { left: parent.left; right: parent.right; top: parent.top
+                        leftMargin: Style.space(8); rightMargin: Style.space(8) }
+              height: 1
+              color: root.fg
+              opacity: 0.10
+            }
+
+            Rectangle {
+              id: headCover
+              anchors { left: parent.left; leftMargin: Style.space(8)
+                        verticalCenter: parent.verticalCenter; verticalCenterOffset: Style.space(1) }
+              width: Style.space(24)
+              height: width
+              radius: Style.cornerRadius
+              clip: true
+              color: slot.headThumb !== "" ? "transparent" : Util.alpha(root.fg, 0.06)
+              Image {
+                anchors.fill: parent
+                visible: status === Image.Ready
+                source: slot.headThumb !== "" ? "file://" + slot.headThumb : ""
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                sourceSize.width: 60
+                sourceSize.height: 60
+              }
+              Text {
+                anchors.centerIn: parent
+                visible: slot.headThumb === ""
+                text: !slot.head ? "" : (slot.head.kind === "radio" ? "\U000F0439"
+                  : (slot.head.kind === "loose" ? "\U000F0387" : "\U000F0025"))
+                color: root.accent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+              }
+            }
+
             Text {
-              id: trackNoText
-              readonly property string no: root.frameAlbum === ""
-                ? "" : root.trackNo(rowItem.modelData)
-              visible: no !== ""
-              text: no
-              width: visible ? Style.space(18) : 0
-              anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-              color: rowItem.selected ? root.selFg : root.dim
+              id: headTitle
+              anchors { left: headCover.right; leftMargin: Style.space(10)
+                        verticalCenter: headCover.verticalCenter }
+              width: Math.min(implicitWidth, parent.width * 0.5)
+              text: slot.head ? String(slot.head.title || "") : ""
+              color: root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.subtitle
+              font.weight: Font.Bold
+              font.letterSpacing: 0.6
+              elide: Text.ElideRight
+            }
+
+            Text {
+              anchors { left: headTitle.right; leftMargin: Style.space(10)
+                        right: headNote.left; rightMargin: Style.space(12)
+                        verticalCenter: headCover.verticalCenter }
+              text: root.queueHeadSub(slot.head)
+              visible: text !== ""
+              color: root.dim
+              opacity: 0.75
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              elide: Text.ElideRight
+            }
+
+            Text {
+              id: headNote
+              anchors { right: parent.right; verticalCenter: headCover.verticalCenter
+                        rightMargin: Style.space(6) + root.glyphGutterFor(slot.width) + Style.space(8) }
+              text: root.queueHeadNote(slot.head)
+              color: root.dim
+              opacity: 0.62
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            // The wheel scrolls the list over a head as it does over a row.
+            MouseArea {
+              anchors.fill: parent
+              acceptedButtons: Qt.NoButton
+              onWheel: function(wheel) { root.step(wheel.angleDelta.y > 0 ? -3 : 3) }
+            }
+          }
+
+        Item {
+            id: rowItem
+            y: queueHead.height
+              // Two glyph buttons on every one of ~90 rows is a lot of noise down the right
+              // edge. They stay quiet until the pointer is on the row or the row is selected.
+              readonly property bool glyphsHot: rowHover.hovered || rowItem.selected
+              HoverHandler { id: rowHover }
+            readonly property var modelData: slot.modelData
+            readonly property int index: slot.index
+            width: slot.width
+            height: rowItem.startRow ? Style.space(27)
+              : (rowItem.sectionHeader ? Style.space(30)
+                : (rowItem.isHeader ? Style.space(22) : Style.space(26)))
+
+            readonly property string rowType: String(rowItem.modelData.type || "")
+            readonly property bool isHeader: rowItem.rowType === "header"
+            readonly property bool isSettingRow: rowItem.rowType === "setting"
+            // The right rail. The length is a share of the row with a floor and a
+            // ceiling, so a short queue row and a wide panel do not put the clock in
+            // a different place each time; the gutter behind it is three square
+            // slots, wide enough for the glyphs and narrow enough to stay a margin.
+            readonly property real lengthWidth: root.lengthWidthFor(rowItem.width)
+            readonly property real glyphGutter: root.glyphGutterFor(rowItem.width)
+            readonly property real glyphSlot: rowItem.glyphGutter / 3
+            // The settings label column: a fixed share so the hints line up down
+            // the tab instead of starting wherever the longest label ends.
+            readonly property real labelWidth: Math.max(Style.space(140), Math.min(rowItem.width * 0.18, Style.space(180)))
+            // A section head is structure, not a row: quiet, and one opacity for
+            // every head (the setting and the delegate read the same number).
+            readonly property real sectionHeadOpacity: rowItem.sectionHeader ? 0.62 : 0.9
+            // An album row of the start screen carries a cover: the one thing the title
+            // cannot say, and the difference between "a list of words" and "what the
+            // library has". The host hands out art from its cache by song uri, so a
+            // second open costs nothing; an answer that lands after the row was
+            // recycled is dropped by comparing the file it was asked for.
+            readonly property bool startRow: rowItem.rowType === "startAlbum"
+              || rowItem.rowType === "startTrack"
+            // The album rows of a search: a record stands there, so it carries the
+            // cover (round seven of the mockups). Only in the search -- the album
+            // rows of a find frame are its result, not a list of records.
+            readonly property bool searchAlbumRow: root.frameMode === "search"
+              && rowItem.rowType === "group"
+              && String((rowItem.modelData || {}).kind || "") === "album"
+            property string thumb: ""
+            function loadThumb() {
+              rowItem.thumb = ""
+              var r = rowItem.modelData
+              if (!(rowItem.startRow || rowItem.searchAlbumRow) || !r || !root.host) return
+              var file = String(r.file || "")
+              if (file === "") return
+              root.host.artFor(file, String(r.album || ""), String(r.albumartist || ""),
+                function(path) {
+                  if (!(rowItem.startRow || rowItem.searchAlbumRow)) return
+                  if (String((rowItem.modelData || {}).file || "") !== file) return
+                  rowItem.thumb = String(path || "")
+                })
+            }
+            Component.onCompleted: rowItem.loadThumb()
+            onModelDataChanged: rowItem.loadThumb()
+            // A heading over a group of rows: the sections of the settings tab and
+            // the three the search builds (Artists / Albums / Tracks). It is drawn
+            // as a quiet label with a rule above it -- the accent belongs to what
+            // plays, not to structure.
+            readonly property bool sectionHeader: rowItem.isHeader
+              && (root.frameMode === "settings" || root.frameMode === "search"
+                  || root.frameMode === "start")
+            // The mark belongs to the list, so it only shows while the list really
+            // holds the keyboard. With a prompt up the field owns it (see the head of
+            // handleKey: `+`, `a` and `A` are letters there), and a marked row would
+            // promise the action those keys do only once the list has them -- the
+            // first hit already wore the mark while `+` did nothing. `sel` keeps its
+            // value, every key path (addRow, addAll, d, D, C) is untouched: the one
+            // truth for "who has the keys" is the prompt state itself, and only the
+            // drawing waits for the hand-over (↓/↑ out of the field).
+            readonly property bool doorRow: rowItem.isHeader
+              && (!!(rowItem.modelData || {}).door || !!(rowItem.modelData || {}).tab)
+            readonly property bool selected: index === root.sel
+              && (!rowItem.isHeader || rowItem.doorRow)
+              && root.promptMode === ""
+
+            Rectangle {
+              anchors.fill: parent
+              color: rowItem.selected ? root.selBg : "transparent"
+              radius: Style.cornerRadius
+            }
+
+            // The queue's number gutter: a hairline between the number and the
+            // title, so the column reads as one edge down the whole record.
+            Rectangle {
+              visible: root.frameMode === "queue" && !rowItem.isHeader
+              x: Style.space(8) + Style.space(18) + Style.space(4)
+              width: 1
+              y: -list.spacing
+              height: rowItem.height + list.spacing
+              color: root.fg
+              opacity: 0.16
+            }
+
+            // The row that is playing right now. The colour + bold on the title
+            // alone is easy to miss while scrolling a long queue, and it is the
+            // same tone the keyboard selection uses -- so this bar is a second,
+            // independent mark. Square on purpose: a one-sided edge should not be
+            // rounded, and it has to stay visible when the row is also selected.
+            Rectangle {
+              anchors { top: parent.top; bottom: parent.bottom }
+              x: root.frameMode === "queue" ? Style.space(8) + Style.space(18) + Style.space(3) : 0
+              width: Math.max(2, Style.space(2))
+              color: root.accent
+              visible: !rowItem.isHeader && root.isActiveRow(rowItem.modelData)
+            }
+
+            // The rule between two groups in the settings tab. Only from the second
+            // group on: above the first one a line would cut the list off from the
+            // band, and there is nothing above it to separate from.
+            Rectangle {
+              id: groupRule
+              visible: rowItem.sectionHeader && index > 0
+              x: Style.space(8)
+              y: 0
+              width: parent.width - Style.space(16)
+              height: 1
+              color: root.fg
+              opacity: 0.14
+            }
+
+            // A section label: artists / albums / tracks. Same type as the group
+            // heads of the settings: 11 px, tracked out, at 0.62 -- structure, not
+            // content, so it stays below the rows' newly raised title step.
+            Text {
+              visible: rowItem.isHeader
+              anchors { left: parent.left; leftMargin: Style.space(8); verticalCenter: parent.verticalCenter }
+              anchors.verticalCenterOffset: rowItem.sectionHeader && index > 0 ? Style.space(3) : 0
+              text: rowItem.isHeader ? String(rowItem.modelData.title || "") : ""
+              color: rowItem.sectionHeader ? root.dim : root.accent
+              opacity: rowItem.sectionHeadOpacity
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: !rowItem.sectionHeader
+              // Capitalisation is a display choice, not data: the row keeps "In the
+              // bar" (so the README and the search tab stay untouched) and reads as
+              // a heading here.
+              font.capitalization: rowItem.sectionHeader ? Font.AllUppercase : Font.MixedCase
+              font.letterSpacing: rowItem.sectionHeader ? 1.7 : 0
+            }
+
+            // A head that already carries a right-hand note keeps it there, in the
+            // quieter caption tone -- the title is the heading, this only qualifies
+            // it.
+            Text {
+              visible: rowItem.isHeader
+                && String((rowItem.modelData || {}).hint || "") !== ""
+              anchors { right: parent.right; rightMargin: Style.space(8)
+                        verticalCenter: parent.verticalCenter }
+              text: rowItem.isHeader ? String((rowItem.modelData || {}).hint || "") : ""
+              color: root.fg
+              opacity: 0.30
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+              width: Math.min(implicitWidth, parent.width * 0.45)
             }
 
-            Text {
-              id: titleText
-              readonly property real trackOffset: trackNoText.visible
-                ? trackNoText.width + Style.space(10) : 0
-              // The meta keeps a share of the line even when the title is long;
-              // it is the answer to "why is this here" in the search.
-              readonly property real metaRoom: metaText.visible
-                ? Math.min(metaText.implicitWidth,
-                    Math.max(0, rowText.width - trackOffset) * 0.45) + Style.space(10)
-                : 0
-              anchors { left: parent.left; leftMargin: trackOffset
+            // The row's click target: declared before the `+` so the button keeps
+            // its own clicks (a row-wide MouseArea after it would swallow them).
+            MouseArea {
+              anchors.fill: parent
+              enabled: !rowItem.isHeader || rowItem.doorRow
+              cursorShape: Qt.PointingHandCursor
+              onClicked: function(mouse) {
+                if (rowItem.isHeader && !rowItem.doorRow) return
+                root.sel = rowItem.index
+                if (rowItem.doorRow) { root.activate(); return }
+                // In the settings tab a click means "change this", like any switch.
+                if (root.frameMode === "settings") root.activate()
+              }
+              onDoubleClicked: if (!rowItem.isHeader) { root.sel = rowItem.index; root.activate() }
+              onWheel: function(wheel) { root.step(wheel.angleDelta.y > 0 ? -3 : 3) }
+            }
+
+            // The cover of a start row, left of its text. Square-ish and small: it is
+            // there to be recognised, not to be looked at.
+            Rectangle {
+              id: thumbFrame
+              visible: (rowItem.startRow || rowItem.searchAlbumRow) && rowItem.thumb !== ""
+              anchors { left: parent.left; leftMargin: Style.space(8)
                         verticalCenter: parent.verticalCenter }
-              text: root.rowTitle(rowItem.modelData)
-              color: root.isActiveRow(rowItem.modelData) ? root.accent
-                : (rowItem.selected ? root.selFg : root.fg)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.subtitle
-              font.weight: Font.DemiBold
-              elide: Text.ElideRight
-              width: Math.min(implicitWidth,
-                Math.max(0, rowText.width - trackOffset - metaRoom))
+              width: Style.space(24)
+              height: width
+              radius: Style.cornerRadius
+              clip: true
+              color: "transparent"
+              Image {
+                anchors.fill: parent
+                source: rowItem.thumb !== "" ? "file://" + rowItem.thumb : ""
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                sourceSize.width: 60
+                sourceSize.height: 60
+              }
             }
 
-            // `artist · album` (and the search's reason) on the same line, ten
-            // pixels behind the title. One line, plain text, elided on the right --
-            // the old column cut the reason mid-word and read as broken data.
-            Text {
-              id: metaText
-              anchors { left: titleText.right; leftMargin: Style.space(10)
-                        right: parent.right; verticalCenter: parent.verticalCenter }
-              text: root.rowSub(rowItem.modelData,
-                                rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
-              visible: text !== ""
-              color: rowItem.selected ? root.selFg : root.dim
-              opacity: 0.40
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              elide: Text.ElideRight
-              textFormat: Text.PlainText
-              wrapMode: Text.NoWrap
-            }
-          }
-
-          // The length column: a fixed share of the row, right-aligned, at the
-          // quiet 0.50 -- and the accent on the track that plays, like the title.
-          Text {
-            id: lengthText
-            visible: !rowItem.isHeader && !rowItem.isSettingRow
-            anchors { right: glyphRail.left; rightMargin: Style.space(8)
-                      verticalCenter: parent.verticalCenter }
-            width: rowItem.lengthWidth
-            horizontalAlignment: Text.AlignRight
-            text: root.rowRight(rowItem.modelData)
-            color: root.isActiveRow(rowItem.modelData) ? root.accent
-              : (rowItem.selected ? root.selFg : root.dim)
-            opacity: root.isActiveRow(rowItem.modelData) ? 1.0 : 0.50
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-          }
-
-          // In the settings tab the row is a label column, a hint that takes the
-          // free space, and the value on the right. The label column is a share of
-          // the row, so the hints start on one line down the whole tab.
-          Item {
-            id: settingsText
-            visible: rowItem.isSettingRow
-            anchors { left: parent.left; leftMargin: Style.space(8)
-                      right: settingValueRow.left; rightMargin: Style.space(12)
-                      verticalCenter: parent.verticalCenter }
-            height: Style.space(18)
-
-            Text {
-              id: settingLabel
-              anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-              width: rowItem.labelWidth
-              text: root.rowTitle(rowItem.modelData)
-              color: rowItem.selected ? root.selFg : root.fg
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.subtitle
-              font.weight: Font.DemiBold
-              elide: Text.ElideRight
-            }
-
-            Text {
-              id: settingHint
-              anchors { left: settingLabel.right; leftMargin: Style.space(8)
-                        right: parent.right; verticalCenter: parent.verticalCenter }
-              text: root.rowSub(rowItem.modelData,
-                                rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
-              color: rowItem.selected ? root.selFg : root.dim
-              opacity: 0.35
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              elide: Text.ElideRight
-              textFormat: Text.PlainText
-              wrapMode: Text.NoWrap
-            }
-          }
-
-          // Value and controls, right-aligned: a switch for a boolean, the value
-          // text plus `−`/`+` for a number or an enum. The steppers stay the same
-          // calls as the -/+ keys (stepSetting); only their tone changes.
-          Row {
-            id: settingValueRow
-            visible: rowItem.isSettingRow
-            anchors { right: parent.right; rightMargin: Style.space(8)
-                      verticalCenter: parent.verticalCenter }
-            spacing: Style.space(12)
-
-            Text {
-              id: settingValueText
-              visible: rowItem.modelData.kind !== "bool"
-              width: visible ? implicitWidth : 0
-              text: root.rowRight(rowItem.modelData)
-              color: rowItem.selected ? root.selFg : root.fg
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            // `−`: the mouse half of the - key. Glyph checked against the font
-            // (U+2212 in JetBrainsMono Nerd Font), not guessed.
+            // The row's text: a flexible title with the meta inline behind it. Both
+            // stop at the length column, so neither can run under the clock or the
+            // glyph gutter.
             Item {
-              id: stepMinus
-              opacity: (rowItem.glyphsHot || minusArea.containsMouse) ? 0.70 : 0.30
-              visible: rowItem.modelData.kind === "int" || rowItem.modelData.kind === "enum"
-              width: Style.space(20)
+              id: rowText
+              visible: !rowItem.isHeader && !rowItem.isSettingRow
+              anchors { left: parent.left
+                        leftMargin: Style.space(8)
+                          + (rowItem.startRow || rowItem.searchAlbumRow ? Style.space(32) : 0)
+                        right: lengthText.left
+                        rightMargin: Style.space(8)
+                        verticalCenter: parent.verticalCenter }
               height: Style.space(18)
+              // The queue's artist column, inside this item (see queueArtistX).
+              readonly property real artistX: root.frameMode === "queue"
+                ? root.queueArtistX(rowItem.width) : -1
 
-              Rectangle {
-                anchors.fill: parent
-                radius: Style.cornerRadius
-                color: minusArea.containsMouse ? root.accent : "transparent"
-                border.width: Math.max(1, Style.normalBorderWidth)
-                border.color: rowItem.selected ? root.selFg : root.line
-              }
-
+              // The number on the record, where the row *is* a track of the album
+              // the frame stands for -- there it is information. Anywhere else it
+              // leads the title already or lies about the order.
               Text {
-                anchors.centerIn: parent
-                text: "−"
-                color: minusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.bold: true
-              }
-
-              MouseArea {
-                id: minusArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, -1) }
-              }
-            }
-
-            // `+`: the mouse half of the + key (U+002B).
-            Item {
-              id: stepPlus
-              opacity: (rowItem.glyphsHot || plusArea.containsMouse) ? 0.70 : 0.30
-              visible: stepMinus.visible
-              width: Style.space(20)
-              height: Style.space(18)
-
-              Rectangle {
-                anchors.fill: parent
-                radius: Style.cornerRadius
-                color: plusArea.containsMouse ? root.accent : "transparent"
-                border.width: Math.max(1, Style.normalBorderWidth)
-                border.color: rowItem.selected ? root.selFg : root.line
-              }
-
-              Text {
-                anchors.centerIn: parent
-                text: "+"
-                color: plusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.bold: true
-              }
-
-              MouseArea {
-                id: plusArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, 1) }
-              }
-            }
-
-            // The boolean is a switch now. It has no MouseArea of its own: the
-            // row's click is the click, so the switch cannot fire a second time.
-            Switch {
-              id: settingSwitch
-              visible: rowItem.isSettingRow && rowItem.modelData.kind === "bool"
-              checked: rowItem.modelData.value === true
-              foreground: root.fg
-              accentColor: root.accent
-            }
-          }
-
-          // The glyph gutter: three fixed slots for the row's actions (the bin,
-          // the star, `+`), so the eye has one edge instead of three glyphs at
-          // whatever offset their neighbours happen to need. Quiet at rest -- a
-          // wall of stars and pluses on 2000 rows is noise -- and fully there when
-          // the pointer is on the row or the row is the one that plays (then in
-          // the accent). The hit areas are the slots; nothing was made smaller.
-          Item {
-            id: glyphRail
-            visible: !rowItem.isHeader && !rowItem.isSettingRow
-            anchors { right: parent.right; rightMargin: Style.space(6)
-                      verticalCenter: parent.verticalCenter }
-            width: rowItem.glyphGutter
-            height: rowItem.glyphSlot
-
-            // The bin, where something can actually be thrown away: a queue entry
-            // or a song inside a stored playlist. Glyph checked against the font
-            // (U+F01B4 in JetBrainsMono Nerd Font), not guessed.
-            Item {
-              id: trashButton
-              x: 0
-              width: rowItem.glyphSlot
-              height: rowItem.glyphSlot
-              visible: root.frameMode === "queue" || root.frameMode === "plist"
-              opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
-                || trashArea.containsMouse) ? 1.0 : 0.0
-
-              Rectangle {
-                anchors.fill: parent
-                radius: Style.cornerRadius
-                color: trashArea.containsMouse ? root.accent : "transparent"
-                border.width: Math.max(1, Style.normalBorderWidth)
-                border.color: rowItem.selected ? root.selFg : root.line
-              }
-
-              Text {
-                anchors.centerIn: parent
-                text: "󰆴"
+                id: trackNoText
+                readonly property bool queueRow: root.frameMode === "queue"
+                readonly property string no: queueRow
+                  ? (root.isActiveRow(rowItem.modelData) ? "▶"
+                     : (root.isStream(rowItem.modelData) ? "·" : root.trackNo(rowItem.modelData)))
+                  : (root.frameAlbum === "" ? "" : root.trackNo(rowItem.modelData))
+                visible: no !== ""
+                text: no
+                width: (visible || queueRow) ? Style.space(18) : 0
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
                 color: root.isActiveRow(rowItem.modelData) ? root.accent
-                  : (trashArea.containsMouse ? root.bg
-                    : (rowItem.selected ? root.selFg : root.fg))
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-
-              MouseArea {
-                id: trashArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: function(mouse) { root.sel = rowItem.index; root.removeRow() }
-              }
-            }
-
-            // `f`: the star. Filled in the accent when it is set; otherwise it
-            // appears with the row's other glyphs and takes the accent while the
-            // row is the one that plays.
-            Item {
-              id: starButton
-              readonly property bool on: root.isFavorite(rowItem.modelData)
-              x: rowItem.glyphSlot
-              width: rowItem.glyphSlot
-              height: rowItem.glyphSlot
-              visible: String((rowItem.modelData || {}).file || "") !== ""
-              opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
-                || starArea.containsMouse) ? 1.0 : 0.0
-
-              Text {
-                anchors.centerIn: parent
-                text: "★"
-                color: starButton.on || root.isActiveRow(rowItem.modelData) ? root.accent
                   : (rowItem.selected ? root.selFg : root.dim)
-                opacity: starButton.on || root.isActiveRow(rowItem.modelData) ? 1.0 : 0.45
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-              }
-
-              MouseArea {
-                id: starArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: function(mouse) { root.sel = rowItem.index; root.toggleFavorite() }
-              }
-            }
-
-            // `+`: append what this row stands for -- the track, the album, the
-            // artist, the folder. The mouse half of `a`.
-            Item {
-              id: addButton
-              x: rowItem.glyphSlot * 2
-              width: rowItem.glyphSlot
-              height: rowItem.glyphSlot
-              visible: true
-              opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
-                || addArea.containsMouse) ? 1.0 : 0.0
-
-              Rectangle {
-                anchors.fill: parent
-                radius: Style.cornerRadius
-                color: addArea.containsMouse ? root.accent : "transparent"
-                border.width: Math.max(1, Style.normalBorderWidth)
-                border.color: rowItem.selected ? root.selFg : root.line
+                font.pixelSize: Style.font.caption
               }
 
               Text {
-                anchors.centerIn: parent
-                text: "+"
+                id: titleText
+                readonly property real trackOffset: trackNoText.width > 0
+                  ? trackNoText.width + Style.space(10) : 0
+                // The meta keeps a share of the line even when the title is long;
+                // it is the answer to "why is this here" in the search.
+                readonly property real metaRoom: metaText.visible
+                  ? Math.min(metaText.implicitWidth,
+                      Math.max(0, rowText.width - trackOffset) * 0.45) + Style.space(10)
+                  : 0
+                anchors { left: parent.left; leftMargin: trackOffset
+                          verticalCenter: parent.verticalCenter }
+                text: root.rowTitle(rowItem.modelData)
                 color: root.isActiveRow(rowItem.modelData) ? root.accent
-                  : (addArea.containsMouse ? root.bg
-                    : (rowItem.selected ? root.selFg : root.fg))
+                  : (rowItem.selected ? root.selFg : root.fg)
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
+                font.pixelSize: Style.font.subtitle
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                // In the queue the artist column starts at a fixed x; an empty cell
+                // gives its room to the title (rule b of the phosphor round).
+                width: rowText.artistX >= 0
+                  ? Math.min(implicitWidth, Math.max(0, (metaText.visible ? rowText.artistX - Style.space(10)
+                                                                          : rowText.width) - trackOffset))
+                  : Math.min(implicitWidth, Math.max(0, rowText.width - trackOffset - metaRoom))
               }
 
-              MouseArea {
-                id: addArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: function(mouse) { root.sel = rowItem.index; root.addOne(rowItem.modelData) }
+              // `artist · album` (and the search's reason) on the same line, ten
+              // pixels behind the title. One line, plain text, elided on the right --
+              // the old column cut the reason mid-word and read as broken data.
+              Text {
+                id: metaText
+                x: rowText.artistX >= 0 ? rowText.artistX : titleText.x + titleText.width + Style.space(10)
+                width: Math.max(0, rowText.width - x)
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.rowSub(rowItem.modelData,
+                                  rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
+                visible: text !== ""
+                color: rowItem.selected ? root.selFg : root.dim
+                // The queue's column is information, not a footnote: readable.
+                opacity: rowText.artistX >= 0 ? 0.62 : 0.40
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
+                wrapMode: Text.NoWrap
               }
             }
-          }
+
+            // The length column: a fixed share of the row, right-aligned, at the
+            // quiet 0.50 -- and the accent on the track that plays, like the title.
+            Text {
+              id: lengthText
+              visible: !rowItem.isHeader && !rowItem.isSettingRow
+              anchors { right: glyphRail.left; rightMargin: Style.space(8)
+                        verticalCenter: parent.verticalCenter }
+              width: rowItem.lengthWidth
+              horizontalAlignment: Text.AlignRight
+              text: root.rowRight(rowItem.modelData)
+              color: root.isActiveRow(rowItem.modelData) ? root.accent
+                : (rowItem.selected ? root.selFg : root.dim)
+              opacity: root.isActiveRow(rowItem.modelData) ? 1.0 : 0.50
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            // In the settings tab the row is a label column, a hint that takes the
+            // free space, and the value on the right. The label column is a share of
+            // the row, so the hints start on one line down the whole tab.
+            Item {
+              id: settingsText
+              visible: rowItem.isSettingRow
+              anchors { left: parent.left; leftMargin: Style.space(8)
+                        right: settingValueRow.left; rightMargin: Style.space(12)
+                        verticalCenter: parent.verticalCenter }
+              height: Style.space(18)
+
+              Text {
+                id: settingLabel
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                width: rowItem.labelWidth
+                text: root.rowTitle(rowItem.modelData)
+                color: rowItem.selected ? root.selFg : root.fg
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+              }
+
+              Text {
+                id: settingHint
+                anchors { left: settingLabel.right; leftMargin: Style.space(8)
+                          right: parent.right; verticalCenter: parent.verticalCenter }
+                text: root.rowSub(rowItem.modelData,
+                                  rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
+                color: rowItem.selected ? root.selFg : root.dim
+                opacity: 0.35
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
+                wrapMode: Text.NoWrap
+              }
+            }
+
+            // Value and controls, right-aligned: a switch for a boolean, the value
+            // text plus `−`/`+` for a number or an enum. The steppers stay the same
+            // calls as the -/+ keys (stepSetting); only their tone changes.
+            Row {
+              id: settingValueRow
+              visible: rowItem.isSettingRow
+              anchors { right: parent.right; rightMargin: Style.space(8)
+                        verticalCenter: parent.verticalCenter }
+              spacing: Style.space(12)
+
+              Text {
+                id: settingValueText
+                visible: rowItem.modelData.kind !== "bool"
+                width: visible ? implicitWidth : 0
+                text: root.rowRight(rowItem.modelData)
+                color: rowItem.selected ? root.selFg : root.fg
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+
+              // `−`: the mouse half of the - key. Glyph checked against the font
+              // (U+2212 in JetBrainsMono Nerd Font), not guessed.
+              Item {
+                id: stepMinus
+                opacity: (rowItem.glyphsHot || minusArea.containsMouse) ? 0.70 : 0.30
+                visible: rowItem.modelData.kind === "int" || rowItem.modelData.kind === "enum"
+                width: Style.space(20)
+                height: Style.space(18)
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: Style.cornerRadius
+                  color: minusArea.containsMouse ? root.accent : "transparent"
+                  border.width: Math.max(1, Style.normalBorderWidth)
+                  border.color: rowItem.selected ? root.selFg : root.line
+                }
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "−"
+                  color: minusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                }
+
+                MouseArea {
+                  id: minusArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, -1) }
+                }
+              }
+
+              // `+`: the mouse half of the + key (U+002B).
+              Item {
+                id: stepPlus
+                opacity: (rowItem.glyphsHot || plusArea.containsMouse) ? 0.70 : 0.30
+                visible: stepMinus.visible
+                width: Style.space(20)
+                height: Style.space(18)
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: Style.cornerRadius
+                  color: plusArea.containsMouse ? root.accent : "transparent"
+                  border.width: Math.max(1, Style.normalBorderWidth)
+                  border.color: rowItem.selected ? root.selFg : root.line
+                }
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "+"
+                  color: plusArea.containsMouse ? root.bg : (rowItem.selected ? root.selFg : root.fg)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                }
+
+                MouseArea {
+                  id: plusArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: function(mouse) { root.sel = rowItem.index; root.stepSetting(rowItem.modelData, 1) }
+                }
+              }
+
+              // The boolean is a switch now. It has no MouseArea of its own: the
+              // row's click is the click, so the switch cannot fire a second time.
+              Switch {
+                id: settingSwitch
+                visible: rowItem.isSettingRow && rowItem.modelData.kind === "bool"
+                checked: rowItem.modelData.value === true
+                foreground: root.fg
+                accentColor: root.accent
+              }
+            }
+
+            // The glyph gutter: three fixed slots for the row's actions (the bin,
+            // the star, `+`), so the eye has one edge instead of three glyphs at
+            // whatever offset their neighbours happen to need. Quiet at rest -- a
+            // wall of stars and pluses on 2000 rows is noise -- and fully there when
+            // the pointer is on the row or the row is the one that plays (then in
+            // the accent). The hit areas are the slots; nothing was made smaller.
+            Item {
+              id: glyphRail
+              visible: !rowItem.isHeader && !rowItem.isSettingRow
+              anchors { right: parent.right; rightMargin: Style.space(6)
+                        verticalCenter: parent.verticalCenter }
+              width: rowItem.glyphGutter
+              height: rowItem.glyphSlot
+
+              // The bin, where something can actually be thrown away: a queue entry
+              // or a song inside a stored playlist. Glyph checked against the font
+              // (U+F01B4 in JetBrainsMono Nerd Font), not guessed.
+              Item {
+                id: trashButton
+                x: 0
+                width: rowItem.glyphSlot
+                height: rowItem.glyphSlot
+                visible: root.frameMode === "queue" || root.frameMode === "plist"
+                opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
+                  || trashArea.containsMouse) ? 1.0 : 0.0
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: Style.cornerRadius
+                  color: trashArea.containsMouse ? root.accent : "transparent"
+                  border.width: Math.max(1, Style.normalBorderWidth)
+                  border.color: rowItem.selected ? root.selFg : root.line
+                }
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "󰆴"
+                  color: root.isActiveRow(rowItem.modelData) ? root.accent
+                    : (trashArea.containsMouse ? root.bg
+                      : (rowItem.selected ? root.selFg : root.fg))
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                MouseArea {
+                  id: trashArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: function(mouse) { root.sel = rowItem.index; root.removeRow() }
+                }
+              }
+
+              // `f`: the star. Filled in the accent when it is set; otherwise it
+              // appears with the row's other glyphs and takes the accent while the
+              // row is the one that plays.
+              Item {
+                id: starButton
+                readonly property bool on: root.isFavorite(rowItem.modelData)
+                x: rowItem.glyphSlot
+                width: rowItem.glyphSlot
+                height: rowItem.glyphSlot
+                visible: String((rowItem.modelData || {}).file || "") !== ""
+                opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
+                  || starArea.containsMouse) ? 1.0 : 0.0
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "★"
+                  color: starButton.on || root.isActiveRow(rowItem.modelData) ? root.accent
+                    : (rowItem.selected ? root.selFg : root.dim)
+                  opacity: starButton.on || root.isActiveRow(rowItem.modelData) ? 1.0 : 0.45
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                MouseArea {
+                  id: starArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: function(mouse) { root.sel = rowItem.index; root.toggleFavorite() }
+                }
+              }
+
+              // `+`: append what this row stands for -- the track, the album, the
+              // artist, the folder. The mouse half of `a`.
+              Item {
+                id: addButton
+                x: rowItem.glyphSlot * 2
+                width: rowItem.glyphSlot
+                height: rowItem.glyphSlot
+                visible: true
+                opacity: (rowItem.glyphsHot || root.isActiveRow(rowItem.modelData)
+                  || addArea.containsMouse) ? 1.0 : 0.0
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: Style.cornerRadius
+                  color: addArea.containsMouse ? root.accent : "transparent"
+                  border.width: Math.max(1, Style.normalBorderWidth)
+                  border.color: rowItem.selected ? root.selFg : root.line
+                }
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "+"
+                  color: root.isActiveRow(rowItem.modelData) ? root.accent
+                    : (addArea.containsMouse ? root.bg
+                      : (rowItem.selected ? root.selFg : root.fg))
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+
+                MouseArea {
+                  id: addArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: function(mouse) { root.sel = rowItem.index; root.addOne(rowItem.modelData) }
+                }
+              }
+            }
+        }
         }
       }
 

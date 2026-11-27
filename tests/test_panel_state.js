@@ -190,7 +190,10 @@ const FUNCTIONS = [
   "closePrompt", "leavePrompt", "clearLocalFilter", "filterableFrame",
   "searchWhileTyping", "searchNow", "applySearch",
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
-  "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "sameQueueAlbum", "rowRight",
+  "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "rowRight",
+  // The queue in groups: heads by record, the artist column, the shared rail.
+  "queueGroupKey", "queueGroups", "queueHeadNote", "queueHeadSub", "queueArtist",
+  "lengthWidthFor", "glyphGutterFor", "queueArtistX",
   "albumQuietFor", "albumArtistFor", "trackNo", "centerOn",
   "mutateAndReload",
   // The settings rows: -/+ on the row under the cursor. writeSetting and note
@@ -252,6 +255,7 @@ const SWITCH_TRACK_HEIGHT = grabOptical(SWITCH_SRC, "trackHeight");
 const BUILD = new Function(
   "root", "host", "Qt", "settingRows", "timers", "promptDebounce",
   "promptFocusTimer", "pendingSelectGuard", "reloadTimer", "centerTimer", "favTimer",
+  "Style",
   EXTRACTED.map(function (f) { return f.text; }).filter(Boolean).join("\n\n")
     + "\nreturn { " + FUNCTIONS.filter(function (n) { return MISSING.indexOf(n) < 0; })
         .map(function (n) { return n + ": " + n; }).join(", ") + " };"
@@ -531,7 +535,8 @@ function makePanel(opts) {
 
   const panel = BUILD(root, host, Qt, settingRows, timers, timers.promptDebounce,
                       timers.promptFocusTimer, timers.pendingSelectGuard,
-                      timers.reloadTimer, timers.centerTimer, timers.favTimer);
+                      timers.reloadTimer, timers.centerTimer, timers.favTimer,
+                      { space: function (n) { return n; } });
   Object.keys(panel).forEach(function (k) { root[k] = panel[k]; });
 
   // Record what the panel asks for, without changing what it does.
@@ -1950,15 +1955,19 @@ group("case 17: the queue names the album, the album view does not repeat it");
   const TAGGED = { type: "file", file: "d/04.flac", artist: "Dopplereffekt",
                    album: "Athanatos", genre: "Electro", title: "Delta" };
 
-  // In the queue the frame's title is "Queue": the album is not it, so the album
-  // stands -- the same word as the track included.
+  // In the queue the album -- the same word as the track included -- is named
+  // once, by the group head above the run (phosphor round, stage 1). The row
+  // keeps what the head does not say; a track by the record's artist says
+  // nothing more, a loose track (no album, so no head names an artist) keeps it.
   const P = makePanel();
   P.root.stack = [{ mode: "queue", title: "Queue" }];
-  check("the queue row names the album although it equals the title",
-        P.root.rowSub(SINGLE) === "Dopplereffekt  ·  Athanatos", P.root.rowSub(SINGLE));
-  check("control: a row whose album differs from the title is untouched",
-        P.root.rowSub(OTHER) === "Dopplereffekt  ·  Tetrahymena", P.root.rowSub(OTHER));
-  check("control: a row with no album tag grows no album",
+  const singleHead = P.root.queueGroups([SINGLE])[0];
+  check("the queue names the album in the head, also when it equals the title",
+        singleHead && singleHead.title === "Athanatos" && P.root.rowSub(SINGLE) === "",
+        JSON.stringify([singleHead && singleHead.title, P.root.rowSub(SINGLE)]));
+  check("control: the head of another album names that album",
+        P.root.queueGroups([OTHER])[0].title === "Tetrahymena", P.root.queueGroups([OTHER])[0].title);
+  check("control: a row with no album tag keeps its artist",
         P.root.rowSub(NOALBUM) === "Dopplereffekt", P.root.rowSub(NOALBUM));
 
   // Inside the album's own view (`find` under that album) every row already
@@ -1982,10 +1991,10 @@ group("case 17: the queue names the album, the album view does not repeat it");
   check("control: the other album is not suppressed by the open one",
         R.root.rowSub(SINGLE) === "Dopplereffekt  ·  Athanatos", R.root.rowSub(SINGLE));
 
-  // The queue in runs: the top row of an album run says who and what, the rows
-  // under it leave the column empty -- and the bracket in the delegate spans
-  // them. Only the queue does this; a search keeps the string on every hit,
-  // because there it is the only place the album is named.
+  // The queue in groups: a head where a record starts, nothing in between. A
+  // record is album + albumartist (the track artist stands in when the tag is
+  // missing): "Hermitude, Wes Period" is the same record as "Hermitude", and the
+  // same title by another artist is another record.
   const RUN1 = { type: "file", file: "q/01.flac", artist: "ADULT.",
                  album: "The Way Things Fall", title: "Heartbreak" };
   const RUN2 = { type: "file", file: "q/02.flac", artist: "ADULT.",
@@ -1996,19 +2005,64 @@ group("case 17: the queue names the album, the album view does not repeat it");
                       album: "The Way Things Fall", title: "Mu-Tron" };
   const LOOSE1 = { type: "file", file: "q/05.flac", artist: "ADULT.", title: "One" };
   const LOOSE2 = { type: "file", file: "q/06.flac", artist: "ADULT.", title: "Two" };
+  const heads = P.root.queueGroups([RUN1, RUN2, NEXTALBUM, SAMEALBUM, LOOSE1, LOOSE2]);
+  const at = Object.keys(heads).map(Number);
+  check("a head where each record starts, none inside a run",
+        JSON.stringify(at) === "[0,2,3,4]", JSON.stringify(at));
+  check("the run's head counts its rows",
+        heads[0].count === 2 && heads[2].count === 1 && heads[4].count === 2,
+        JSON.stringify([heads[0].count, heads[2].count, heads[4].count]));
+  check("the same album title by another artist is another record",
+        heads[3] && heads[3].artist === "Ladytron", JSON.stringify(heads[3]));
+  check("loose tracks share one head without an album",
+        heads[4].kind === "loose" && heads[4].title === "Without album", JSON.stringify(heads[4]));
 
-  check("the queue names artist and album once per run",
-        P.root.rowSub(RUN1, null) === "ADULT.  ·  The Way Things Fall"
-          && P.root.rowSub(RUN2, RUN1) === "",
-        [P.root.rowSub(RUN1, null), P.root.rowSub(RUN2, RUN1)]);
-  check("a new album inside the same artist starts the line again",
-        P.root.rowSub(NEXTALBUM, RUN2) === "ADULT.  ·  Anxiety Always",
-        P.root.rowSub(NEXTALBUM, RUN2));
-  check("the same album title by another artist is not one run",
-        P.root.rowSub(SAMEALBUM, RUN2) === "Ladytron  ·  The Way Things Fall",
-        P.root.rowSub(SAMEALBUM, RUN2));
-  check("rows without an album tag keep their artist on every line",
-        P.root.rowSub(LOOSE2, LOOSE1) === "ADULT.", P.root.rowSub(LOOSE2, LOOSE1));
+  const EIGHT1 = { type: "file", file: "e/01.mp3", artist: "Hermitude, Wes Period",
+                   albumartist: "Hermitude", album: "EIGHT", date: "2026-02-13",
+                   title: "All That", time: "308.4" };
+  const EIGHT5 = { type: "file", file: "e/05.mp3", artist: "Hermitude",
+                   albumartist: "Hermitude", album: "EIGHT", date: "2026",
+                   title: "Movement", time: "333" };
+  const VA1 = { type: "file", file: "v/01.mp3", artist: "Kraftwerk",
+                albumartist: "Various Artists", album: "Electri_City", title: "Tour", time: "200" };
+  const VA2 = { type: "file", file: "v/02.mp3", artist: "DAF",
+                albumartist: "Various Artists", album: "Electri_City", title: "Mussolini", time: "220" };
+  const ST1 = { type: "file", file: "https://radio.example/a.aac", name: "Record Phonk",
+                title: "ENSKA - Summer Dream", time: "0.000" };
+  const ST2 = { type: "file", file: "http://radio.example/b", name: "No.1 PHONK RADIO",
+                title: "Pharmacist - OVERDO$E" };
+  const mixed = P.root.queueGroups([ST1, ST2, EIGHT1, EIGHT5, VA1, VA2]);
+  check("guests do not split the record: one head over both EIGHT rows",
+        Object.keys(mixed).join(",") === "0,2,4" && mixed[2].count === 2,
+        Object.keys(mixed).join(","));
+  check("the head says record, artist, year -- and what the run holds",
+        mixed[2].title === "EIGHT" && P.root.queueHeadSub(mixed[2]) === "Hermitude  ·  2026"
+          && P.root.queueHeadNote(mixed[2]) === "2 tracks  ·  10:41",
+        [mixed[2].title, P.root.queueHeadSub(mixed[2]), P.root.queueHeadNote(mixed[2])].join(" | "));
+  check("streams form one radio group, counted as streams, no clock",
+        mixed[0].kind === "radio" && P.root.queueHeadNote(mixed[0]) === "2 streams",
+        P.root.queueHeadNote(mixed[0]));
+
+  check("artist column: a guest reads feat. X",
+        P.root.rowSub(EIGHT1) === "feat. Wes Period", P.root.rowSub(EIGHT1));
+  check("artist column: the record's own artist leaves the cell empty",
+        P.root.rowSub(EIGHT5) === "", JSON.stringify(P.root.rowSub(EIGHT5)));
+  check("artist column: a sampler names each track's artist",
+        P.root.rowSub(VA1) === "Kraftwerk" && P.root.rowSub(VA2) === "DAF",
+        [P.root.rowSub(VA1), P.root.rowSub(VA2)].join(" | "));
+  check("artist column: a stream shows what is on it, never its URL",
+        P.root.rowSub(ST1) === "ENSKA - Summer Dream", P.root.rowSub(ST1));
+  check("artist column: a name that only starts like the owner is not a guest",
+        P.root.queueArtist({ artist: "Hermitudes", albumartist: "Hermitude", album: "X" }) === "Hermitudes",
+        P.root.queueArtist({ artist: "Hermitudes", albumartist: "Hermitude", album: "X" }));
+  check("artist column: 'feat.' and '&' are separators too",
+        P.root.queueArtist({ artist: "Hermitude feat. Kameron", albumartist: "Hermitude", album: "X" }) === "feat. Kameron"
+          && P.root.queueArtist({ artist: "Hermitude & Bob Vylan", albumartist: "Hermitude", album: "X" }) === "feat. Bob Vylan",
+        P.root.queueArtist({ artist: "Hermitude feat. Kameron", albumartist: "Hermitude", album: "X" }));
+  check("the column heads and the rows share one artist x",
+        P.root.queueArtistX(886) === Math.round((886 - 8 - 8 - P.root.lengthWidthFor(886) - 8
+          - P.root.glyphGutterFor(886) - 6) * 0.5),
+        String(P.root.queueArtistX(886)));
 
   // A search has its own rule: it says the album once and then only what
   // changed -- never nothing, though, when the row is in the results for a
@@ -3059,7 +3113,8 @@ group("case 18: a queue reload keeps the cursor on its row");
   group("case 34: the right rail, section heads and switch sizes");
   const style = { space: function (n) { return n; } };
   function rowAt(expr, width) {
-    return evalExpr(expr, { Style: style, rowItem: { width: width } });
+    return evalExpr(expr, { Style: style, rowItem: { width: width },
+                            root: makePanel().root });
   }
 
   // A missing binding is a failed check with a name, not a TypeError that kills
