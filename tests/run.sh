@@ -136,6 +136,9 @@ else
   skip "qmllint or the Omarchy modules are missing (other machine?) -- the QML syntax was NOT checked" "qmllint"
 fi
 
+step "consistency (manifest, panel keys against the schema, escapes)"
+if python3 tests/check_consistency.py; then note "ok"; else bad "consistency checks failed"; fi
+
 step "omarchy plugin validate"
 if command -v omarchy >/dev/null 2>&1; then
   # Read the output *as well as* the exit code: on its own the code is reliable
@@ -186,6 +189,15 @@ if [ "$FAST" -eq 0 ]; then
     else
       note "ok"
     fi
+  fi
+
+  # Opens the panel for a moment, so it does not belong in --fast (the hook): a
+  # panel that flashes open on every commit is worse than the check is worth.
+  step "UI smoke test (walks all tabs, needs the running shell)"
+  if command -v omarchy-shell >/dev/null 2>&1; then
+    if python3 tests/smoke_ui.py; then note "ok"; else bad "the panel smoke test failed"; fi
+  else
+    note "skipped: no omarchy-shell here (other machine?)"
   fi
 fi
 

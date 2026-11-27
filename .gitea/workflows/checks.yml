@@ -1,0 +1,35 @@
+# What runs where -- and why this file is short.
+#
+# CI has nothing but the files: no Omarchy shell, no Qt, no MPD. So it runs the
+# half of the suite that is pure Python --
+#
+#   * the bridge compiles,
+#   * its 25 protocol checks pass,
+#   * the manifest is complete and every setting the panel offers exists in the
+#     schema (a typo there is a setting that does nothing when clicked),
+#   * no QML string carries a malformed \u escape (five hex digits read as four
+#     plus a literal character -- that shipped a wrong icon once).
+#
+# Everything that needs the running desktop skips itself inside tests/run.sh on a
+# machine without the shell (qmllint with Omarchy's modules, `omarchy plugin
+# validate`, tests/smoke_ui.py), and stays a check on the machine the plugin runs
+# on. That is deliberate, not a gap: a container cannot see a panel.
+#
+# Gitea clones the repository before the steps, so no checkout action is needed
+# (and none would work: the default image has no Node-free Python).
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: python
+        run: apt-get update -qq && apt-get install -y -qq python3 >/dev/null
+      - name: the fast suite (no MPD, no desktop)
+        run: tests/run.sh --fast
