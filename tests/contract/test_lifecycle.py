@@ -101,7 +101,7 @@ class Unreachable(ContractCase):
     def test_disconnected_then_connected_when_server_appears(self):
         port = free_port()
         self.bridge.config(host="127.0.0.1", port=port, password="")
-        down = self.bridge.wait_event("disconnected", 3.0)
+        down = self.bridge.wait_event("disconnected", 3.0, target="127.0.0.1:%d" % port)
         self.assertIsNotNone(down)
         self.assertIn("retryIn", down)
         self.assertTrue(down.get("error"))
@@ -131,7 +131,8 @@ class WrongPassword(ContractCase):
 
     def test_wrong_password_is_a_disconnect_with_reason(self):
         self.bridge.config(host="127.0.0.1", port=self.mpd.port, password="nope")
-        down = self.bridge.wait_event("disconnected", 3.0)
+        down = self.bridge.wait_event("disconnected", 3.0,
+                                      target="127.0.0.1:%d" % self.mpd.port)
         self.assertIsNotNone(down)
         self.assertIn("password", down["error"])
         self.assertEqual(self.bridge.since(0, "connected"), [])

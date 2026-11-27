@@ -41,4 +41,10 @@ it against a fake MPD, never against a real one:
 ```sh
 python3 tests/contract/run.py                 # the bridge the widget starts today
 python3 tests/contract/run.py --bridge <path> # any other bridge executable
+python3 tests/contract/run.py -k Supersede    # only the tests matching a name
 ```
+
+They take about a minute, so `tests/run.sh` runs them and `--fast` (the pre-commit
+hook) does not. The launcher refuses every connection except loopback ports other
+than 6600 and unix sockets in the test's scratch home, so a bridge under test cannot
+reach a real MPD even when it tries.

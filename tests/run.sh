@@ -149,6 +149,17 @@ else
 fi
 
 if [ "$FAST" -eq 0 ]; then
+  # About a minute: every test starts a bridge against the fake MPD in
+  # tests/fakempd. Never talks to a real MPD (tests/contract/launch.py fences it).
+  step "bridge contract tests (fake MPD)"
+  if [ ! -f tests/contract/run.py ]; then
+    bad "missing test file: tests/contract/run.py"
+  else
+    OUT=$(python3 tests/contract/run.py 2>&1); RC=$?
+    printf '%s\n' "$OUT" | grep -E '^(Ran |OK|FAILED|FAIL:|ERROR:)' | sed 's/^/   /'
+    [ "$RC" -eq 0 ] && note "ok" || bad "contract tests failed"
+  fi
+
   step "smoke test against MPD (optional, read-only)"
   if [ ! -f tests/smoke_mpd.py ]; then
     bad "missing test file: tests/smoke_mpd.py"

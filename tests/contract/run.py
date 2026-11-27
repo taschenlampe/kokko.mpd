@@ -21,10 +21,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bridge", help="bridge executable (default: bin/mpd-bridge)")
     parser.add_argument("-k", dest="pattern", action="append", help="only tests matching")
+    parser.add_argument("--legacy", action="store_true",
+                        help="the bridge is a copy of bin/mpd-bridge: its known differences are expected")
     parser.add_argument("-v", dest="verbose", action="store_true")
     opts = parser.parse_args()
     if opts.bridge:
         os.environ["CONTRACT_BRIDGE"] = os.path.abspath(opts.bridge)
+    if opts.legacy:
+        os.environ["CONTRACT_LEGACY"] = "1"
     sys.path.insert(0, HERE)
     loader = unittest.TestLoader()
     if opts.pattern:

@@ -51,7 +51,10 @@ def bridge_path() -> str:
     return os.path.abspath(os.environ.get("CONTRACT_BRIDGE") or DEFAULT_BRIDGE)
 
 
-LEGACY = bridge_path() == os.path.abspath(DEFAULT_BRIDGE)
+# The frozen old bridge, or a copy of it (run.py --legacy): its known
+# differences are expected failures instead of failures.
+LEGACY = (bridge_path() == os.path.abspath(DEFAULT_BRIDGE)
+          or os.environ.get("CONTRACT_LEGACY") == "1")
 
 
 def legacy_differs(reason):
@@ -198,6 +201,8 @@ class ContractCase(unittest.TestCase):
     autoconnect = True
 
     def setUp(self):
+        # ids a legacy_differs test knows the old bridge leaves unanswered
+        self.unanswered_ok = set()
         self.home = tempfile.mkdtemp(prefix="kmpd-contract-")
         os.makedirs(os.path.join(self.home, "config"), exist_ok=True)
         self.mpd = self.make_mpd()
@@ -272,7 +277,8 @@ class ContractCase(unittest.TestCase):
             counts = {}
             for r in results:
                 counts[r.get("id")] = counts.get(r.get("id"), 0) + 1
-            missing = [i for i in self.bridge.sent_ids if counts.get(i, 0) == 0]
+            missing = [i for i in self.bridge.sent_ids
+                       if counts.get(i, 0) == 0 and i not in self.unanswered_ok]
             if not missing or time.monotonic() > deadline:
                 break
             time.sleep(0.05)
