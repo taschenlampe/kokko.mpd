@@ -99,13 +99,28 @@ if [ -d /usr/share/omarchy/shell/Ui ]; then
   ln -sfn /usr/share/omarchy/shell/Commons "$QS/qs/Commons"
 fi
 if [ -x /usr/lib/qt6/bin/qmllint ] && [ -d /usr/share/omarchy/shell/Ui ]; then
-  OUT=$(/usr/lib/qt6/bin/qmllint -I "$QS" ./*.qml 2>&1)
-  HITS=$(printf '%s\n' "$OUT" | grep -icE "error|\[syntax\]")
-  if [ "$HITS" -gt 0 ]; then
-    printf '%s\n' "$OUT" | grep -iE "error|\[syntax\]" | head -10 | sed 's/^/   /'
-    bad "$HITS qmllint finding(s) -- a syntax error makes the widget vanish without a word"
+  # A finding is a message line, not any line with the word "error" in it:
+  # qmllint quotes the offending source under each warning, and a variable
+  # called `error` turned a style hint into a failed run. qmllint 6.12 reports
+  # a syntax error as "Warning: <file>:<l>:<c>: ... [syntax]" and exits non-zero.
+  FINDING='^(Error: .*|Warning: .*\[syntax\])$'
+  qmllint_findings() { printf '%s\n' "$1" | grep -E "$FINDING"; }
+  # Self-check first: a file with a real syntax error must be caught, or a
+  # changed qmllint output format would make this step pass on anything.
+  PROBE="$QS/__syntax_probe__.qml"
+  printf 'import QtQuick\nItem {\n  width: )\n}\n' > "$PROBE"
+  POUT=$(/usr/lib/qt6/bin/qmllint "$PROBE" 2>&1); PRC=$?
+  rm -f "$PROBE"
+  if [ -z "$(qmllint_findings "$POUT")" ] || [ "$PRC" -eq 0 ]; then
+    bad "qmllint self-check: a known syntax error was not reported -- output format changed?"
+  fi
+  OUT=$(/usr/lib/qt6/bin/qmllint -I "$QS" ./*.qml 2>&1); RC=$?
+  HITS=$(qmllint_findings "$OUT" | grep -c .)
+  if [ "$HITS" -gt 0 ] || [ "$RC" -ne 0 ]; then
+    qmllint_findings "$OUT" | head -10 | sed 's/^/   /'
+    bad "$HITS qmllint finding(s), exit code $RC -- a syntax error makes the widget vanish without a word"
   else
-    note "ok (import warnings about qs.* are normal)"
+    note "ok (warnings about qs.* imports and style hints are normal)"
   fi
 else
   skip "qmllint or the Omarchy modules are missing (other machine?) -- the QML syntax was NOT checked" "qmllint"

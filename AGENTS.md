@@ -15,7 +15,7 @@ the source would be German on screen for everyone.
 ```sh
 bash tests/run.sh --fast          # bridge unit tests, state tests, lint, manifest
                                   # (also prepares /tmp/qslint for the next line)
-qmllint -I /tmp/qslint <file>     # expect 0 lines containing error] or syntax]
+qmllint -I /tmp/qslint <file>     # expect exit code 0 and no line ending in [syntax]
 omarchy plugin validate
 ```
 
