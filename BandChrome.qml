@@ -346,9 +346,13 @@ Item {
   // gesture too: a press and a drag move the fill, and one command goes out when
   // the pointer is released -- a drag would otherwise flood the server (the
   // desktop card and the hover card do it the same way).
+  // Phosphor round, stage 2: in the full block the bar runs the whole width of
+  // the text column and the two clocks stand under its two ends -- the end time
+  // no longer floats in the middle of the band. The thin look keeps its one line.
   Item {
     id: progress
-    height: Style.space(16)
+    readonly property bool stacked: !band.oneLine
+    height: stacked ? Style.space(24) : Style.space(16)
     // Nothing to show and nothing to seek while a stream plays: MPD reports no
     // duration for one, so a bar would sit empty and a drag would aim at a
     // timeline that does not exist.
@@ -376,11 +380,15 @@ Item {
 
     Text {
       id: elapsed
-      anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+      anchors { left: parent.left
+                verticalCenter: progress.stacked ? undefined : parent.verticalCenter
+                bottom: progress.stacked ? parent.bottom : undefined }
       // While the daemon is wedged the number stopped moving: leaving it drawn
       // would present a frozen position as the current one.
       text: band.hasSong && !band.stale ? band.host.formatTime(band.host.elapsed) : ""
-      color: band.faint
+      // Where the music is: the accent, like the fill it belongs to. The 0.28
+      // it had was the faintest text in the band, for the number read most.
+      color: progress.stacked ? band.accent : band.faint
       font.family: band.fontFamily
       font.pixelSize: Style.font.caption
       font.features: { "tnum": 1 }
@@ -388,10 +396,12 @@ Item {
 
     Text {
       id: duration
-      anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+      anchors { right: parent.right
+                verticalCenter: progress.stacked ? undefined : parent.verticalCenter
+                bottom: progress.stacked ? parent.bottom : undefined }
       text: band.hasSong && !band.stale && band.host.duration > 0
         ? band.host.formatTime(band.host.duration) : ""
-      color: band.faint
+      color: progress.stacked ? band.dim : band.faint
       font.family: band.fontFamily
       font.pixelSize: Style.font.caption
       font.features: { "tnum": 1 }
@@ -399,9 +409,13 @@ Item {
 
     Rectangle {
       id: bar
-      anchors { left: elapsed.right; leftMargin: Style.space(8)
-                right: duration.left; rightMargin: Style.space(8)
-                verticalCenter: parent.verticalCenter }
+      anchors { left: progress.stacked ? parent.left : elapsed.right
+                leftMargin: progress.stacked ? 0 : Style.space(8)
+                right: progress.stacked ? parent.right : duration.left
+                rightMargin: progress.stacked ? 0 : Style.space(8)
+                top: progress.stacked ? parent.top : undefined
+                topMargin: progress.stacked ? Style.space(4) : 0
+                verticalCenter: progress.stacked ? undefined : parent.verticalCenter }
       height: Style.space(4)
       radius: height / 2
       color: band.line
