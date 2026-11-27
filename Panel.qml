@@ -47,6 +47,25 @@ Panel {
     return v === "" ? "classic" : v
   }
 
+  // The phosphor look's layers. Glow and scanlines are light, and light on a
+  // bright surface is a smudge -- so they follow the theme's own brightness
+  // (Color.background), while everything structural (the numbered chips, the
+  // accent fill under the playing row) stays at every brightness.
+  // Is the surface bright? Rec. 601 luma of the panel background, the same
+  // weighting the rest of the shell uses for contrast decisions.
+  function isLightColor(c) {
+    if (!c) return false
+    return (0.299 * Number(c.r) + 0.587 * Number(c.g) + 0.114 * Number(c.b)) > 0.5
+  }
+  // Glow and scanlines belong to the phosphor look and to dark surfaces only: a
+  // glow on white is a smudge, scanlines on white are dirt. Everything structural
+  // in that look (numbered chips, the accent wash under the playing row) stays.
+  function glowWanted(look, bg) {
+    return String(look) === "phosphor" && !root.isLightColor(bg)
+  }
+  readonly property bool phosphor: root.look === "phosphor"
+  readonly property bool phosphorGlow: root.glowWanted(root.look, root.bg)
+
   readonly property string backdropMode: root.look === "sharp" ? "sharp"
     : (root.look === "hero" || root.look === "anchor"
        || root.look === "minimal" || root.look === "split") ? "off"
@@ -1713,7 +1732,7 @@ Panel {
       { type: "header", title: "In the player" },
       { type: "setting", kind: "enum", key: "coverLook", title: "Cover look",
         value: String(h.coverLook || "classic"),
-        options: ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split"],
+        options: ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split", "phosphor"],
         hint: "enter or -/+ cycles through — applies at once" },
       { type: "setting", kind: "int", key: "backdrop", title: "Backdrop",
         min: 0, max: 100, step: 10, value: Number(h.backdrop), suffix: " %",
@@ -3281,7 +3300,8 @@ Panel {
               Rectangle {
                 anchors.fill: parent
                 radius: Style.cornerRadius
-                color: root.tab === modelData.key ? root.selBg : "transparent"
+                color: root.tab === modelData.key
+                  ? (root.phosphorGlow ? root.accent : root.selBg) : "transparent"
                 border.width: root.tab === modelData.key ? 0 : Math.max(1, Style.normalBorderWidth)
                 border.color: root.line
               }
@@ -3289,8 +3309,12 @@ Panel {
               Text {
                 id: chipText
                 anchors.centerIn: parent
-                text: modelData.label
-                color: root.tab === modelData.key ? root.selFg : root.fg
+                // In the phosphor look the chip carries its digit, the way the
+                // status line of the terminal player off which this look is built
+                // does: one glyph more, and the keys stop being secret knowledge.
+                text: (root.phosphor ? String((index + 1) % 10) + " " : "") + modelData.label
+                color: root.tab === modelData.key
+                  ? (root.phosphorGlow ? root.bg : root.selFg) : root.fg
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
               }
@@ -3622,6 +3646,22 @@ Panel {
               anchors.fill: parent
               color: rowItem.selected ? root.selBg : "transparent"
               radius: Style.cornerRadius
+            }
+
+            // The playing row in the phosphor look: an accent wash from the left
+            // gutter into nothing, so the eye finds the track from anywhere down
+            // the list. Structural, so it stays on a light theme too.
+            Rectangle {
+              anchors.fill: parent
+              visible: root.phosphor && !rowItem.isHeader
+                && root.isActiveRow(rowItem.modelData)
+              radius: Style.cornerRadius
+              gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: Util.alpha(root.accent, 0.20) }
+                GradientStop { position: 0.55; color: Util.alpha(root.accent, 0.04) }
+                GradientStop { position: 1.0; color: Util.alpha(root.accent, 0.0) }
+              }
             }
 
             // The queue's number gutter: a hairline between the number and the
@@ -4357,6 +4397,32 @@ Panel {
         }
 
       }
+
+      // ----------------------------------------------- phosphor scanlines
+      // The one thing that makes the phosphor look look like a screen: a hairline
+      // every third pixel over the whole panel. Drawn last, on top of every other
+      // layer, and taking no input at all -- no MouseArea, no hover, so clicks and
+      // keys reach what they did before. Off on a light theme, where it would be
+      // grey dirt on white.
+      // A Repeater of hairlines rather than a Canvas: one line every third pixel,
+      // ~250 thin rectangles, all static and clipped by the panel. It takes no
+      // input -- no MouseArea, no hover -- so clicks and keys reach what they did
+      // before.
+      Column {
+        id: scanlines
+        anchors.fill: parent
+        visible: root.phosphorGlow
+        spacing: 2
+        Repeater {
+          model: Math.ceil(scanlines.height / 3)
+          Rectangle {
+            width: scanlines.width
+            height: 1
+            color: "#000000"
+            opacity: 0.085
+          }
+        }
+      }
     }
   }
 
@@ -4395,6 +4461,7 @@ Panel {
     if (root.look === "vinyl") return bandVinyl
     if (root.look === "minimal") return bandMinimal
     if (root.look === "split") return bandSplit
+    if (root.look === "phosphor") return bandPhosphor
     return bandKlassisch
   }
 
@@ -4417,6 +4484,7 @@ Panel {
   Component { id: bandVinyl; BandVinyl {} }
   Component { id: bandMinimal; BandMinimal {} }
   Component { id: bandSplit; BandSplit {} }
+  Component { id: bandPhosphor; BandPhosphor {} }
 
   function labelFor(key) {
     var names = {

@@ -197,13 +197,15 @@ text field. No JSON editing needed for any of this.
 | Rows per section | how many rows each one shows (1–6); genres stay at two |
 | Update / Rescan | library maintenance — update after adding music, rescan after deleting or renaming |
 
-**The 7 cover looks** — same data, seven pictures:
+**The 8 cover looks** — same data, eight pictures:
 
 [![The seven cover looks](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/cover-looks.png)](docs/cover-looks.png)
 
 `classic` (default) · `sharp` (bigger cover, crisp backdrop) · `hero` (cover as full
 background) · `anchor` (big cover, single control row) · `vinyl` (spinning disc) ·
-`minimal` (no artwork, one thin line) · `split` (cover as a full-height column)
+`minimal` (no artwork, one thin line) · `split` (cover as a full-height column) ·
+`phosphor` (cover in an accent halo, scanlines, numbered tabs — glow and scanlines
+switch off on a light theme)
 
 Connection details (server/port/password) and a few display options live in
 `~/.config/omarchy/shell.json` or the CLI — see [docs/internals.md](docs/internals.md)

@@ -41,6 +41,12 @@ Item {
   property string cover: "thumb"
   // The picture's side; for `column` its width.
   property real coverSize: Style.space(58)
+  // Look `phosphor`: the cover stands in its own light. The glow is a halo
+  // rectangle behind the picture, blurred by MultiEffect -- a plain outlined
+  // rectangle there reads as a second border, not as light. The panel's half of
+  // this look (scanlines, numbered chips) is in Panel.qml and switches off with
+  // the theme's brightness; this property is set by the look, not by the theme.
+  property bool glow: false
 
   readonly property color fg: Color.popups.text
   readonly property color accent: Color.accent
@@ -177,6 +183,31 @@ Item {
     y: band.cover === "column" ? 0 : (band.height - height) / 2
     width: band.coverSize
     height: band.cover === "column" ? band.height : band.coverSize
+
+    // Behind the picture, never on top of it: a soft accent square that
+    // MultiEffect blurs into a halo.
+    Rectangle {
+      id: halo
+      visible: false
+      width: parent.width + Style.space(10)
+      height: parent.height + Style.space(10)
+      x: -Style.space(5)
+      y: -Style.space(5)
+      radius: Style.cornerRadius + Style.space(4)
+      color: band.accent
+      opacity: 0.55
+    }
+    MultiEffect {
+      anchors.fill: halo
+      visible: band.glow && band.art !== ""
+      source: halo
+      autoPaddingEnabled: true
+      blurEnabled: true
+      blur: 1.0
+      blurMax: 48
+      saturation: 0.1
+      opacity: 0.5
+    }
 
     Rectangle {
       id: plate

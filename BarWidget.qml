@@ -77,9 +77,9 @@ Panel {
     return isNaN(n) ? 3 : Math.max(1, Math.min(6, Math.round(n)))
   }
 
-  // Which look the panel's player band shows: classic | sharp | hero | anchor.
-  // The panel picks its band component from this and decides what the cover
-  // behind it does.
+  // Which look the panel's player band shows: classic | sharp | hero | anchor |
+  // vinyl | minimal | split | phosphor. The panel picks its band component from
+  // this and decides what the cover behind it does.
   readonly property string coverLook: {
     var v = String(setting("coverLook", "classic"))
     return v === "" ? "classic" : v

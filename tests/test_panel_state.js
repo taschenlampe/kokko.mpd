@@ -194,6 +194,8 @@ const FUNCTIONS = [
   // The queue in groups: heads by record, the artist column, the shared rail.
   "queueGroupKey", "queueGroups", "sameQueueRecord", "queueHeadNote", "queueHeadSub", "queueArtist",
   "lengthWidthFor", "glyphGutterFor", "queueArtistX",
+  // The phosphor look: glow and scanlines only on a dark surface.
+  "isLightColor", "glowWanted",
   "albumQuietFor", "albumArtistFor", "trackNo", "centerOn",
   "mutateAndReload",
   // The settings rows: -/+ on the row under the cursor. writeSetting and note
@@ -2828,7 +2830,7 @@ group("case 18: a queue reload keeps the cursor on its row");
       min: 0, max: 100, step: 10, value: 95 },
     { type: "setting", kind: "enum", key: "coverLook", title: "Cover look",
       value: "split",
-      options: ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split"] }
+      options: ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split", "phosphor"] }
   ];
   const P = makePanel({ settingRows: ROWS });
   P.key(0, "9");
@@ -2856,6 +2858,9 @@ group("case 18: a queue reload keeps the cursor on its row");
         P.notes.join(" | ") === "setting backdrop is at its limit",
         JSON.stringify(P.notes));
 
+  // From the last option in the list -- which is where a new look gets added, so
+  // the case is written against the list and not against one word.
+  ROWS[2].value = ROWS[2].options[ROWS[2].options.length - 1];
   P.settingWrites.length = 0;
   P.root.sel = 2;
   P.press("+");
@@ -3225,6 +3230,42 @@ group("case 18: a queue reload keeps the cursor on its row");
   check("... and leaves the cursor on a row of the list",
         P.root.sel === P.root.firstSelectable(0),
         "sel=" + P.root.sel + " first=" + P.root.firstSelectable(0));
+}
+
+// ---------------------------------------------------------------- case 37
+// The phosphor look's light rule: the glow and the scanlines are the only part
+// of that look that depends on the theme's brightness. They must be off on a
+// bright surface and on every other look, and on for phosphor on a dark one --
+// one function, so a screenshot of a light theme cannot disagree with this.
+{
+  group("case 37: phosphor's glow follows the surface, nothing else does");
+  const P = makePanel();
+  const DARK = { r: 0.07, g: 0.07, b: 0.07 };
+  const LIGHT = { r: 0.97, g: 0.96, b: 0.94 };
+
+  check("dark surface: light", P.root.isLightColor(DARK, "") === false, "");
+  check("bright surface: light", P.root.isLightColor(LIGHT, "") === true, "");
+  check("phosphor on a dark surface glows",
+        P.root.glowWanted("phosphor", DARK, "") === true, "");
+  check("phosphor on a bright surface does not glow",
+        P.root.glowWanted("phosphor", LIGHT, "") === false, "");
+  check("no other look glows, however dark the surface",
+        ["classic", "sharp", "hero", "anchor", "vinyl", "minimal", "split"].every(function (look) {
+          return P.root.glowWanted(look, DARK, "") === false;
+        }), "");
+  check("a missing background is not called bright",
+        P.root.isLightColor(undefined, "") === false, "");
+
+  // The look is wired in three places; a fourth that names looks must be added
+  // with it. The component itself is looked up by id, so a band file without the
+  // line in bandComponent() would leave the look showing classic.
+  check("the panel knows the look's band component",
+        SRC.indexOf('if (root.look === "phosphor") return bandPhosphor') > 0
+          && SRC.indexOf("Component { id: bandPhosphor; BandPhosphor {} }") > 0,
+        "bandComponent() or the Component id is missing");
+  const manifest = fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8");
+  check("the plugin's schema offers the look",
+        /"phosphor"/.test(manifest), "coverLook has no phosphor option");
 }
 
 // --------------------------------------------------------------- report
