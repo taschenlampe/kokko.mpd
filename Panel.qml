@@ -1884,7 +1884,9 @@ Panel {
           kind: kind,
           title: kind === "radio" ? "Radio" : (kind === "loose" ? "Without album" : String(row.album || "")),
           artist: kind === "album" ? String(row.albumartist || row.artist || "") : "",
-          year: kind === "album" ? String(row.date || "").slice(0, 4) : "",
+          // "0000" is a tag that says nothing, not a year.
+          year: kind === "album" && /^[0-9]{4}$/.test(String(row.date || "").slice(0, 4))
+                && String(row.date).slice(0, 4) !== "0000" ? String(row.date).slice(0, 4) : "",
           file: String(row.file || ""),
           album: String(row.album || ""),
           albumartist: String(row.albumartist || ""),

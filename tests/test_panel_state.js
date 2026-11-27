@@ -2039,6 +2039,11 @@ group("case 17: the queue names the album, the album view does not repeat it");
         mixed[2].title === "EIGHT" && P.root.queueHeadSub(mixed[2]) === "Hermitude  ·  2026"
           && P.root.queueHeadNote(mixed[2]) === "2 tracks  ·  10:41",
         [mixed[2].title, P.root.queueHeadSub(mixed[2]), P.root.queueHeadNote(mixed[2])].join(" | "));
+  check("a Date tag of 0000 is no year in the head",
+        P.root.queueHeadSub(P.root.queueGroups([{ type: "file", file: "z/1.mp3", artist: "Sneaker Pimps",
+          album: "B-Side", date: "0000" }])[0]) === "Sneaker Pimps",
+        P.root.queueHeadSub(P.root.queueGroups([{ type: "file", file: "z/1.mp3", artist: "Sneaker Pimps",
+          album: "B-Side", date: "0000" }])[0]));
   check("streams form one radio group, counted as streams, no clock",
         mixed[0].kind === "radio" && P.root.queueHeadNote(mixed[0]) === "2 streams",
         P.root.queueHeadNote(mixed[0]));
