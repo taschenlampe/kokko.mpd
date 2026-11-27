@@ -3468,7 +3468,9 @@ Panel {
               slot.headThumb = String(path || "")
             })
           }
-          onHeadChanged: slot.loadHeadThumb()
+          // A delegate torn down in the same breath as its data leaves the id
+          // null for one handler call -- the head went with it, nothing to load.
+          onHeadChanged: if (slot) slot.loadHeadThumb()
           Component.onCompleted: slot.loadHeadThumb()
 
           Item {
