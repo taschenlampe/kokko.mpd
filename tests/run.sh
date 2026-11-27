@@ -38,6 +38,16 @@ if [ ! -f tests/test_bridge.py ]; then
   bad "missing test file: tests/test_bridge.py"
 elif python3 tests/test_bridge.py; then note "ok"; else bad "unit tests failed"; fi
 
+step "new bridge unit tests (kokko_mpd, without MPD)"
+if [ ! -d tests/unit ]; then
+  bad "missing test directory: tests/unit"
+elif OUT=$(python3 -m unittest discover -s tests/unit -t tests/unit 2>&1); then
+  note "ok ($(printf '%s\n' "$OUT" | grep -oE '^Ran [0-9]+ tests?'))"
+else
+  printf '%s\n' "$OUT" | tail -15 | sed 's/^/   /'
+  bad "new bridge unit tests failed"
+fi
+
 step "panel and bar state tests (node, no QML engine)"
 # One driver per state machine. These files are *expected*: if one of them is
 # gone the suite may not quietly shrink -- that fails the run.
@@ -54,7 +64,7 @@ run_state_test() {
   fi
   return 0
 }
-STATE_TESTS=(tests/test_panel_state.js tests/test_barwidget_state.js tests/test_media_surfaces.js)
+STATE_TESTS=(tests/test_panel_state.js tests/test_barwidget_state.js tests/test_media_surfaces.js tests/test_bridge_switch.js)
 if command -v node >/dev/null 2>&1; then
   # The panel's and the widget's state machines are plain functions over the QML
   # source: these tests pull them out verbatim and drive them in node. They catch
@@ -149,6 +159,17 @@ else
 fi
 
 if [ "$FAST" -eq 0 ]; then
+  # About a minute: every test starts a bridge against the fake MPD in
+  # tests/fakempd. Never talks to a real MPD (tests/contract/launch.py fences it).
+  step "bridge contract tests (fake MPD)"
+  if [ ! -f tests/contract/run.py ]; then
+    bad "missing test file: tests/contract/run.py"
+  else
+    OUT=$(python3 tests/contract/run.py 2>&1); RC=$?
+    printf '%s\n' "$OUT" | grep -E '^(Ran |OK|FAILED|FAIL:|ERROR:)' | sed 's/^/   /'
+    [ "$RC" -eq 0 ] && note "ok" || bad "contract tests failed"
+  fi
+
   step "smoke test against MPD (optional, read-only)"
   if [ ! -f tests/smoke_mpd.py ]; then
     bad "missing test file: tests/smoke_mpd.py"

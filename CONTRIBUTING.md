@@ -31,9 +31,20 @@ paths, `crop`) — both have since been checked by hand on the running desktop: 
 clicks pass through to the row buttons and the cards, and `crop` keeps the playing
 track as expected.
 
-## Deliberately not planned
+## The bridge migration
 
-Deliberately **not** planned: splitting `bin/mpd-bridge` into modules or rewriting
-it to `with_cmd`. The file is a maintained copy of omajam (see `NOTICE.md`); a
-module split would destroy the upstream comparison and cost more than the
-structure brings in.
+The bridge is being rewritten as an independent package (`kokko_mpd/`) next to the
+old `bin/mpd-bridge`, which is frozen until the switch. What both must do is written
+down in [docs/bridge-contract.md](docs/bridge-contract.md); the contract tests check
+it against a fake MPD, never against a real one:
+
+```sh
+python3 tests/contract/run.py                 # the bridge the widget starts today
+python3 tests/contract/run.py --bridge <path> # any other bridge executable
+python3 tests/contract/run.py -k Supersede    # only the tests matching a name
+```
+
+They take about a minute, so `tests/run.sh` runs them and `--fast` (the pre-commit
+hook) does not. The launcher refuses every connection except loopback ports other
+than 6600 and unix sockets in the test's scratch home, so a bridge under test cannot
+reach a real MPD even when it tries.

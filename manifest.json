@@ -42,7 +42,8 @@
       "startFavorites": true,
       "startRandom": true,
       "startGenres": true,
-      "startRows": 3
+      "startRows": 3,
+      "bridge": "legacy"
     },
     "schema": [
       {

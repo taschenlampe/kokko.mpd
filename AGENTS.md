@@ -45,7 +45,15 @@ owns the bridge connection and the favorites set. `bin/mpd-bridge` — Python, o
 long-lived process speaking JSON lines. `tests/` — one driver per state machine plus the
 bridge unit tests. `docs/` — internals and mockups.
 
-## Deliberately not planned
+## The bridge migration
 
-Splitting `bin/mpd-bridge` into modules: it is a maintained copy of omajam (see
-`NOTICE.md`), and a module split would destroy that comparison.
+`bin/mpd-bridge` (derived from omajam, see `NOTICE.md`) is **frozen**: only fixes
+that cannot wait, and each such fix is ported to the new bridge as well. A new,
+independently written bridge is built next to it in `kokko_mpd/` -- written against
+the contract in `docs/bridge-contract.md`, not by copying the old file. The old
+bridge stays in the repo until the new one has been used for at least one release.
+
+- Do not change the JSON Lines interface without changing `docs/bridge-contract.md`
+  and the contract tests (`tests/contract/`) in the same commit.
+- The contract tests drive a bridge as a subprocess against a fake MPD
+  (`tests/fakempd/`). They never talk to the user's MPD.

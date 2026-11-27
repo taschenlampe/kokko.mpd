@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Entry point of the new bridge (kokko_mpd/). Started like the old one:
+
+    python3 bin/kokko-mpd-bridge
+
+The package sits next to bin/, so its parent directory goes on sys.path; no
+installation step, no dependency outside the standard library.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+
+from kokko_mpd.bridge import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())
