@@ -192,7 +192,8 @@ const FUNCTIONS = [
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "rowRight",
   // The queue in groups: heads by record, the artist column, the shared rail.
-  "queueGroupKey", "queueGroups", "sameQueueRecord", "queueHeadNote", "queueHeadSub", "queueNote",
+  "queueGroupKey", "queueGroups", "sameQueueRecord", "sameArtistFamily", "guestTail", "artistRoot",
+  "queueOwnerAt", "rowNoteAt", "queueHeadNote", "queueHeadSub", "queueNote",
   "lengthWidthFor", "glyphGutterFor",
   // The phosphor look: glow and scanlines only on a dark surface.
   "isLightColor", "glowWanted",
@@ -2063,6 +2064,35 @@ group("case 17: the queue names the album, the album view does not repeat it");
   check("note: a sampler names each track's artist",
         P.root.rowSub(VA1, EIGHT5, VA2) === "Kraftwerk" && P.root.rowSub(VA2, VA1, null) === "DAF",
         [P.root.rowSub(VA1, EIGHT5, VA2), P.root.rowSub(VA2, VA1, null)].join(" | "));
+  // A record whose files carry no albumartist tag: the family test keeps it in one
+  // piece, and the head keeps the shortest name as the record's artist.
+  const UNTAGGED = [
+    { type: "file", file: "e/01.flac", artist: "Hermitude, Wes Period", album: "EIGHT",
+      date: "2026", title: "All That", time: "308" },
+    { type: "file", file: "e/02.flac", artist: "Hermitude, Bob Vylan", album: "EIGHT",
+      date: "2026", title: "Light Up", time: "162" },
+    { type: "file", file: "e/05.flac", artist: "Hermitude", album: "EIGHT",
+      date: "2026", title: "Movement", time: "333" }
+  ];
+  const uHeads = P.root.queueGroups(UNTAGGED);
+  check("an untagged record does not split at its guests",
+        Object.keys(uHeads).join(",") === "0" && uHeads[0].count === 3,
+        Object.keys(uHeads).join(",") + " count=" + (uHeads[0] && uHeads[0].count));
+  check("... and its head names the record's artist, not the longest credit",
+        uHeads[0].artist === "Hermitude", uHeads[0].artist);
+  check("... the guest row reads feat. X against that artist",
+        P.root.queueNote(UNTAGGED[0], null, UNTAGGED[1], "Hermitude") === "feat. Wes Period",
+        P.root.queueNote(UNTAGGED[0], null, UNTAGGED[1], "Hermitude"));
+  check("... and the record's own row says nothing",
+        P.root.queueNote(UNTAGGED[2], UNTAGGED[1], null, "Hermitude") === "",
+        JSON.stringify(P.root.queueNote(UNTAGGED[2], UNTAGGED[1], null, "Hermitude")));
+  check("two names on one album are one family only when one is the other plus guests",
+        P.root.sameArtistFamily("Hermitude", "Hermitude, Wes Period") === true
+          && P.root.sameArtistFamily("ADULT.", "Ladytron") === false
+          && P.root.sameArtistFamily("Earth, Wind & Fire", "Earth, Wind & Fire feat. X") === true,
+        JSON.stringify([P.root.sameArtistFamily("Hermitude", "Hermitude, Wes Period"),
+                        P.root.sameArtistFamily("ADULT.", "Ladytron")]));
+
   check("note: a record with one row carries its album, since no head does",
         P.root.rowSub(EIGHT1) === "EIGHT  ·  feat. Wes Period", P.root.rowSub(EIGHT1));
   const ST_ALONE = P.root.queueGroups([ST1]);

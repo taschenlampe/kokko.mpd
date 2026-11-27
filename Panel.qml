@@ -1878,34 +1878,89 @@ Panel {
   // track artist stands in. Streams form one group, loose tracks (no album tag)
   // another. The heads are drawn by the delegate above the first row of a run;
   // they are NOT rows, so a row index stays its MPD position (moveRow, carrySel).
+  // The tail behind a name, when `artist` is `owner` plus guests: "Hermitude" +
+  // ", Wes Period" -> "Wes Period". Empty when the name is the owner itself or
+  // belongs to somebody else.
+  function guestTail(owner, artist) {
+    var o = String(owner || ""), a = String(artist || "")
+    if (o === "" || a === "") return ""
+    if (a.toLowerCase().indexOf(o.toLowerCase()) !== 0) return ""
+    var rest = a.slice(o.length)
+    var m = /^\s*(?:,|&|;|\/|\+|\bx\b|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b)\s*/i.exec(rest)
+    return (m && rest.slice(m[0].length).trim() !== "") ? rest.slice(m[0].length).trim() : ""
+  }
+
+  // The name without its guests, for comparing two credits: "Hermitude, Wes Period"
+  // and "Hermitude, Bob Vylan" are both "Hermitude". Only the leading segment is
+  // read -- which is why the *displayed* name is never this one, only the test.
+  function artistRoot(name) {
+    var n = String(name || "")
+    var m = /^(.+?)\s*(?:,|\bfeat\.?|\bft\.?|\bfeaturing\b|\bx\b|&)\s+/i.exec(n)
+    return (m ? m[1] : n).trim().toLowerCase()
+  }
+
+  // Two names on one record: the same name, or one is the other plus a guest tail.
+  // That is what keeps a record together when its files carry no albumartist tag --
+  // "Hermitude, Wes Period" and "Hermitude" are the same record, "ADULT." and
+  // "Ladytron" are not, however equal their album titles.
+  function sameArtistFamily(a, b) {
+    var x = String(a || ""), y = String(b || "")
+    if (x === "" || y === "") return false
+    if (x.toLowerCase() === y.toLowerCase()) return true
+    if (root.guestTail(x, y) !== "" || root.guestTail(y, x) !== "") return true
+    // Two guest credits of one record: "Hermitude, Wes Period" and
+    // "Hermitude, Bob Vylan" share a root, neither is a prefix of the other.
+    return root.artistRoot(x) === root.artistRoot(y)
+  }
+
+  // The group a queue row belongs in, as a comparable key: streams, loose tracks
+  // (no album tag, kept by artist) and records (album + the family of names).
   function queueGroupKey(row) {
     if (!row) return ""
     if (root.isStream(row)) return "\u0001radio"
     var album = String(row.album || "")
-    if (album === "") return "\u0001loose"
-    return String(row.albumartist || row.artist || "") + "\u0001" + album
+    if (album === "") return "\u0001loose\u0001" + String(row.artist || "").toLowerCase()
+    return String(row.albumartist || "") + "\u0001" + album
+  }
+
+  // Do two queue rows belong to one record, both present?
+  function sameQueueRecord(a, b) {
+    if (!a || !b) return false
+    if (root.queueGroupKey(a) === root.queueGroupKey(b)) return true
+    if (String(a.album || "") === "" || String(a.album || "") !== String(b.album || "")) return false
+    // Two tagged records are told apart by their tag (above); an untagged one joins
+    // its album's family. One row tagged and one not is the messy case: the names
+    // decide, since the tag cannot.
+    var aa = String(a.albumartist || ""), ba = String(b.albumartist || "")
+    if (aa !== "" && ba !== "") return aa === ba
+    return root.sameArtistFamily(a.artist, b.artist)
   }
 
   // One entry per row index, set only where a run starts: { kind, title,
   // artist, year, count, seconds, file, album, albumartist }. A record that is in
   // the queue with one track gets no head (user decision "b"): a head over one
-  // row says the album twice and doubles the height -- that row names artist and
-  // album in its own column instead (queueArtist). Streams keep their head even
+  // row says the album twice and doubles the height -- that row names its album in
+  // the note behind the title instead (queueNote). Streams keep their head even
   // alone: "Radio" is what tells a stream row from a track.
   function queueGroups(rows) {
     var heads = []
     var list = rows || []
     var open = null
-    var key = null
     for (var i = 0; i < list.length; i++) {
       var row = list[i]
-      var k = root.queueGroupKey(row)
-      if (open === null || k !== key) {
-        key = k
-        var kind = k === "\u0001radio" ? "radio" : (k === "\u0001loose" ? "loose" : "album")
+      var kind = root.isStream(row) ? "radio"
+        : (String(row.album || "") === "" ? "loose" : "album")
+      var cont = open !== null && open.kind === kind
+        && (kind === "radio" ? true
+           : (kind === "loose" ? root.sameQueueRecord(list[i - 1], row)
+              : root.sameQueueRecord(open, row)))
+      if (!cont) {
         open = {
           kind: kind,
-          title: kind === "radio" ? "Radio" : (kind === "loose" ? "Without album" : String(row.album || "")),
+          title: kind === "radio" ? "Radio"
+            : (kind === "loose" ? "Without album" : String(row.album || "")),
+          // The record's artist: the albumartist tag, else the shortest of the
+          // names in the run ("Hermitude" beats "Hermitude, Wes Period").
           artist: kind === "album" ? String(row.albumartist || row.artist || "") : "",
           // "0000" is a tag that says nothing, not a year.
           year: kind === "album" && /^[0-9]{4}$/.test(String(row.date || "").slice(0, 4))
@@ -1917,6 +1972,10 @@ Panel {
           seconds: 0
         }
         heads[i] = open
+      } else if (open.kind === "album" && open.albumartist === "") {
+        var cand = String(row.artist || "")
+        if (cand !== "" && cand.length < open.artist.length
+            && root.guestTail(cand, open.artist) !== "") open.artist = cand
       }
       open.count++
       var t = Number(row.time)
@@ -1927,10 +1986,15 @@ Panel {
     return heads
   }
 
-  // Do two queue rows belong to one record (the same group key, both present)?
-  function sameQueueRecord(a, b) {
-    if (!a || !b) return false
-    return root.queueGroupKey(a) === root.queueGroupKey(b)
+  // The record's artist for the row at `i`: from the head above it (the run it sits
+  // in), so a note can be built against it even when the tag is missing.
+  function queueOwnerAt(i) {
+    var heads = root.queueHeads || []
+    var at = Number(i)
+    if (isNaN(at) || at < 0) return ""
+    for (var j = Math.min(at, heads.length - 1); j >= 0; j--)
+      if (heads[j]) return String(heads[j].artist || "")
+    return ""
   }
 
   // The head's right-hand note: "11 tracks  ·  46:52", "2 streams".
@@ -1959,16 +2023,17 @@ Panel {
   //
   // `prev`/`next` are the rows around it: a track that is alone with its record
   // has no head above it (queueGroups), so it says artist and album itself.
-  function queueNote(row, prev, next) {
+  function queueNote(row, prev, next, ownerHint) {
     if (!row) return ""
     // A stream has no artist: the line behind its name is what is running on it.
     if (root.isStream(row)) return String(row.title || "")
     var artist = String(row.artist || "")
     var bits = []
     var album = String(row.album || "")
-    // The record's artist, the way queueGroupKey reads it: a missing albumartist
-    // makes the track artist the owner, so a row inside its own record stays quiet.
-    var owner = String(row.albumartist || row.artist || "")
+    // The record's artist: the tag, else the name the head of this run carries
+    // (queueOwnerAt) -- so a guest row in an untagged record still reads "feat. X"
+    // instead of repeating the whole name.
+    var owner = String(row.albumartist || ownerHint || row.artist || "")
     // A track without an album tag has no head to name anyone: the artist is the
     // only thing the row can say about itself.
     if (album === "") return artist
@@ -2085,11 +2150,17 @@ Panel {
     return bits.join("  ·  ")
   }
 
-  // The same line as it is drawn: in the queue a mark before it, because two
-  // strings ten pixels apart read as one sentence.
-  function rowNote(row, prev, next) {
-    var note = root.rowSub(row, prev, next)
-    return (root.frameMode === "queue" && note !== "") ? "\u00b7 " + note : note
+  // The same line as it is drawn in the queue: built from the row's index, so the
+  // note knows the artist its run carries (queueOwnerAt), and with a mark in front
+  // -- two strings ten pixels apart read as one sentence.
+  function rowNoteAt(i) {
+    var rows = root.rows || []
+    var row = rows[i]
+    if (!row) return ""
+    var note = root.queueNote(row, i > 0 ? rows[i - 1] : null,
+                              i < rows.length - 1 ? rows[i + 1] : null,
+                              root.queueOwnerAt(i))
+    return note !== "" ? "\u00b7 " + note : ""
   }
 
   function rowRight(row) {
@@ -3853,10 +3924,11 @@ Panel {
                 x: titleText.x + titleText.width + Style.space(10)
                 width: Math.max(0, rowText.width - x)
                 anchors.verticalCenter: parent.verticalCenter
-                // In the queue the note follows the name (rowNote adds its mark).
-                text: root.rowNote(rowItem.modelData,
-                                   rowItem.index > 0 ? root.rows[rowItem.index - 1] : null,
-                                   rowItem.index < root.rows.length - 1 ? root.rows[rowItem.index + 1] : null)
+                // In the queue the note follows the name (rowNoteAt adds its mark).
+                text: root.frameMode === "queue" ? root.rowNoteAt(rowItem.index)
+                  : root.rowSub(rowItem.modelData,
+                      rowItem.index > 0 ? root.rows[rowItem.index - 1] : null,
+                      rowItem.index < root.rows.length - 1 ? root.rows[rowItem.index + 1] : null)
                 visible: text !== ""
                 color: rowItem.selected ? root.selFg : root.dim
                 // The queue's note is information, not a footnote: readable.
