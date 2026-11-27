@@ -192,8 +192,8 @@ const FUNCTIONS = [
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "rowRight",
   // The queue in groups: heads by record, the artist column, the shared rail.
-  "queueGroupKey", "queueGroups", "sameQueueRecord", "queueHeadNote", "queueHeadSub", "queueArtist",
-  "lengthWidthFor", "glyphGutterFor", "queueArtistX",
+  "queueGroupKey", "queueGroups", "sameQueueRecord", "queueHeadNote", "queueHeadSub", "queueNote",
+  "lengthWidthFor", "glyphGutterFor",
   // The phosphor look: glow and scanlines only on a dark surface.
   "isLightColor", "glowWanted",
   "albumQuietFor", "albumArtistFor", "trackNo", "centerOn",
@@ -1963,11 +1963,11 @@ group("case 17: the queue names the album, the album view does not repeat it");
   const P = makePanel();
   P.root.stack = [{ mode: "queue", title: "Queue" }];
   check("a lone queue row names the album although it equals the title",
-        P.root.rowSub(SINGLE) === "Dopplereffekt  ·  Athanatos", P.root.rowSub(SINGLE));
+        P.root.rowSub(SINGLE) === "Athanatos", P.root.rowSub(SINGLE));
   check("... and gets no head of its own",
         P.root.queueGroups([SINGLE])[0] === undefined, JSON.stringify(P.root.queueGroups([SINGLE])));
   check("control: a row whose album differs from the title is untouched",
-        P.root.rowSub(OTHER) === "Dopplereffekt  ·  Tetrahymena", P.root.rowSub(OTHER));
+        P.root.rowSub(OTHER) === "Tetrahymena", P.root.rowSub(OTHER));
   check("control: a row with no album tag grows no album",
         P.root.rowSub(NOALBUM) === "Dopplereffekt", P.root.rowSub(NOALBUM));
 
@@ -2013,11 +2013,11 @@ group("case 17: the queue names the album, the album view does not repeat it");
   check("the run's head counts its rows",
         heads[0].count === 2 && heads[4].count === 2,
         JSON.stringify([heads[0].count, heads[4].count]));
-  check("a lone track says artist and album in its column",
-        P.root.rowSub(NEXTALBUM, RUN2, SAMEALBUM) === "ADULT.  ·  Anxiety Always",
+  check("a lone track names its album in the note, since no head does",
+        P.root.rowSub(NEXTALBUM, RUN2, SAMEALBUM) === "Anxiety Always",
         P.root.rowSub(NEXTALBUM, RUN2, SAMEALBUM));
   check("the same album title by another artist is another record",
-        P.root.rowSub(SAMEALBUM, NEXTALBUM, LOOSE1) === "Ladytron  ·  The Way Things Fall",
+        P.root.rowSub(SAMEALBUM, NEXTALBUM, LOOSE1) === "The Way Things Fall",
         P.root.rowSub(SAMEALBUM, NEXTALBUM, LOOSE1));
   check("inside a run the row says nothing the head says",
         P.root.rowSub(RUN2, RUN1, NEXTALBUM) === "", JSON.stringify(P.root.rowSub(RUN2, RUN1, NEXTALBUM)));
@@ -2054,32 +2054,32 @@ group("case 17: the queue names the album, the album view does not repeat it");
         mixed[0].kind === "radio" && P.root.queueHeadNote(mixed[0]) === "2 streams",
         P.root.queueHeadNote(mixed[0]));
 
-  check("artist column: a guest reads feat. X",
+  // The note behind the title (option 2): what the head does not say, and nothing
+  // else. No column, so a row that has nothing to add leaves the width to the title.
+  check("note: a guest reads feat. X",
         P.root.rowSub(EIGHT1, ST2, EIGHT5) === "feat. Wes Period", P.root.rowSub(EIGHT1, ST2, EIGHT5));
-  check("artist column: the record's own artist leaves the cell empty",
+  check("note: the record's own artist says nothing",
         P.root.rowSub(EIGHT5, EIGHT1, VA1) === "", JSON.stringify(P.root.rowSub(EIGHT5, EIGHT1, VA1)));
-  check("artist column: a sampler names each track's artist",
+  check("note: a sampler names each track's artist",
         P.root.rowSub(VA1, EIGHT5, VA2) === "Kraftwerk" && P.root.rowSub(VA2, VA1, null) === "DAF",
         [P.root.rowSub(VA1, EIGHT5, VA2), P.root.rowSub(VA2, VA1, null)].join(" | "));
+  check("note: a record with one row carries its album, since no head does",
+        P.root.rowSub(EIGHT1) === "EIGHT  ·  feat. Wes Period", P.root.rowSub(EIGHT1));
   const ST_ALONE = P.root.queueGroups([ST1]);
   check("a lone stream keeps its radio head",
         ST_ALONE[0] && ST_ALONE[0].kind === "radio", JSON.stringify(ST_ALONE));
-  check("artist column: a stream shows what is on it, never its URL",
+  check("note: a stream shows what is on it, never its URL",
         P.root.rowSub(ST1) === "ENSKA - Summer Dream", P.root.rowSub(ST1));
   const MATE = { artist: "Hermitude", albumartist: "Hermitude", album: "X" };
   const inRun = function (artist) {
-    return P.root.queueArtist({ artist: artist, albumartist: "Hermitude", album: "X" }, null, MATE);
+    return P.root.queueNote({ artist: artist, albumartist: "Hermitude", album: "X" }, null, MATE);
   };
-  check("artist column: a name that only starts like the owner is not a guest",
+  check("note: a name that only starts like the owner is not a guest",
         inRun("Hermitudes") === "Hermitudes", inRun("Hermitudes"));
-  check("artist column: 'feat.' and '&' are separators too",
+  check("note: 'feat.' and '&' are separators too",
         inRun("Hermitude feat. Kameron") === "feat. Kameron"
           && inRun("Hermitude & Bob Vylan") === "feat. Bob Vylan",
         [inRun("Hermitude feat. Kameron"), inRun("Hermitude & Bob Vylan")].join(" | "));
-  check("the column heads and the rows share one artist x",
-        P.root.queueArtistX(886) === Math.round((886 - 8 - 8 - P.root.lengthWidthFor(886) - 8
-          - P.root.glyphGutterFor(886) - 6) * 0.5),
-        String(P.root.queueArtistX(886)));
 
   // A search has its own rule: it says the album once and then only what
   // changed -- never nothing, though, when the row is in the results for a

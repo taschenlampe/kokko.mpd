@@ -1959,23 +1959,33 @@ Panel {
   //
   // `prev`/`next` are the rows around it: a track that is alone with its record
   // has no head above it (queueGroups), so it says artist and album itself.
-  function queueArtist(row, prev, next) {
+  function queueNote(row, prev, next) {
     if (!row) return ""
+    // A stream has no artist: the line behind its name is what is running on it.
     if (root.isStream(row)) return String(row.title || "")
     var artist = String(row.artist || "")
-    if (String(row.album || "") === "") return artist
-    if (!root.sameQueueRecord(prev, row) && !root.sameQueueRecord(row, next))
-      return [artist, String(row.album)].filter(function(x) { return x !== "" }).join("  ·  ")
-    if (artist === "") return ""
-    var owner = String(row.albumartist || "")
-    if (owner === "" || artist.toLowerCase() === owner.toLowerCase()) return ""
-    if (artist.toLowerCase().indexOf(owner.toLowerCase()) === 0) {
-      var rest = artist.slice(owner.length)
-      var m = /^\s*(?:,|&|;|\/|\+|\bx\b|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b)\s*/i.exec(rest)
-      if (m && rest.slice(m[0].length).trim() !== "")
-        return "feat. " + rest.slice(m[0].length).trim()
+    var bits = []
+    var album = String(row.album || "")
+    // The record's artist, the way queueGroupKey reads it: a missing albumartist
+    // makes the track artist the owner, so a row inside its own record stays quiet.
+    var owner = String(row.albumartist || row.artist || "")
+    // A track without an album tag has no head to name anyone: the artist is the
+    // only thing the row can say about itself.
+    if (album === "") return artist
+    // A record that is in the queue with one track has no head either (queueGroups):
+    // the row carries the album the head would have carried.
+    if (!root.sameQueueRecord(prev, row) && !root.sameQueueRecord(row, next)) bits.push(album)
+    if (artist !== "" && (owner === "" || artist.toLowerCase() !== owner.toLowerCase())) {
+      if (owner !== "" && artist.toLowerCase().indexOf(owner.toLowerCase()) === 0) {
+        var rest = artist.slice(owner.length)
+        var m = /^\s*(?:,|&|;|\/|\+|\bx\b|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b)\s*/i.exec(rest)
+        if (m && rest.slice(m[0].length).trim() !== "") bits.push("feat. " + rest.slice(m[0].length).trim())
+        else bits.push(artist)
+      } else {
+        bits.push(artist)                 // a sampler: the track's own name
+      }
     }
-    return artist
+    return bits.filter(function(b) { return b !== "" }).join("  ·  ")
   }
 
   // The right rail of a list row, shared by the rows and the queue's column
@@ -1985,13 +1995,6 @@ Panel {
   }
   function glyphGutterFor(w) {
     return Math.max(Style.space(56), Math.min(w * 0.07, Style.space(76)))
-  }
-  // Where the artist column starts inside a queue row's text, for a list `w`
-  // wide: half of what the text has, measured the way the delegate measures it.
-  function queueArtistX(w) {
-    var text = w - Style.space(8) - Style.space(8) - root.lengthWidthFor(w)
-      - Style.space(8) - root.glyphGutterFor(w) - Style.space(6)
-    return Math.round(Math.max(0, text) * 0.5)
   }
 
   // `prev` is the row above. The queue names artist and album once at the top of
@@ -2042,7 +2045,7 @@ Panel {
     }
     if (row.type === "value" || row.type === "playlist") return ""
     if (row.type === "directory") return "Folder"
-    if (root.frameMode === "queue") return root.queueArtist(row, prev, next)
+    if (root.frameMode === "queue") return root.queueNote(row, prev, next)
     // The album's own view, when every track on it credits one artist: the
     // number and the title say the rest, and the footer says the artist.
     if (root.albumFrameQuiet) return ""
@@ -3386,8 +3389,9 @@ Panel {
       }
 
       // ------------------------------------------------------------- list
-      // The queue's column heads: the same x as the rows below (queueArtistX,
-      // lengthWidthFor, glyphGutterFor), so each column says what it holds.
+      // The queue's column heads: the same x as the rows below (lengthWidthFor,
+      // glyphGutterFor), so each column says what it holds. Three, since the
+      // artist column is gone: what the head does not say rides behind the title.
       Item {
         id: columnHeads
         visible: root.frameMode === "queue" && root.rows.length > 0
@@ -3407,14 +3411,6 @@ Panel {
           x: Style.space(8) + Style.space(18) + Style.space(10)
           anchors.verticalCenter: parent.verticalCenter
           text: "TITLE"
-          color: root.dim; opacity: 0.62
-          font.family: root.fontFamily; font.pixelSize: Style.font.caption
-          font.letterSpacing: 1.5
-        }
-        Text {
-          x: Style.space(8) + root.queueArtistX(columnHeads.width)
-          anchors.verticalCenter: parent.verticalCenter
-          text: "ARTIST"
           color: root.dim; opacity: 0.62
           font.family: root.fontFamily; font.pixelSize: Style.font.caption
           font.letterSpacing: 1.5
@@ -3794,9 +3790,6 @@ Panel {
                         rightMargin: Style.space(8)
                         verticalCenter: parent.verticalCenter }
               height: Style.space(18)
-              // The queue's artist column, inside this item (see queueArtistX).
-              readonly property real artistX: root.frameMode === "queue"
-                ? root.queueArtistX(rowItem.width) : -1
 
               // The number on the record, where the row *is* a track of the album
               // the frame stands for -- there it is information. Anywhere else it
@@ -3839,10 +3832,7 @@ Panel {
                 elide: Text.ElideRight
                 // In the queue the artist column starts at a fixed x; an empty cell
                 // gives its room to the title (rule b of the phosphor round).
-                width: rowText.artistX >= 0
-                  ? Math.min(implicitWidth, Math.max(0, (metaText.visible ? rowText.artistX - Style.space(10)
-                                                                          : rowText.width) - trackOffset))
-                  : Math.min(implicitWidth, Math.max(0, rowText.width - trackOffset - metaRoom))
+                width: Math.min(implicitWidth, Math.max(0, rowText.width - trackOffset - metaRoom))
               }
 
               // `artist · album` (and the search's reason) on the same line, ten
@@ -3850,7 +3840,10 @@ Panel {
               // the old column cut the reason mid-word and read as broken data.
               Text {
                 id: metaText
-                x: rowText.artistX >= 0 ? rowText.artistX : titleText.x + titleText.width + Style.space(10)
+                // Right behind the title, never in a cell of its own: the queue's
+                // note (queueNote) is a continuation of the name, and an empty one
+                // leaves the whole width to the title.
+                x: titleText.x + titleText.width + Style.space(10)
                 width: Math.max(0, rowText.width - x)
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.rowSub(rowItem.modelData,
@@ -3858,8 +3851,8 @@ Panel {
                                   rowItem.index < root.rows.length - 1 ? root.rows[rowItem.index + 1] : null)
                 visible: text !== ""
                 color: rowItem.selected ? root.selFg : root.dim
-                // The queue's column is information, not a footnote: readable.
-                opacity: rowText.artistX >= 0 ? 0.62 : 0.40
+                // The queue's note is information, not a footnote: readable.
+                opacity: root.frameMode === "queue" ? 0.62 : 0.40
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
                 elide: Text.ElideRight
