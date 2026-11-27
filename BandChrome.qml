@@ -190,24 +190,25 @@ Item {
     Rectangle {
       id: halo
       visible: false
-      width: parent.width + Style.space(10)
-      height: parent.height + Style.space(10)
-      x: -Style.space(5)
-      y: -Style.space(5)
-      radius: Style.cornerRadius + Style.space(4)
+      width: parent.width + Style.space(22)
+      height: parent.height + Style.space(22)
+      x: -Style.space(11)
+      y: -Style.space(11)
+      radius: Style.cornerRadius + Style.space(8)
       color: band.accent
-      opacity: 0.55
+      opacity: 0.9
     }
     MultiEffect {
       anchors.fill: halo
       visible: band.glow && band.art !== ""
       source: halo
-      autoPaddingEnabled: true
+      autoPaddingEnabled: false
       blurEnabled: true
       blur: 1.0
-      blurMax: 48
+      blurMax: 64
       saturation: 0.1
-      opacity: 0.5
+      brightness: 0.02
+      opacity: 0.85
     }
 
     Rectangle {
