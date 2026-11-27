@@ -38,6 +38,16 @@ if [ ! -f tests/test_bridge.py ]; then
   bad "missing test file: tests/test_bridge.py"
 elif python3 tests/test_bridge.py; then note "ok"; else bad "unit tests failed"; fi
 
+step "new bridge unit tests (kokko_mpd, without MPD)"
+if [ ! -d tests/unit ]; then
+  bad "missing test directory: tests/unit"
+elif OUT=$(python3 -m unittest discover -s tests/unit -t tests/unit 2>&1); then
+  note "ok ($(printf '%s\n' "$OUT" | grep -oE '^Ran [0-9]+ tests?'))"
+else
+  printf '%s\n' "$OUT" | tail -15 | sed 's/^/   /'
+  bad "new bridge unit tests failed"
+fi
+
 step "panel and bar state tests (node, no QML engine)"
 # One driver per state machine. These files are *expected*: if one of them is
 # gone the suite may not quietly shrink -- that fails the run.

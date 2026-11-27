@@ -179,7 +179,7 @@ It never touches MPD. The playing stream's logo is looked up via
 | `result` | `id`, `kind`, `channel`, `rows[]`, optional `error`, `truncated:true`, `dropped:true` | one per query |
 | `database` | -- | MPD's `database` idle event |
 | `health` | `ok`, `detail`, `target`, (`fails` when false) | the greeting probe changed its verdict |
-| `ack` | `error` | an MPD `ACK` on a command/mutation, a refused value, a findadd/searchadd that added nothing |
+| `ack` | `error` | an MPD `ACK` on a command/mutation (`error` = `"<command>: <message>"`, e.g. `load: No such playlist`), a refused value, a findadd/searchadd that added nothing |
 
 `status` and `song` are MPD's own `status`/`currentsong` with lower-cased keys and
 repeated keys joined by `", "`. The widget reads (among others) `state`, `elapsed`,
