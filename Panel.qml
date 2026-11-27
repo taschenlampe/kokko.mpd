@@ -3610,7 +3610,9 @@ Panel {
               anchors { left: headTitle.right; leftMargin: Style.space(10)
                         right: headNote.left; rightMargin: Style.space(12)
                         verticalCenter: headCover.verticalCenter }
-              text: root.queueHeadSub(slot.head)
+              // The mark belongs to the head, not to the string the tests read.
+              readonly property string sub: root.queueHeadSub(slot.head)
+              text: sub === "" ? "" : "\u00b7 " + sub
               visible: text !== ""
               color: root.dim
               opacity: 0.75
