@@ -183,7 +183,7 @@ text field. No JSON editing needed for any of this.
 |---|---|
 | Format | `mpc`-style placeholders for the bar label, live preview |
 | Show the card (hover) | the popup card when you point at the bar |
-| Cover look | 7 styles for the player band — see below |
+| Cover look | 8 styles for the player band — see below |
 | Backdrop | how present the cover is behind the panel, 0 = off |
 | Show the card (track change) | the brief popup on every new track |
 | For how long | how long that popup stays |
@@ -199,7 +199,10 @@ text field. No JSON editing needed for any of this.
 
 **The 8 cover looks** — same data, eight pictures:
 
-[![The seven cover looks](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/cover-looks.png)](docs/cover-looks.png)
+[![Seven of the cover looks](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/cover-looks.png)](docs/cover-looks.png)
+
+(The picture is from before `phosphor` existed: it shows the first seven. The
+eighth is described in the last line below.)
 
 `classic` (default) · `sharp` (bigger cover, crisp backdrop) · `hero` (cover as full
 background) · `anchor` (big cover, single control row) · `vinyl` (spinning disc) ·
@@ -254,6 +257,28 @@ for every key. No restart needed.
   index of a big library takes minutes (measured: 14 105 tracks, 345 s over NFSv4) and is
   incomplete until it finishes.
 
+## Two bridges
+
+The widget talks to MPD through a small Python program it starts itself. There
+are two of them in this repository while the migration runs, and `shell.json`
+says which one your bar uses:
+
+```json
+{ "id": "kokko.mpd", "bridge": "next" }
+```
+
+`"next"` runs `bin/kokko-mpd-bridge`, the independently written bridge in
+`kokko_mpd/`; anything else — including no key at all, which is the default —
+runs the frozen `bin/mpd-bridge` that came from omajam. Switching restarts only
+that child process, from the settings tab's *Update* or on the next shell
+restart, and switching back is the same one key. Both are plain Python with no
+dependencies outside the standard library.
+
+The interface between the two — the lines the widget sends and the JSON events
+it reads — is written down in [docs/bridge-contract.md](docs/bridge-contract.md)
+and checked by `tests/contract/` against a fake MPD, so a change on either side
+that would break the widget fails the suite instead of the bar.
+
 ## More
 
 - **[docs/internals.md](docs/internals.md)** — how it works under the hood: the bridge, cover picking, MPD quirks, CLI, Hyprland bindings.
@@ -264,6 +289,7 @@ for every key. No restart needed.
 
 `bin/mpd-bridge` and `Format.js` are from [matjam/omajam](https://github.com/matjam/omajam)
 (MIT, © 2026 Nathan Ollerenshaw) — see `NOTICE.md` for changes. Everything else
-(`BarWidget.qml`, `Panel.qml`, `MiniPlayer.qml`, `Visualizer.qml`) is original.
+(`BarWidget.qml`, `Panel.qml`, `MiniPlayer.qml`, `Visualizer.qml`, and the whole
+`kokko_mpd/` package with `bin/kokko-mpd-bridge`) is original.
 
 MIT licensed.

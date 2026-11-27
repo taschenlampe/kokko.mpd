@@ -64,7 +64,7 @@ run_state_test() {
   fi
   return 0
 }
-STATE_TESTS=(tests/test_panel_state.js tests/test_barwidget_state.js tests/test_media_surfaces.js tests/test_bridge_switch.js)
+STATE_TESTS=(tests/test_panel_state.js tests/test_barwidget_state.js tests/test_media_surfaces.js tests/test_bridge_switch.js tests/test_looks_and_tabs.js)
 if command -v node >/dev/null 2>&1; then
   # The panel's and the widget's state machines are plain functions over the QML
   # source: these tests pull them out verbatim and drive them in node. They catch

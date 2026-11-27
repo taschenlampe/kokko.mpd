@@ -2,13 +2,12 @@ import QtQuick
 import qs.Commons
 import Qt5Compat.GraphicalEffects
 
-// The chassis every band look is built on (the seven looks are the table in
-// README.md).
+// The chassis every band look is built on (the looks are the table in README.md).
 //
 // A look decides one thing: how the cover is drawn -- `cover`, plus the size the
 // picture needs. Everything else is built once, here, and therefore reads the
-// same in all seven: title, meta line, clock, progress with click-and-drag seek,
-// transport, spectrum. The seven files exist so `coverLook` can pick one, not so
+// same in all of them: title, meta line, clock, progress with click-and-drag seek,
+// transport, spectrum. One file per look exists so `coverLook` can pick one, not so
 // each of them can invent its own grammar for the same song.
 //
 // `cover: "none"` is the look whose identity is the missing picture, so the band
@@ -31,8 +30,8 @@ Item {
   signal message(string text)     // a line for the footer, e.g. "Shuffle on"
   signal hint(string text)        // explanation while the pointer rests on a glyph
 
-  // How the picture is drawn. The seven looks map onto it like this:
-  //   thumb  classic, sharp  -- rounded square beside the text
+  // How the picture is drawn. The looks map onto it like this:
+  //   thumb  classic, sharp, phosphor  -- rounded square beside the text
   //   big    anchor          -- the same square, as tall as the band allows
   //   card   hero            -- the square, plus the artwork as the card's own background
   //   disc   vinyl           -- round platter, spinning while it plays
