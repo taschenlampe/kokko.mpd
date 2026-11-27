@@ -199,10 +199,7 @@ text field. No JSON editing needed for any of this.
 
 **The 8 cover looks** — same data, eight pictures:
 
-[![Seven of the cover looks](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/cover-looks.png)](docs/cover-looks.png)
-
-(The picture is from before `phosphor` existed: it shows the first seven. The
-eighth is described in the last line below.)
+[![The eight cover looks](https://github.com/taschenlampe/kokko.mpd/raw/main/docs/cover-looks.png)](docs/cover-looks.png)
 
 `classic` (default) · `sharp` (bigger cover, crisp backdrop) · `hero` (cover as full
 background) · `anchor` (big cover, single control row) · `vinyl` (spinning disc) ·
