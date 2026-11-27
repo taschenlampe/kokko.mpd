@@ -3,10 +3,16 @@
 # CI has nothing but the files: no Omarchy shell, no Qt, no MPD. So it runs the
 # half of the suite that is pure Python --
 #
-#   * the bridge compiles,
-#   * its 25 protocol checks pass,
+#   * both bridges compile and their unit tests pass,
+#   * the contract holds -- 127 scenarios that drive a bridge as a child process
+#     against tests/fakempd (greeting, ACK, binary, idle push, lost replies,
+#     supersede, covers, radio). It needs no MPD and no Qt, so it belongs here:
+#     a change to either side of the interface that would break the widget fails
+#     in CI instead of in the bar,
 #   * the manifest is complete and every setting the panel offers exists in the
 #     schema (a typo there is a setting that does nothing when clicked),
+#   * the looks and the tab digits still line up (one Band file per look, 1..9
+#     plus 0 for start), and the switch names a bridge that exists,
 #   * no QML string carries a malformed \u escape (five hex digits read as four
 #     plus a literal character -- that shipped a wrong icon once).
 #
@@ -33,3 +39,13 @@ jobs:
         run: apt-get update -qq && apt-get install -y -qq python3 >/dev/null
       - name: the fast suite (no MPD, no desktop)
         run: tests/run.sh --fast
+      # Separate from --fast on purpose: the hook stays quick, and this is the
+      # one check that keeps both sides of the widget/bridge interface honest.
+      # About a minute; its fake MPD listens on loopback only.
+      - name: the bridge contract (fake MPD, no real server)
+        # Both bridges while both exist: the interface is the same contract
+        # for either, and the old one reports its two known differences as
+        # expected failures instead of failures.
+        run: |
+          python3 tests/contract/run.py
+          python3 tests/contract/run.py --bridge bin/kokko-mpd-bridge
