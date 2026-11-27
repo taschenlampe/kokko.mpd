@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Effects
 import qs.Commons
 import Qt5Compat.GraphicalEffects
 
@@ -185,30 +184,23 @@ Item {
     width: band.coverSize
     height: band.cover === "column" ? band.height : band.coverSize
 
-    // Behind the picture, never on top of it: a soft accent square that
-    // MultiEffect blurs into a halo.
-    Rectangle {
-      id: halo
-      visible: false
-      width: parent.width + Style.space(22)
-      height: parent.height + Style.space(22)
-      x: -Style.space(11)
-      y: -Style.space(11)
-      radius: Style.cornerRadius + Style.space(8)
-      color: band.accent
-      opacity: 0.9
-    }
-    MultiEffect {
-      anchors.fill: halo
-      visible: band.glow && band.art !== ""
-      source: halo
-      autoPaddingEnabled: false
-      blurEnabled: true
-      blur: 1.0
-      blurMax: 64
-      saturation: 0.1
-      brightness: 0.02
-      opacity: 0.85
+    // Behind the picture, never on top of it: the halo of the phosphor look, as
+    // four accent squares stepping outward, each weaker than the one inside it.
+    // Rings rather than a blur on purpose -- this runtime does not soften a source
+    // that is only drawn to be blurred (the first attempt came out as a hard blue
+    // frame), and four flat rectangles fade more evenly than a clipped one.
+    // Widest first: the Repeater paints in model order.
+    Repeater {
+      model: band.glow ? [ { pad: 20, alpha: 0.045 }, { pad: 13, alpha: 0.075 },
+                           { pad: 8, alpha: 0.11 }, { pad: 4, alpha: 0.16 } ] : []
+      Rectangle {
+        required property var modelData
+        readonly property real pad: Number(modelData.pad)
+        anchors.fill: parent
+        anchors.margins: -pad
+        radius: Style.cornerRadius + pad
+        color: Util.alpha(band.accent, Number(modelData.alpha))
+      }
     }
 
     Rectangle {
