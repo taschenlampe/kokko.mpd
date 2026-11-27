@@ -192,7 +192,7 @@ const FUNCTIONS = [
   "applyCategorySearch", "refreshFilteredRows", "applyLocalFilter",
   "openPromptForFrame", "submitPrompt", "rowTitle", "rowSub", "rowRight",
   // The queue in groups: heads by record, the artist column, the shared rail.
-  "queueGroupKey", "queueGroups", "queueHeadNote", "queueHeadSub", "queueArtist",
+  "queueGroupKey", "queueGroups", "sameQueueRecord", "queueHeadNote", "queueHeadSub", "queueArtist",
   "lengthWidthFor", "glyphGutterFor", "queueArtistX",
   "albumQuietFor", "albumArtistFor", "trackNo", "centerOn",
   "mutateAndReload",
@@ -1955,19 +1955,18 @@ group("case 17: the queue names the album, the album view does not repeat it");
   const TAGGED = { type: "file", file: "d/04.flac", artist: "Dopplereffekt",
                    album: "Athanatos", genre: "Electro", title: "Delta" };
 
-  // In the queue the album -- the same word as the track included -- is named
-  // once, by the group head above the run (phosphor round, stage 1). The row
-  // keeps what the head does not say; a track by the record's artist says
-  // nothing more, a loose track (no album, so no head names an artist) keeps it.
+  // In the queue a track that is alone with its record has no group head
+  // (decision "b"), so the row names the album itself -- the same word as the
+  // track included. Inside a run of two or more the head says it instead.
   const P = makePanel();
   P.root.stack = [{ mode: "queue", title: "Queue" }];
-  const singleHead = P.root.queueGroups([SINGLE])[0];
-  check("the queue names the album in the head, also when it equals the title",
-        singleHead && singleHead.title === "Athanatos" && P.root.rowSub(SINGLE) === "",
-        JSON.stringify([singleHead && singleHead.title, P.root.rowSub(SINGLE)]));
-  check("control: the head of another album names that album",
-        P.root.queueGroups([OTHER])[0].title === "Tetrahymena", P.root.queueGroups([OTHER])[0].title);
-  check("control: a row with no album tag keeps its artist",
+  check("a lone queue row names the album although it equals the title",
+        P.root.rowSub(SINGLE) === "Dopplereffekt  ·  Athanatos", P.root.rowSub(SINGLE));
+  check("... and gets no head of its own",
+        P.root.queueGroups([SINGLE])[0] === undefined, JSON.stringify(P.root.queueGroups([SINGLE])));
+  check("control: a row whose album differs from the title is untouched",
+        P.root.rowSub(OTHER) === "Dopplereffekt  ·  Tetrahymena", P.root.rowSub(OTHER));
+  check("control: a row with no album tag grows no album",
         P.root.rowSub(NOALBUM) === "Dopplereffekt", P.root.rowSub(NOALBUM));
 
   // Inside the album's own view (`find` under that album) every row already
@@ -2007,13 +2006,19 @@ group("case 17: the queue names the album, the album view does not repeat it");
   const LOOSE2 = { type: "file", file: "q/06.flac", artist: "ADULT.", title: "Two" };
   const heads = P.root.queueGroups([RUN1, RUN2, NEXTALBUM, SAMEALBUM, LOOSE1, LOOSE2]);
   const at = Object.keys(heads).map(Number);
-  check("a head where each record starts, none inside a run",
-        JSON.stringify(at) === "[0,2,3,4]", JSON.stringify(at));
+  check("a head where a run of two or more starts, none over a lone track",
+        JSON.stringify(at) === "[0,4]", JSON.stringify(at));
   check("the run's head counts its rows",
-        heads[0].count === 2 && heads[2].count === 1 && heads[4].count === 2,
-        JSON.stringify([heads[0].count, heads[2].count, heads[4].count]));
+        heads[0].count === 2 && heads[4].count === 2,
+        JSON.stringify([heads[0].count, heads[4].count]));
+  check("a lone track says artist and album in its column",
+        P.root.rowSub(NEXTALBUM, RUN2, SAMEALBUM) === "ADULT.  ·  Anxiety Always",
+        P.root.rowSub(NEXTALBUM, RUN2, SAMEALBUM));
   check("the same album title by another artist is another record",
-        heads[3] && heads[3].artist === "Ladytron", JSON.stringify(heads[3]));
+        P.root.rowSub(SAMEALBUM, NEXTALBUM, LOOSE1) === "Ladytron  ·  The Way Things Fall",
+        P.root.rowSub(SAMEALBUM, NEXTALBUM, LOOSE1));
+  check("inside a run the row says nothing the head says",
+        P.root.rowSub(RUN2, RUN1, NEXTALBUM) === "", JSON.stringify(P.root.rowSub(RUN2, RUN1, NEXTALBUM)));
   check("loose tracks share one head without an album",
         heads[4].kind === "loose" && heads[4].title === "Without album", JSON.stringify(heads[4]));
 
@@ -2039,31 +2044,36 @@ group("case 17: the queue names the album, the album view does not repeat it");
         mixed[2].title === "EIGHT" && P.root.queueHeadSub(mixed[2]) === "Hermitude  ·  2026"
           && P.root.queueHeadNote(mixed[2]) === "2 tracks  ·  10:41",
         [mixed[2].title, P.root.queueHeadSub(mixed[2]), P.root.queueHeadNote(mixed[2])].join(" | "));
+  const BSIDE = { type: "file", file: "z/1.mp3", artist: "Sneaker Pimps", album: "B-Side", date: "0000" };
   check("a Date tag of 0000 is no year in the head",
-        P.root.queueHeadSub(P.root.queueGroups([{ type: "file", file: "z/1.mp3", artist: "Sneaker Pimps",
-          album: "B-Side", date: "0000" }])[0]) === "Sneaker Pimps",
-        P.root.queueHeadSub(P.root.queueGroups([{ type: "file", file: "z/1.mp3", artist: "Sneaker Pimps",
-          album: "B-Side", date: "0000" }])[0]));
+        P.root.queueHeadSub(P.root.queueGroups([BSIDE, BSIDE])[0]) === "Sneaker Pimps",
+        P.root.queueHeadSub(P.root.queueGroups([BSIDE, BSIDE])[0]));
   check("streams form one radio group, counted as streams, no clock",
         mixed[0].kind === "radio" && P.root.queueHeadNote(mixed[0]) === "2 streams",
         P.root.queueHeadNote(mixed[0]));
 
   check("artist column: a guest reads feat. X",
-        P.root.rowSub(EIGHT1) === "feat. Wes Period", P.root.rowSub(EIGHT1));
+        P.root.rowSub(EIGHT1, ST2, EIGHT5) === "feat. Wes Period", P.root.rowSub(EIGHT1, ST2, EIGHT5));
   check("artist column: the record's own artist leaves the cell empty",
-        P.root.rowSub(EIGHT5) === "", JSON.stringify(P.root.rowSub(EIGHT5)));
+        P.root.rowSub(EIGHT5, EIGHT1, VA1) === "", JSON.stringify(P.root.rowSub(EIGHT5, EIGHT1, VA1)));
   check("artist column: a sampler names each track's artist",
-        P.root.rowSub(VA1) === "Kraftwerk" && P.root.rowSub(VA2) === "DAF",
-        [P.root.rowSub(VA1), P.root.rowSub(VA2)].join(" | "));
+        P.root.rowSub(VA1, EIGHT5, VA2) === "Kraftwerk" && P.root.rowSub(VA2, VA1, null) === "DAF",
+        [P.root.rowSub(VA1, EIGHT5, VA2), P.root.rowSub(VA2, VA1, null)].join(" | "));
+  const ST_ALONE = P.root.queueGroups([ST1]);
+  check("a lone stream keeps its radio head",
+        ST_ALONE[0] && ST_ALONE[0].kind === "radio", JSON.stringify(ST_ALONE));
   check("artist column: a stream shows what is on it, never its URL",
         P.root.rowSub(ST1) === "ENSKA - Summer Dream", P.root.rowSub(ST1));
+  const MATE = { artist: "Hermitude", albumartist: "Hermitude", album: "X" };
+  const inRun = function (artist) {
+    return P.root.queueArtist({ artist: artist, albumartist: "Hermitude", album: "X" }, null, MATE);
+  };
   check("artist column: a name that only starts like the owner is not a guest",
-        P.root.queueArtist({ artist: "Hermitudes", albumartist: "Hermitude", album: "X" }) === "Hermitudes",
-        P.root.queueArtist({ artist: "Hermitudes", albumartist: "Hermitude", album: "X" }));
+        inRun("Hermitudes") === "Hermitudes", inRun("Hermitudes"));
   check("artist column: 'feat.' and '&' are separators too",
-        P.root.queueArtist({ artist: "Hermitude feat. Kameron", albumartist: "Hermitude", album: "X" }) === "feat. Kameron"
-          && P.root.queueArtist({ artist: "Hermitude & Bob Vylan", albumartist: "Hermitude", album: "X" }) === "feat. Bob Vylan",
-        P.root.queueArtist({ artist: "Hermitude feat. Kameron", albumartist: "Hermitude", album: "X" }));
+        inRun("Hermitude feat. Kameron") === "feat. Kameron"
+          && inRun("Hermitude & Bob Vylan") === "feat. Bob Vylan",
+        [inRun("Hermitude feat. Kameron"), inRun("Hermitude & Bob Vylan")].join(" | "));
   check("the column heads and the rows share one artist x",
         P.root.queueArtistX(886) === Math.round((886 - 8 - 8 - P.root.lengthWidthFor(886) - 8
           - P.root.glyphGutterFor(886) - 6) * 0.5),

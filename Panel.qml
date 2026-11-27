@@ -1868,7 +1868,11 @@ Panel {
   }
 
   // One entry per row index, set only where a run starts: { kind, title,
-  // artist, year, count, seconds, file, album, albumartist }.
+  // artist, year, count, seconds, file, album, albumartist }. A record that is in
+  // the queue with one track gets no head (user decision "b"): a head over one
+  // row says the album twice and doubles the height -- that row names artist and
+  // album in its own column instead (queueArtist). Streams keep their head even
+  // alone: "Radio" is what tells a stream row from a track.
   function queueGroups(rows) {
     var heads = []
     var list = rows || []
@@ -1897,9 +1901,17 @@ Panel {
       }
       open.count++
       var t = Number(row.time)
-      if (kind !== "radio" && isFinite(t) && t > 0) open.seconds += t
+      if (open.kind !== "radio" && isFinite(t) && t > 0) open.seconds += t
     }
+    for (var j = 0; j < heads.length; j++)
+      if (heads[j] && heads[j].kind !== "radio" && heads[j].count < 2) delete heads[j]
     return heads
+  }
+
+  // Do two queue rows belong to one record (the same group key, both present)?
+  function sameQueueRecord(a, b) {
+    if (!a || !b) return false
+    return root.queueGroupKey(a) === root.queueGroupKey(b)
   }
 
   // The head's right-hand note: "11 tracks  ·  46:52", "2 streams".
@@ -1925,12 +1937,17 @@ Panel {
   // when the track is by the record's artist (the title then takes the room),
   // "feat. X" when the track artist is the record's artist plus guests, the full
   // name on a sampler, the ICY title on a stream, the artist on a loose track.
-  function queueArtist(row) {
+  //
+  // `prev`/`next` are the rows around it: a track that is alone with its record
+  // has no head above it (queueGroups), so it says artist and album itself.
+  function queueArtist(row, prev, next) {
     if (!row) return ""
     if (root.isStream(row)) return String(row.title || "")
     var artist = String(row.artist || "")
-    if (artist === "") return ""
     if (String(row.album || "") === "") return artist
+    if (!root.sameQueueRecord(prev, row) && !root.sameQueueRecord(row, next))
+      return [artist, String(row.album)].filter(function(x) { return x !== "" }).join("  ·  ")
+    if (artist === "") return ""
     var owner = String(row.albumartist || "")
     if (owner === "" || artist.toLowerCase() === owner.toLowerCase()) return ""
     if (artist.toLowerCase().indexOf(owner.toLowerCase()) === 0) {
@@ -1963,7 +1980,7 @@ Panel {
   // Every other view passes nothing and gets the old answer: in a search the
   // repeated string is the only place the album is named, and in the album's own
   // view the frame says it (see frame.album below).
-  function rowSub(row, prev) {
+  function rowSub(row, prev, next) {
     if (!row) return ""
     if (row.type === "startAlbum") {
       // The artist, then the one thing the title cannot say: the year it came out,
@@ -2006,7 +2023,7 @@ Panel {
     }
     if (row.type === "value" || row.type === "playlist") return ""
     if (row.type === "directory") return "Folder"
-    if (root.frameMode === "queue") return root.queueArtist(row)
+    if (root.frameMode === "queue") return root.queueArtist(row, prev, next)
     // The album's own view, when every track on it credits one artist: the
     // number and the title say the rest, and the footer says the artist.
     if (root.albumFrameQuiet) return ""
@@ -3795,7 +3812,8 @@ Panel {
                 width: Math.max(0, rowText.width - x)
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.rowSub(rowItem.modelData,
-                                  rowItem.index > 0 ? root.rows[rowItem.index - 1] : null)
+                                  rowItem.index > 0 ? root.rows[rowItem.index - 1] : null,
+                                  rowItem.index < root.rows.length - 1 ? root.rows[rowItem.index + 1] : null)
                 visible: text !== ""
                 color: rowItem.selected ? root.selFg : root.dim
                 // The queue's column is information, not a footnote: readable.
