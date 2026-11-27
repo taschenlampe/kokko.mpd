@@ -20,7 +20,7 @@ import signal
 import sys
 import threading
 
-from . import commands
+from . import artwork, commands, library, playlists, queue_ops, radio, recent
 from .connection import Target, target_from
 from .events import Events
 from .protocol import ServerRefused, UnsafeValue
@@ -49,6 +49,10 @@ class Bridge:
         self.health = Health(self)
         self.features = []                # objects with optional on_state/on_database/on_config
         commands.install(self)
+        # Feature slices: each registers its query kinds and `cmd` ops, and the
+        # ones with a hook on state/database/config append themselves to `features`.
+        for module in (library, playlists, queue_ops, artwork, radio, recent):
+            module.install(self)
 
     # ------------------------------------------------------------ link state
 

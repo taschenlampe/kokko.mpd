@@ -235,6 +235,10 @@ class ContractCase(unittest.TestCase):
         self.assertIsNotNone(ev, "no `connected` after config; stderr: %s" % self.bridge.stderr)
         state = self.bridge.wait_event("state", 5.0, mark)
         self.assertIsNotNone(state, "no `state` after connecting")
+        # A started bridge has said all three: connected, the state, the cover
+        # (empty while nothing plays). Waiting for the third here keeps every
+        # test's own mark after the startup burst instead of inside it.
+        self.bridge.wait_event("art", 5.0, mark)
         return ev
 
     def state(self, timeout=3.0, mark=0, **status):
